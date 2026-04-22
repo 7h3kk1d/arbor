@@ -1,0 +1,22 @@
+(lang dune 3.16)
+
+(using menhir 3.0)
+
+(name p1_arithmetic)
+
+(generate_opam_files true)
+
+(package
+ (name p1_arithmetic)
+ (synopsis "Phase 1 prototype: untyped arithmetic over a content-addressed substrate")
+ (description
+  "Validates the substrate's core model end-to-end with TAPL Ch. 3 untyped arithmetic.\nContent-addressed definition storage with a big-step evaluator and interactive REPL.")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  ppx_deriving
+  digestif
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))

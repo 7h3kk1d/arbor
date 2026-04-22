@@ -1,0 +1,22 @@
+(lang dune 3.16)
+
+(using menhir 3.0)
+
+(name p2_structural_sharing)
+
+(generate_opam_files true)
+
+(package
+ (name p2_structural_sharing)
+ (synopsis "Phase 2 prototype: content-addressed DAG storage with eval-cache aspect")
+ (description
+  "Extends p1-arithmetic with structural sharing (shallow nodes, children-as-hashes) and an Attachment layer whose sole aspect is a derived evaluation cache.")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  ppx_deriving
+  digestif
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))

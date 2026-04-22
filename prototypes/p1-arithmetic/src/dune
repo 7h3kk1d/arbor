@@ -1,0 +1,11 @@
+(library
+ (name p1_arithmetic)
+ (public_name p1_arithmetic)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

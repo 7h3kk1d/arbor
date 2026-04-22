@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p2-arith)
+ (package p2_structural_sharing)
+ (libraries p2_structural_sharing))

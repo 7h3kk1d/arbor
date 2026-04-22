@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p3-arith-named)
+ (package p3_naming_layer)
+ (libraries p3_naming_layer))

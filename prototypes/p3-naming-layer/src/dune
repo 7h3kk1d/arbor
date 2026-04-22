@@ -1,0 +1,11 @@
+(library
+ (name p3_naming_layer)
+ (public_name p3_naming_layer)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

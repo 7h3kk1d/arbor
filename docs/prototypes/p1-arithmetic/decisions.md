@@ -71,3 +71,38 @@ The function `Definition.t → bytes` used to feed BLAKE3 is hand-written: one t
 **Rationale.** Arithmetic's seven constructors make this ~20 lines. Hand-rolling is the most obviously correct option, adds no dependency, and survives OCaml version changes.
 
 **Alternatives considered.** Marshal (not guaranteed deterministic across OCaml versions — risky for content-addressing). yojson (deterministic if careful, but adds a dependency for no benefit at this scale).
+
+---
+
+## 2026-04-21 — BLAKE2B instead of BLAKE3 (digestif doesn't expose BLAKE3)
+
+Scope doc named BLAKE3 as the hash. `digestif` 1.3.0 does not ship a BLAKE3 module — the OCaml `blake3` package is a separate opam dep. We use `Digestif.BLAKE2B` instead and keep digestif as the sole crypto dep.
+
+**Rationale.** BLAKE2B is a modern cryptographic hash already in our dependency set. For content-addressing at prototype scale — determinism, collision resistance, reasonable digest length — BLAKE2B is functionally equivalent to BLAKE3. Adding a second package buys nothing the prototype can measure.
+
+**Alternatives considered.** Adding the standalone `blake3` opam package alongside digestif — viable, but two crypto deps for the same job. SHA-256 via digestif — fine, but BLAKE2B is the modern default.
+
+**Reversibility.** Swapping to BLAKE3 later is a localized change inside `Hash.of_ast`. All stored hashes would change, but the prototype has no persistence, so there's nothing to migrate.
+
+---
+
+## 2026-04-21 — Local opam switch
+
+The prototype lives in its own local opam switch at `prototypes/p1-arithmetic/` (created via `opam switch create . 5.2.0`). Deps don't leak into the user's other OCaml environments (e.g. Hazel's `hazel2` switch), and `opam env` picks the switch up automatically inside the directory.
+
+**Rationale.** Isolation is cheap (fresh compiler build was a couple of minutes) and keeps the prototype's deps explicit and reproducible. Prevents version drift with unrelated projects.
+
+**Alternatives considered.** Reusing an existing global switch (e.g. `hazel2`). Faster to start but couples this prototype's dep resolution to an unrelated project.
+
+---
+
+## 2026-04-21 — Resolutions to initial open questions
+
+Lumped together because they're the small judgement calls settled on first contact with code. Each is cheap to reverse.
+
+- **Hash display prefix length: 12 hex chars.** Long enough to be unambiguous at prototype scale, short enough to type. `:lookup <prefix>` and `:eval <prefix>` accept any length and error out on ambiguity.
+- **Stuck terms represented as a sum:** `Eval.result = Value(Ast.t) | Stuck(Ast.t)`. Carries the innermost stuck term so the REPL can print `⟂ stuck at: <term>` cleanly. Not an exception.
+- **`Hash.t = string`** — a lowercase hex digest. Currently a bare type alias rather than a `private` newtype; tighten if callers start constructing hashes directly. Display uses the `h:<hex>` prefix.
+- **`ppx_deriving` set: `eq`, `show`, `ord`** on `Ast.t`. Enough for tests and store keys; `hash` is unnecessary since digestif drives the real hashes.
+- **Pretty-printer: minimal parens.** Only wraps non-atomic arguments to unary operators. Parser roundtrip is property-tested (200 cases).
+- **REPL input: plain `read_line`.** No line editing or history yet. Revisit with `ocaml-linenoise` if it feels bad.

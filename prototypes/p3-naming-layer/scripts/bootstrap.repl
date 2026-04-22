@@ -1,0 +1,40 @@
+# Seed script for the p3-naming-layer REPL.
+# Lines starting with '#' are comments. Blank lines are ignored.
+#
+# Load at startup:
+#   dune exec bin/main.exe -- --load scripts/bootstrap.repl
+# Or from an open REPL session:
+#   :load scripts/bootstrap.repl
+
+# ----- Small numerals (unary, Church-style) -----
+:bind zero  0
+:bind one   succ 0
+:bind two   succ one
+:bind three succ two
+:bind four  succ three
+:bind five  succ four
+
+# ----- Boolean predicates (evaluate to true / false) -----
+:bind zero_q iszero zero
+:bind one_q  iszero one
+
+# ----- Arithmetic via names: pred chains and successors -----
+:bind four_back  pred five
+:bind pred_chain pred (pred (pred four))
+
+# ----- If-expressions that exercise branch selection -----
+:bind pick_a if iszero zero then two else five
+:bind pick_b if iszero one  then two else five
+:bind nested if iszero (pred one) then three else four
+
+# ----- Stuck terms (cache as Stuck, not Value) -----
+:bind stuck_succ   succ true
+:bind stuck_pred   pred false
+:bind stuck_branch if 0 then one else two
+
+# ----- Aliases: different names pointing at one hash -----
+# `:bind II two` re-ingests the AST that `two` resolves to; because
+# ingest hash-cons, `II` ends up at the same hash as `two`. :list will
+# show `[II, two]` (alphabetical) on that row.
+:bind II two
+:bind alpha zero

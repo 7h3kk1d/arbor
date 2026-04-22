@@ -1,0 +1,22 @@
+(lang dune 3.16)
+
+(using menhir 3.0)
+
+(name p3_naming_layer)
+
+(generate_opam_files true)
+
+(package
+ (name p3_naming_layer)
+ (synopsis "Phase 3 prototype: naming layer over content-addressed DAG storage")
+ (description
+  "Extends p2-structural-sharing with a first-class namespace of name -> hash bindings, edit-time name resolution in source expressions, bidirectional lookup, and a name-aware pretty-printer. Validates the 'no silent breakage' property from the design docs: rebinding a name never mutates stored programs.")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  ppx_deriving
+  digestif
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))

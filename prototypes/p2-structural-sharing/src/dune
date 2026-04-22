@@ -1,0 +1,11 @@
+(library
+ (name p2_structural_sharing)
+ (public_name p2_structural_sharing)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

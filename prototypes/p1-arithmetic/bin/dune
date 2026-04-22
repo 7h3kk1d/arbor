@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p1-arith)
+ (package p1_arithmetic)
+ (libraries p1_arithmetic))

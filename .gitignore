@@ -1,0 +1,11 @@
+# OCaml / dune
+_build/
+_opam/
+*.install
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# Claude Code local state (plans, auto-memory, caches — not for version control)
+.claude/
