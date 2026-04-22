@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p5-multi-language)
+ (package p5_multi_language)
+ (libraries p5_multi_language))

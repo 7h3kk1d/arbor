@@ -1,0 +1,11 @@
+(library
+ (name p5_multi_language)
+ (public_name p5_multi_language)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif))
+
+(ocamllex arith_lexer lc_lexer)
+
+(menhir
+ (modules arith_parser lc_parser))

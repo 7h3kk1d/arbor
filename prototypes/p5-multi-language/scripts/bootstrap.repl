@@ -1,0 +1,50 @@
+# Seed script for the p5-multi-language REPL.
+# Lines starting with '#' are comments. Blank lines are ignored.
+#
+# Load at startup:
+#   dune exec bin/main.exe -- --load scripts/bootstrap.repl
+# Or from an open REPL session:
+#   :load scripts/bootstrap.repl
+
+# ===== Arithmetic (TAPL Ch. 3) =====
+:lang arith
+
+:bind one    succ 0
+:bind two    succ (succ 0)
+:bind three  succ (succ (succ 0))
+:bind t_eq_z iszero 0
+:bind f_eq_z iszero (succ 0)
+:bind branch if iszero (pred one) then 0 else succ one
+
+# ===== Lambda calculus (TAPL Ch. 5) =====
+:lang lc
+
+:bind id    \x. x
+:bind const \x. \y. x
+:bind apply \f. \x. f x
+:bind comp  \f. \g. \x. f (g x)
+
+# Alpha-equivalent to id / const — shared hashes.
+:bind id_y    \y. y
+:bind konst   \a. \b. a
+
+# Church numerals and booleans (compare to what :translate emits).
+:bind tru    \t. \f. t
+:bind fls    \t. \f. f
+:bind c_zero \f. \x. x
+:bind c_one  \f. \x. f x
+:bind c_two  \f. \x. f (f x)
+
+# ===== Translations =====
+# :lang does not matter for :translate (it operates on arith hashes).
+:translate one
+:translate two
+:translate three
+:translate branch
+:translate t_eq_z
+:translate f_eq_z
+
+# ===== View =====
+# `:list` shows [arith] / [lc] rows side by side.
+# `:translations` prints the recorded source→target cache entries.
+# `:stats` shows per-language definition counts and translation count.
