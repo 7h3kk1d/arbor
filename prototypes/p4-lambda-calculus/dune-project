@@ -1,0 +1,22 @@
+(lang dune 3.16)
+
+(using menhir 3.0)
+
+(name p4_lambda_calculus)
+
+(generate_opam_files true)
+
+(package
+ (name p4_lambda_calculus)
+ (synopsis "Phase 4 prototype: untyped lambda calculus with de Bruijn indices")
+ (description
+  "Extends p3-naming-layer from arithmetic to the untyped lambda calculus. Binders are anonymous in the stored form (de Bruijn indices); names are chosen at parse time (by the resolver) and at render time (by the pretty-printer). Validates that alpha-equivalent surface terms produce identical content hashes, and that definition-level names coexist with bound variables without confusion.")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  ppx_deriving
+  digestif
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))

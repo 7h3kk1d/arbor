@@ -1,0 +1,11 @@
+(library
+ (name p4_lambda_calculus)
+ (public_name p4_lambda_calculus)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

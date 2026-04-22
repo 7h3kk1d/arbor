@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p4-lc-named)
+ (package p4_lambda_calculus)
+ (libraries p4_lambda_calculus))

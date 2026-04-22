@@ -4,22 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-**Design stage only — no code yet.** This is `lc-content-addressed`: a design exploration for a content-addressed, multi-language computational substrate working through Pierce's *Types and Programming Languages* (TAPL), inspired by Unison and intended as a long-term substrate for Hazel's computational-commons vision.
+`lc-content-addressed` is a design exploration for a content-addressed, multi-language computational substrate working through Pierce's *Types and Programming Languages* (TAPL), inspired by Unison and intended as a long-term substrate for Hazel's computational-commons vision.
 
-The repository contains only `docs/`. There is no build system, no `dune-project`, no tests. The first prototype (`p1-arithmetic`) is scoped but not yet scaffolded into code.
+Substrate design lives in `docs/design/` and endures across prototypes. Four disposable prototypes have been scaffolded so far, each in OCaml/Reason with dune + Menhir + digestif (BLAKE2B) + alcotest/qcheck:
+
+- `p1-arithmetic` — minimum register / lookup / evaluate loop for untyped arithmetic (TAPL Ch. 3).
+- `p2-structural-sharing` — shallow, DAG-shaped storage plus the Attachment aspect store with a derived eval-cache aspect.
+- `p3-naming-layer` — first-class namespace of name ↔ hash bindings, edit-time resolution, a separate `Surface_ast.t` that keeps the internal `Ast.t` name-free at the type level, name-aware pretty-printer, and the visible "no silent breakage" invariant.
+- `p4-lambda-calculus` — untyped λ-calculus (TAPL Ch. 5) with de Bruijn indices internally and named surface syntax. First substrate demonstration of α-equivalence via canonicalization (`\x. x` and `\y. y` share a hash). Carries p3's naming layer forward and adds a CBV β-reducer with a step budget for non-terminating terms.
 
 ## Layout
 
 ```
 docs/
-  design/           # Substrate-level ideas — enduring across all prototypes
+  design/                     # Substrate-level ideas — enduring across all prototypes
   prototypes/
-    p1-arithmetic/  # First prototype's scope and decisions (code TBD)
+    p1-arithmetic/            # Scope + decisions + open-questions per prototype
+    p2-structural-sharing/
+    p3-naming-layer/
+    p4-lambda-calculus/
+prototypes/
+  p1-arithmetic/              # OCaml/Reason source per prototype
+  p2-structural-sharing/
+  p3-naming-layer/
+  p4-lambda-calculus/
 ```
 
-Each directory holds its own `decisions.md` (dated ADR-lite log; append-only, reversals get new entries) and `open-questions.md` (running list; resolved items struck through, not deleted). Substrate-level decisions are separate from prototype-specific decisions.
+Each `docs/prototypes/<name>/` holds its own `decisions.md` (dated ADR-lite log; append-only, reversals get new entries) and `open-questions.md` (running list). Substrate-level decisions are separate from prototype-specific decisions.
 
-Eventual prototype code will live at `prototypes/<name>/` (paralleling `docs/prototypes/<name>/`). Nothing is there yet.
+Prototype code at `prototypes/<name>/` uses its own local opam switch at `prototypes/<name>/_opam/`. Standard dune commands (`dune build`, `dune exec`, `dune runtest`) work from inside each prototype directory after `eval $(opam env --switch=. --set-switch)`.
 
 ## Reading order
 
@@ -47,13 +60,16 @@ From `docs/design/06-architecture.md`, upward-only dependencies:
 3. **Language** — per-language modules (AST, canonicalizer, type-check, evaluator, primitives) plus inter-language translators.
 4. **Interface** — user-facing modalities.
 
-## Phase 1 prototype (p1-arithmetic)
+## Current prototype (p4-lambda-calculus)
 
-Not yet scaffolded. Target when it is:
+Most recent prototype; the next changes will likely live here or in a successor.
 
-- Language: untyped arithmetic from TAPL Ch. 3.
-- Stack: OCaml ≥ 5.2, Reason ≥ 3.12, dune ≥ 3.16, Menhir, ppx_deriving, alcotest, qcheck, digestif (BLAKE3).
-- Interface: interactive REPL, in-memory only (no persistence).
-- Layout: single library at `src/`, executable at `bin/`, tests at `test/`.
+- Language: untyped λ-calculus (TAPL Ch. 5) with named surface syntax (`\x. t`, `f x`, `(e)`) and de Bruijn form internally.
+- Canonicalization-at-hash-time means α-equivalent surface terms ingest to the same hash; this is the first substrate-level demonstration of the claim.
+- Carries p3's naming layer: `Namespace` module, `Surface_ast` / `Ast` split, edit-time resolution, name-aware pretty-printer with a fresh-name generator for binders.
+- CBV β-reduction with a step budget (default 10000, settable via `:step-limit`); `StepLimit` results are reported but not cached so a larger budget can still converge.
+- Still no `Ref(hash)` AST constructor — resolver continues p3's "inline-at-resolution" stance; cross-definition references bottom out to inlined closed subtrees.
+- Stack: OCaml ≥ 5.2, Reason ≥ 3.12, dune ≥ 3.16, Menhir, ppx_deriving, alcotest, qcheck, digestif (BLAKE2B).
+- Interface: interactive REPL at `bin/main.re`; `:help` lists commands.
 
-See `docs/prototypes/p1-arithmetic/00-scope.md` for full scope. Standard dune commands (`dune build`, `dune exec`, `dune test`) will work from inside `prototypes/p1-arithmetic/` once code is scaffolded.
+See `docs/prototypes/p4-lambda-calculus/{00-scope.md,decisions.md,open-questions.md}` for details.

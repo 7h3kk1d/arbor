@@ -1,0 +1,77 @@
+# Seed script for the p4-lambda-calculus REPL.
+# Lines starting with '#' are comments. Blank lines are ignored.
+#
+# Load at startup:
+#   dune exec bin/main.exe -- --load scripts/bootstrap.repl
+# Or from an open REPL session:
+#   :load scripts/bootstrap.repl
+
+# ----- Core combinators -----
+:bind id    \x. x
+:bind const \x. \y. x
+:bind flip  \f. \x. \y. f y x
+:bind apply \f. \x. f x
+:bind comp  \f. \g. \x. f (g x)
+
+# ----- Alpha-equivalence demo: these land on the same hashes as above -----
+:bind id_y    \y. y
+:bind konst   \a. \b. a
+
+# :hash-of id  == :hash-of id_y
+# :hash-of const == :hash-of konst
+
+# ----- Church booleans -----
+:bind tru  \t. \f. t
+:bind fls  \t. \f. f
+:bind tif  \b. \t. \f. b t f
+
+# ----- Church numerals -----
+:bind c_zero \f. \x. x
+:bind c_one  \f. \x. f x
+:bind c_two  \f. \x. f (f x)
+:bind c_succ \n. \f. \x. f (n f x)
+:bind c_plus \m. \n. \f. \x. m f (n f x)
+
+# Tests that reduce to known Church forms:
+# `c_succ c_one` should evaluate to something α-equivalent to `c_two`.
+
+# ----- Partial applications (stored but not fully reduced) -----
+:bind const_id   const id
+:bind apply_id   apply id
+
+# ----- Y combinator (fair warning: applying it to something diverges) -----
+:bind Y \f. (\x. f (x x)) (\x. f (x x))
+
+# ----- Omega: the canonical diverging term -----
+:bind omega \x. x x
+# Evaluating `omega omega` will hit the step limit. Try:
+#   :eval-expr omega omega
+
+# ----- SKI combinators -----
+# K and I are already bound above as `const` and `id`; their SKI aliases
+# share those hashes via ingest hash-cons. S is new.
+:bind I \x. x
+:bind K \x. \y. x
+:bind S \x. \y. \z. x z (y z)
+
+# Identity-esque applications and a handful of closed expressions worth
+# having in the Store to browse with :list closed. :register-only stores
+# without evaluating (so diverging ones stay inert).
+:register-only id id
+:register-only apply_id id
+:register-only \x. id x
+
+# SKI examples. Try :eval-expr S K S K to see it reduce to I, etc.
+:register-only K K
+:register-only K K K
+:register-only S K
+:register-only S K S
+:register-only S K S K
+:register-only K K (S K)
+
+# A few closed variants that exercise fresh-name rendering and
+# sub-Lam body shapes.
+:register-only \x. K
+:register-only \x. c_zero
+:register-only \x. K x (S x)
+:register-only \x. \y. K y (x y)
