@@ -1,0 +1,10 @@
+(test
+ (name test_substrate)
+ (modules test_substrate)
+ (libraries p7_web_interface_substrate alcotest qcheck qcheck-alcotest))
+
+(executable
+ (name test_jsoo)
+ (modules test_jsoo)
+ (modes native js)
+ (libraries p7_web_interface_substrate))

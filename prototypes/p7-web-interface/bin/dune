@@ -1,0 +1,6 @@
+(executable
+ (name p7_main)
+ (modes js)
+ (libraries p7_web bonsai.web js_of_ocaml)
+ (preprocess
+  (pps js_of_ocaml-ppx)))

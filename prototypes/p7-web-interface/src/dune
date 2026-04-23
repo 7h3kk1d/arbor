@@ -1,0 +1,11 @@
+(library
+ (name p7_web_interface_substrate)
+ (public_name p7_web_interface.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lc_lexer stlc_lexer)
+
+(menhir
+ (modules lc_parser stlc_parser))

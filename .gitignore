@@ -4,6 +4,9 @@ _opam
 _opam/
 *.install
 
+# Generated JS bundles (produced by scripts/build-web.sh)
+prototypes/*/public/*.js
+
 # Editor / OS
 .DS_Store
 *.swp

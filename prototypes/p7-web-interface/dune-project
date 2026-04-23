@@ -1,0 +1,28 @@
+(lang dune 3.17)
+
+(using menhir 3.0)
+
+(name p7_web_interface)
+
+(generate_opam_files true)
+
+(package
+ (name p7_web_interface)
+ (synopsis "Phase 7 prototype: browser-only web interface over the p6 stlc+lc substrate")
+ (description
+  "First interface-layer prototype. p1–p6 each shipped a REPL; p7 is the first prototype that renders and manipulates the substrate from a structured UI. The substrate is vendored from p6 (lc + stlc, type-check aspect, stlc-to-lc erase-Church translator, lc-to-stlc check-at-type translator) and compiled to JavaScript via js_of_ocaml. The UI is built in Bonsai and runs entirely in the browser — no server, no persistence, state resets on reload. Authoring ingests into the real Store on every debounced keystroke; binding a name is the only deferred stateful operation, which dramatizes the substrate claim that names are an editing-layer concern over an otherwise content-addressed world.")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  ppx_deriving
+  (digestif (>= 1.1))
+  (js_of_ocaml (>= 5.6.0))
+  (js_of_ocaml-ppx (>= 5.6.0))
+  (bonsai (and (>= v0.17) (< v0.18)))
+  (virtual_dom (and (>= v0.17) (< v0.18)))
+  (core (and (>= v0.17) (< v0.18)))
+  (ppx_jane (and (>= v0.17) (< v0.18)))
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))
