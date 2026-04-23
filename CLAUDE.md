@@ -6,13 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `lc-content-addressed` is a design exploration for a content-addressed, multi-language computational substrate working through Pierce's *Types and Programming Languages* (TAPL), inspired by Unison and intended as a long-term substrate for Hazel's computational-commons vision.
 
-Substrate design lives in `docs/design/` and endures across prototypes. Five disposable prototypes have been scaffolded so far, each in OCaml/Reason with dune + Menhir + digestif (BLAKE2B) + alcotest/qcheck:
+Substrate design lives in `docs/design/` and endures across prototypes. Six disposable prototypes have been scaffolded so far, each in OCaml/Reason with dune + Menhir + digestif (BLAKE2B) + alcotest/qcheck:
 
 - `p1-arithmetic` — minimum register / lookup / evaluate loop for untyped arithmetic (TAPL Ch. 3).
 - `p2-structural-sharing` — shallow, DAG-shaped storage plus the Attachment aspect store with a derived eval-cache aspect.
 - `p3-naming-layer` — first-class namespace of name ↔ hash bindings, edit-time resolution, a separate `Surface_ast.t` that keeps the internal `Ast.t` name-free at the type level, name-aware pretty-printer, and the visible "no silent breakage" invariant.
 - `p4-lambda-calculus` — untyped λ-calculus (TAPL Ch. 5) with de Bruijn indices internally and named surface syntax. First substrate demonstration of α-equivalence via canonicalization (`\x. x` and `\y. y` share a hash). Carries p3's naming layer forward and adds a CBV β-reducer with a step budget for non-terminating terms.
 - `p5-multi-language` — both arithmetic and λ-calculus in one Store keyed by a `Definition.t = Arith | Lc` sum. Adds a hand-written Church-encoding translator from arithmetic to λ-calculus, invoked manually from the REPL (`:translate`) and cached as a derived aspect on the arith source. First substrate demonstration of `docs/design/05-translation.md`: translator identity `arith-to-lc-church:translate:v1`, output recorded as `Translation_target(Hash.t)` under aspect `translation-to-lc`.
+- `p6-stlc` — STLC (TAPL Ch. 8+9: pure λ→ over Bool with native `true`/`false`/`if`, every lambda annotated) paired with untyped λ-calculus in one Store, keyed by `Definition.t = Lc | Stlc`. Arith is dropped. First prototype with a type system: type-checking is enforced at ingest (Store invariant "every stored stlc definition type-checks") and cached as the `stlc:type-check:v1` aspect with value `Type_of(Ty.t)` — first non-`Hash.t`-valued aspect. Two translators: `stlc-to-lc:erase-church:v1` (total; erase annotations + Church-encode booleans) and `lc-to-stlc:check:v1[ty=<hex8>]` (partial; user supplies a target type, constraint-based unification decides). First worked examples of (a) partial translators via `Translation_untypable(string)` and (b) translators with inputs beyond the source via procedure-id encoding.
 
 ## Layout
 
@@ -25,12 +26,14 @@ docs/
     p3-naming-layer/
     p4-lambda-calculus/
     p5-multi-language/
+    p6-stlc/
 prototypes/
   p1-arithmetic/              # OCaml/Reason source per prototype
   p2-structural-sharing/
   p3-naming-layer/
   p4-lambda-calculus/
   p5-multi-language/
+  p6-stlc/
 ```
 
 Each `docs/prototypes/<name>/` holds its own `decisions.md` (dated ADR-lite log; append-only, reversals get new entries) and `open-questions.md` (running list). Substrate-level decisions are separate from prototype-specific decisions.
@@ -63,17 +66,23 @@ From `docs/design/06-architecture.md`, upward-only dependencies:
 3. **Language** — per-language modules (AST, canonicalizer, type-check, evaluator, primitives) plus inter-language translators.
 4. **Interface** — user-facing modalities.
 
-## Current prototype (p5-multi-language)
+## Current prototype (p6-stlc)
 
 Most recent prototype; the next changes will likely live here or in a successor.
 
-- Two languages in one Store: arithmetic (p3's language) and untyped λ-calculus (p4's), behind a `Definition.t = Arith(Arith_node.t) | Lc(Lc_node.t)` sum. Per-language modules are `Arith_*` and `Lc_*`; `Pretty` is a dispatching façade.
-- Hash-space separation via a one-byte language tag ('A' for arith, 'L' for lc) prepended to every node encoding. "No cross-language references" from `docs/design/03-content-addressing.md` is enforced at Store registration (cross-language parent→child raises `Language_mismatch`) and at edit time (Resolver checks `Store.language_of` before inlining a namespace-bound hash).
-- Church-encoding translator at `src/arith_to_lc_church.re`, procedure identity `arith-to-lc-church:translate:v1`, output stored as `Translation_target(Hash.t)` under aspect `translation-to-lc`. Cache hit on repeat invocations. Direction is one-way; reverse translation is not attempted.
-- REPL mode-switches languages with `:lang arith` / `:lang lc`. New commands: `:translate <name|#pfx>` (invoke translator, with cache marker), `:translations [arg]` (list cached translations). Viewing commands (`:list`, `:names`, `:dag`, `:lookup`, `:show`, `:stats`) prepend language tags (`[arith]` / `[lc]   `, fixed 7-char width).
-- Evaluators: `arith:eval:v1` and `lc:eval:v1` run side by side, dispatched by definition language at `:eval`. Lc evaluator is still CBV-WHNF (doesn't reduce under binders) — translator correctness in tests uses a deep β-normalizer.
-- Still no `Ref(hash)` AST constructor in either language; inline-at-resolution carries forward. Translation's eager-closure rule (`05-translation.md:§Transitive dependencies`) is trivially satisfied today because stored arith definitions are closed deep trees with no cross-definition references.
+- Two languages in one Store: untyped λ-calculus (p4/p5) and STLC (TAPL Ch. 8+9 — pure λ→ over Bool with native `true`/`false`/`if`, every lambda annotated), behind a `Definition.t = Lc | Stlc` sum. Arith is dropped from p5's pair. Per-language modules are `Lc_*` and `Stlc_*`; `Pretty` is a dispatching façade.
+- Types: `Ty.t = Bool | Arrow(Ty.t, Ty.t)` — monomorphic, no polymorphism, no type variables. Type annotations participate in hashing (`\x:Bool. x` and `\x:Bool->Bool. x` produce distinct hashes).
+- Hash-space separation via a one-byte language tag ('L' for lc, 'S' for stlc) prepended to every node encoding. "No cross-language references" enforced at Store registration and at edit time in the Resolver — same pattern as p5.
+- **Store invariant: every stored stlc definition type-checks.** `Resolver.resolve_stlc` calls `Stlc_typecheck.infer` before ingest; ill-typed input surfaces as `Resolver.Type_error(msg)`. First per-language validity invariant beyond p5's cross-language-reference check.
+- **Type-check as a derived aspect.** `stlc:type-check:v1` caches the inferred type as `Type_of(Ty.t)` — first non-`Hash.t`-valued aspect value in the series.
+- Two translators exercise `docs/design/05-translation.md`:
+  - `src/stlc_to_lc_erase_church.re`, procedure `stlc-to-lc:erase-church:v1`: **total**. Drops type annotations, Church-encodes booleans (`true`/`false`/`if`).
+  - `src/lc_to_stlc_check.re`, procedure `lc-to-stlc:check:v1[ty=<hex8>]`: **partial**. Takes a user-supplied expected type, runs constraint-based HM-unification. On success stores `Translation_target(Hash.t)`; on refusal stores `Translation_untypable(string)`. The expected type hash-prefix is folded into the procedure identity so different types produce distinct cache entries under the same aspect.
+- First worked examples of two substrate shapes: (1) partial translators via a dedicated `Translation_untypable` aspect value, (2) translators with inputs beyond the source via procedure-id encoding. Both are p6 candidates for migration back to `docs/design/05-translation.md`.
+- REPL mode-switches languages with `:lang lc` / `:lang stlc`. New commands: `:typecheck <name|#pfx>`, `:types [arg]`, and `:translate <name|#pfx> [:: <type>]` (the `::` suffix required for lc→stlc, forbidden for stlc→lc). Viewing commands prepend `[lc]   ` / `[stlc] ` (fixed 7-char width).
+- Evaluators: `lc:eval:v1` (carried from p4) and `stlc:eval:v1` run side by side. Stlc eval handles native `True`/`False`/`If` directly; Lc eval is still CBV-WHNF. Tests use p5's `deep_normalize` for translator correctness.
+- Still no `Ref(hash)` AST constructor in either language; inline-at-resolution carries forward.
 - Stack unchanged: OCaml ≥ 5.2, Reason ≥ 3.12, dune ≥ 3.16, Menhir, ppx_deriving, alcotest, qcheck, digestif (BLAKE2B). Opam switch symlinked to p3's.
-- Interface: interactive REPL at `bin/main.re`; prompt shows the current language (e.g., `(lc) > `); `:help` lists commands.
+- Interface: interactive REPL at `bin/main.re`; prompt shows the current language; `:help` lists commands.
 
-See `docs/prototypes/p5-multi-language/{00-scope.md,decisions.md,open-questions.md}` for details.
+See `docs/prototypes/p6-stlc/{00-scope.md,decisions.md,open-questions.md}` for details.

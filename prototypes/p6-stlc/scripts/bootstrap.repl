@@ -1,0 +1,68 @@
+# Seed script for the p6-stlc REPL.
+# Lines starting with '#' are comments. Blank lines are ignored.
+#
+# Load at startup:
+#   dune exec bin/main.exe -- --load scripts/bootstrap.repl
+# Or from an open REPL session:
+#   :load scripts/bootstrap.repl
+
+# ===== STLC (TAPL Ch. 8+9) =====
+:lang stlc
+
+:bind not   \x:Bool. if x then false else true
+:bind and   \x:Bool. \y:Bool. if x then y else false
+:bind or    \x:Bool. \y:Bool. if x then true else y
+:bind xor   \x:Bool. \y:Bool. if x then (if y then false else true) else y
+
+# Simply-typable higher-order terms.
+:bind id_b  \x:Bool. x
+:bind id_bb \x:Bool -> Bool. x
+:bind apply \f:Bool -> Bool. \x:Bool. f x
+:bind comp  \f:Bool -> Bool. \g:Bool -> Bool. \x:Bool. f (g x)
+
+# ===== Type-check aspect =====
+:typecheck not
+:typecheck and
+:typecheck apply
+:typecheck comp
+
+# ===== Untyped λ-calculus (TAPL Ch. 5) =====
+:lang lc
+
+:bind id     \x. x
+:bind const  \x. \y. x
+:bind uapply \f. \x. f x
+:bind ucomp  \f. \g. \x. f (g x)
+
+# Alpha-equivalent to id — shared hash.
+:bind id_y   \y. y
+
+# Church booleans — compare to what :translate stlc→lc emits.
+:bind c_tru  \t. \f. t
+:bind c_fls  \t. \f. f
+
+# A classic non-typable term (self-application).
+:bind omega_half \x. x x
+
+# ===== Translations =====
+
+# stlc → lc (erase + Church): total
+:translate not
+:translate and
+:translate id_b
+
+# lc → stlc (check at target type): partial, takes ':: <type>'
+:translate id     :: Bool -> Bool
+:translate id     :: (Bool -> Bool) -> (Bool -> Bool)
+:translate uapply :: (Bool -> Bool) -> Bool -> Bool
+
+# Expected refusals: untypable / wrong type.
+:translate omega_half :: Bool -> Bool
+:translate id         :: Bool
+
+# ===== View =====
+# `:list` shows [lc] / [stlc] rows side by side.
+# `:translations` prints cache entries in both directions.
+# `:types` lists cached type-check results.
+# `:stats` shows per-language definition counts, translation counts,
+#   and type-check-cache size.

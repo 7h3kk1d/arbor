@@ -1,0 +1,22 @@
+(lang dune 3.16)
+
+(using menhir 3.0)
+
+(name p6_stlc)
+
+(generate_opam_files true)
+
+(package
+ (name p6_stlc)
+ (synopsis "Phase 6 prototype: STLC with type-check aspect and bidirectional translation to untyped lc")
+ (description
+  "Adds the Simply-Typed Lambda Calculus (TAPL Ch. 8+9: pure λ→ over Bool with native true/false/if, every lambda annotated) as a sibling of p4/p5's untyped λ-calculus in a single content-addressed Store. Type-checking is enforced at ingest and cached as a derived aspect (stlc:type-check:v1, value Type_of(Ty.t)). Two translators exercise 05-translation.md on typed↔untyped: Stlc→Lc via erase-plus-Church-encode (total), and Lc→Stlc as a check-at-target-type procedure (partial; Translation_untypable(string) records the refusal). First substrate exercise of type-as-aspect, partial translators, and translators with inputs beyond the source (expected type encoded in the procedure identity).")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  ppx_deriving
+  digestif
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))

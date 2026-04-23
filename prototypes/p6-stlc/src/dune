@@ -1,0 +1,11 @@
+(library
+ (name p6_stlc)
+ (public_name p6_stlc)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif))
+
+(ocamllex lc_lexer stlc_lexer)
+
+(menhir
+ (modules lc_parser stlc_parser))

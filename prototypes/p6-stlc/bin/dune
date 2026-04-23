@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p6-stlc)
+ (package p6_stlc)
+ (libraries p6_stlc))
