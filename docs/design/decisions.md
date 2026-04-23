@@ -151,6 +151,18 @@ Implementation work proceeds as **a series of prototype implementations**, not a
 
 ---
 
+## 2026-04-23 — Project name: **arbor**
+
+The project is named **arbor** (Latin for *tree*). The working directory stays `lc-content-addressed` for now; the name is for the design, the eventual prospectus, and any future artifacts distinct from the scratch repo.
+
+**Rationale.** Evokes the content-addressed DAG of definitions and the trees the aspect layer grows over it — namespaces, type derivations, translation lineages. Short, pronounceable, ASCII-light, and doesn't leak an implementation detail (like "lc-" or "content-addressed") that might not survive design evolution. Latin root parallels the "substrate" framing without overloading any term already in use in the docs.
+
+**Scope of the rename.** Introduced where the name actually reads naturally (overview, this entry, the open-questions closeout). Not a global search-and-replace: the working directory, prototype directory names, and in-code identifiers keep their current shape until there's a reason to churn them.
+
+**Alternatives considered.** Staying with `lc-content-addressed` (reveals project origins but becomes inaccurate once the arithmetic/λ-calculus scaffolding is retired); project-less working name until a prospectus demands one (delays a natural hook for the research framing question, which is still open).
+
+---
+
 ## 2026-04-20 — Procedure identity: tag+version now, content-addressed far-future
 
 Derived-aspect entries are cached by `(definition-hash, aspect, procedure-identity)`. Near-term, `procedure-identity` is a human-assigned tag + manually bumped version (e.g., `stlc:type-check:v1`). The long-term goal is for procedures themselves to be content-addressed definitions in a meta-language, at which point their hash *is* their identity.

@@ -1,7 +1,7 @@
 # Overview
 
 **Status:** Draft. Personal design exploration, intended to graduate into a research prospectus.
-**Working project name:** `lc-content-addressed` (open question; see `open-questions.md`).
+**Project name:** **arbor** — Latin for *tree*, after the content-addressed DAG of definitions and the trees its aspect stores (namespaces, type derivations, translation lineages) grow over it. The working directory remains `lc-content-addressed` for now.
 
 ## Vision
 
