@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name p8-holes)
+ (package p8_holes)
+ (libraries p8_holes))

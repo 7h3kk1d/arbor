@@ -1,0 +1,12 @@
+(library
+ (name p8_holes)
+ (public_name p8_holes)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif menhirLib))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser)
+ (flags --table))
