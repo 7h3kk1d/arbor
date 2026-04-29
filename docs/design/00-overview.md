@@ -72,3 +72,4 @@ Step in slowly. When in doubt, prefer the narrow, concrete implementation over t
 - `09-roadmap.md` — prioritization, first prototype.
 - `decisions.md` — ADR-lite log of commitments, with dates and rationale.
 - `open-questions.md` — running list; items graduate to docs or decisions as they resolve.
+- `prototype-findings.md` — stocktake across the prototype series: recurring patterns, single-prototype experiments, and shapes left open. Observational, not prescriptive.
