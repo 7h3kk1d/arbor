@@ -76,6 +76,51 @@ Unison's central UX contribution is namespace branching and merging: you work in
 
 Nothing in the current design forecloses this path; nothing in the current design pays for it either.
 
+## Threads under exploration
+
+The substrate stance — names as opaque strings, structure deferred — leaves several editing-layer questions on the table. The threads below are open: each sharpens what's actually being asked, surfaces the structural connections that matter, and explicitly stops short of resolution. None has yet been exercised by a prototype.
+
+### Hierarchical paths
+
+A common convention for organizing names is the dot-delimited path: `data.list.map`, `examples.numbers.factorial`. The thread is *which layer carries the convention*, not whether one exists. Three options:
+
+- **Editing-layer convention only.** Substrate keeps names as opaque strings; specific interfaces choose `.`, `/`, or any other separator. Prefix queries ("list everything under `data.list.*`") are synthesized by the interface scanning the flat namespace. This is the current implicit stance.
+- **Substrate-aware structure, interface rendering.** Substrate exposes paths as `list(string)` (or similar) with prefix-based query primitives. Interfaces pick how to render — `.`, `/`, breadcrumb chips, tree views. Substrate-level operations like prefix-rebind become possible.
+- **Substrate-fixed string format.** A single canonical separator at the substrate level; interfaces are expected to follow.
+
+The pivot is what hierarchy is load-bearing for. Display and bulk rename can probably stay in the editing layer over a flat namespace. Branching at sub-namespaces (Unison's "merge `core.math`") plausibly cannot, and would push hierarchy into the substrate. The choice is bound up with when (or whether) namespace branching enters scope.
+
+### Tags
+
+A second naming-shaped concept: tags. The cardinality differs from names. Names are constrained one-per-string within a namespace — alias-many is permitted in the hash → name direction, but a single name binds to a single hash. Tags would be many-to-many: a tag value (e.g. `deprecated`, `tutorial:chapter-3`) can attach to many hashes, and a hash can carry many tags, with no uniqueness constraint either direction.
+
+The connection worth surfacing: this looks like an *asserted aspect* (`02-definitions-and-derived-data.md`). The aspect store already keys typed associated data by `(definition-hash, aspect-id)`, and asserted aspects are exactly the shape of human-authored, mutable attachments. A `tag` aspect with a string-valued payload would land in that machinery; reverse queries (`tag-value → hashes`) are the same shape as type-based search, which the aspect store already accommodates.
+
+Sub-questions if tags fit there:
+
+- **Cardinality on the aspect-store key.** Today's `(hash, aspect-id) → value` keying implies one value per pair. Many-valued aspects (tags or anything similar) need either a list-valued aspect or relaxed key uniqueness. Either way, the choice generalizes beyond tags.
+- **Whether tag values are themselves structured.** `domain:crypto`, `chapter:3` — colon-delimited convention only, or a substrate-recognized tag-namespace? Possibly its own thread.
+- **Whether anything in tags resists the aspect reading.** Interface UX (autocomplete, tag clouds, faceted search) is presumably layerable on top, but worth checking against a concrete need.
+
+The thread to keep open: is a tag just an asserted aspect, or is there something it needs that aspects don't provide?
+
+### Leaf names independent of path
+
+Suppose one definition (one hash) has two namespace bindings whose final segment matches: `core.math.factorial` and `examples.numbers.factorial`. The intuition is that the leaf name (`factorial`) is what the function is *called*, while the path is where it *lives*. Renaming the leaf in one path could be expected to propagate to the other.
+
+Sharpening what this is and isn't:
+
+- Linking by leaf only makes sense for the same hash. Two different definitions that happen to share a leaf segment are coincidentally homonymous and shouldn't be linked.
+- Even for one hash, leaf-linking can be unwanted. A tutorial copy at `examples.factorial` and a production binding at `core.math.factorial` may want to drift — one stays "factorial" for pedagogical reasons while the other becomes `fact`.
+- The analogy to content-addressing is partial. Hashes are stable because they derive from content; leaf names are strings, stable only by discipline. Promoting a leaf to a first-class identity is a modeling choice, not a derivation.
+
+Two stances on how to model it:
+
+- **Leaf as first-class entity.** A leaf carries an identity; path bindings attach paths to a leaf for a given hash. Rename-the-leaf updates all attached paths. New schema; the namespace becomes a 3-way relation rather than a 2-way map.
+- **Bulk-rename UX over today's flat namespace.** No schema change. The interface, on rename of `a.factorial` → `a.fact` for hash `H`, surfaces other bindings of `H` whose leaf is also `factorial` and offers per-binding confirmation.
+
+The first promotes a new identity into the substrate; the second keeps the substrate flat and treats leaf-coupling as an editing-layer affordance. Either could be wrong and we wouldn't yet know.
+
 ## Non-goals (current phase)
 
 - Namespace branching, merging, diffing.
@@ -88,7 +133,7 @@ Nothing in the current design forecloses this path; nothing in the current desig
 
 Tracked in `open-questions.md` under "Naming layer."
 
-- **Name structure.** Substrate default is opaque strings. Do we impose any conventions from the editing-layer side — hierarchical paths à la Unison, flat identifiers, tags, language-qualified prefixes?
+- **Name structure.** Substrate default is opaque strings. Three sub-threads sharpened in *Threads under exploration* above: hierarchical paths, tags, leaf-names independent of path. Language-qualified prefixes remain a separate un-elaborated thread.
 - **Language-qualified names.** If two languages want to use the same logical name (e.g., `factorial`), do we expect the editing layer to scope names per language, or to present a cross-language search that disambiguates by language?
 - **Rename as an explicit operation.** Is rename atomic at the substrate level (one op) or derived (unbind + bind)? Matters for future history tracking.
 - **Handling dangling references on display.** When a caller references a hash that has no current name, what's the default interface behavior? Probably surface the hash with a "prior version" marker, but this is UX.

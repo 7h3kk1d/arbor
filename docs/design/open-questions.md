@@ -53,6 +53,9 @@ Still open:
 - **Scope of names.** Per-user, per-"workspace," global? Unison uses namespaces; we'll want to punt on structure but should not paint ourselves into a corner.
 - **Name → hash resolution timing.** Strictly at edit time, or also at some kind of "load" step for interfaces?
 - **Unifying namespace and aspect-store lifecycles.** When branching arrives, does a shared "container" (or whatever name emerges) make sense, or do we keep them parallel? See the cross-reference sections in `02` and `04`.
+- **Name structure: hierarchical paths.** Editing-layer convention, substrate-aware paths, or substrate-fixed format? Bound up with when namespace branching enters scope. Sharpened in `04-naming-layer.md` under *Threads under exploration*.
+- **Name structure: tags.** Many-to-many name-shaped attachments. Tentative reading is "asserted aspect with relaxed key cardinality"; open whether anything resists that. Sharpened in `04-naming-layer.md` under *Threads under exploration*.
+- **Name structure: leaf-names independent of path.** Whether the leaf segment is its own identity, or whether leaf-linking is an editing-layer rename UX over a flat namespace. Sharpened in `04-naming-layer.md` under *Threads under exploration*.
 
 ## Interfaces
 
