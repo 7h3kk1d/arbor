@@ -46,6 +46,7 @@ Still open:
 - **Mutual recursion canonicalization.** When a language introduces mutually recursive definitions, we'll need a canonical ordering for the group. Unison's approach is a starting point. Not urgent.
 - **Holes and incomplete programs.** If the substrate eventually hashes incomplete programs (Hazel-style editing), how do holes participate in the canonical form? Unique hole identities, subsumption-style matching, or something else?
 - **Cross-version primitive aliasing.** If `int:add:v1` and `int:add:v2` differ only cosmetically, callers of v1 are orphaned. Any aliasing story, or just accepted cost?
+- **Hashing types as well as terms.** Types are currently inline in term encodings; p6 hashes types only for procedure-id encoding, not as definitions. Promoting types to first-class content-addressed objects gives type aliasing for free via the namespace, and changes how `Type_of(...)`-shaped aspect values are stored. Sharpened in `03-content-addressing.md` under *Threads under exploration*.
 - **Hash algorithm.** Not locked in; bootstrap accepts full rebuilds. Choice will come when we need one.
 
 ## Naming layer

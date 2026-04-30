@@ -75,6 +75,39 @@ Specifics (algorithm choice, encoding, length) are not locked in. Constraints:
 
 Anything else is deferred. During bootstrap, if we need to change the representation, we accept full state rebuilds. We are not designing migration machinery for this phase.
 
+## Threads under exploration
+
+### Hashing types as well as terms
+
+So far only term-language definitions are content-addressed. Types appear inline in term encodings: an STLC `Lam(ty, body_hash)` writes `ty`'s structural bytes into the parent's hash input (p6, p9), and the `stlc:type-check:v1` aspect value `Type_of(Ty.t)` is an inline OCaml sum. p6 *does* hash types — but only to encode them compactly into procedure-identity suffixes (`lc-to-stlc:check:v1[ty=<hex8>]`), under a separate `'T'` tag so type hashes don't collide with definition hashes. The hash is a string-encoding tactic; types are not stored as definitions. Prototype seeds: `docs/prototypes/p6-stlc/open-questions.md` §"Hashing Ty" and §"Ty hash space"; `prototype-findings.md` §"Raised once" → "Hashed type space for non-Hash aspect values."
+
+The thread is whether to promote types to first-class content-addressed objects. What changes concretely if so:
+
+- **Term encodings carry type references.** `Lam(ty_hash, body_hash)` instead of inlining `ty`'s bytes. Type identity factors out of every term that mentions it; structural type equality becomes hash equality.
+- **Types live in the store.** A type definition is a definition in some type-language; it has a hash; canonicalization for types (field order, type-variable α-equivalence once binders show up) is the type-language's job, paralleling term canonicalization.
+- **Aspect values reference types by hash.** `Type_of(hash)` instead of `Type_of(Ty.t)`. The aspect-value sum stops carrying inline type ASTs; the type itself is reachable by hash.
+- **Names can bind to type hashes.** This is the type-aliasing connection (below) and follows for free from `04-naming-layer.md`'s shape.
+
+#### The type-aliasing reading
+
+Pascal/Haskell-style type aliases are usually a separate language feature — `type` declarations, transparent expansion, scope rules of their own. If types are content-addressed *and* the namespace already binds names to hashes, an alias is just multiple names binding the same type hash, with the same semantics names already have for terms. `type Vector = Int -> Int -> Int` becomes a namespace bind; two names pointing at the same type hash are aliases by content, not by lookup-chasing.
+
+Newtypes (distinct identity for an isomorphic carrier) remain a separate concept: they require the type-language to introduce a constructor that produces a *different* hash from its inner type. Alias vs. newtype thus becomes a type-language design choice, not a substrate one — the substrate doesn't need to know which it is.
+
+#### What's open
+
+- **One global hash-space, or two?** "There is one global hash-space" (above) was stated for term-language definitions. Extending it to types is natural but unstated. If types share the space, every type definition needs a language tag — either a single meta-type-language, or per-target-language type-languages with disjoint tags. If types live in a separate space, the substrate gains a second store-shaped object and "one global hash-space" needs softening.
+- **Cross-language type identity.** If STLC and a future STLC+subtyping both use `Int → Int`, do they share a type hash, or do their type-languages have disjoint tags? Sharing is appealing for translation (same type, same hash, same reverse-query results); not sharing keeps language identity rigid in the way `decisions.md` requires for terms. Probably bound up with the composition-model question in `01-language-model.md`.
+- **When does it pay off?** For monomorphic primitives (`Int`, `Bool`, small `Arrow`s) inline embedding is small and the deduplication win is small. The case strengthens with polymorphic types (∀, ∃ — TAPL Ch. 23–24), recursive types (Ch. 20), and large structural records — types stop being trivially small, reverse queries ("which definitions have type T?") start mattering for type-based search, and the editing-layer story for naming a type gets worth telling.
+- **F-omega lurking.** Once types are first-class objects with their own canonical form, the substrate is closer to F-omega's regime where types have their own type system (kinds — the word reserved for that). Adopting type-hashing too early may pre-shape decisions better deferred to when F-omega is being instantiated.
+- **Migration cost.** Moving from inline `Type_of(Ty.t)` to `Type_of(hash)` is a one-time aspect-value-shape change, not a re-architecture; the discipline question is when the cost of inline embedding shows up in a prototype.
+
+#### Connections
+
+- `04-naming-layer.md` — names binding type hashes is the alias mechanism; no namespace schema change needed if types share the term hash-space.
+- `02-definitions-and-derived-data.md` — `Type_of(...)` aspect-value shape is the touch point.
+- `01-language-model.md` — content-addressed types nudge gently toward Option C (shared core IR) by giving types a canonical form independent of any specific term language.
+
 ## Non-goals (current phase)
 
 - **Migration machinery.** Automatically moving callers when a definition changes.
@@ -89,3 +122,4 @@ Tracked in `open-questions.md` under "Content addressing."
 - **Mutual recursion canonicalization.** When a language introduces mutually recursive definitions, we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point; not urgent until a language introduces recursion.
 - **Holes and incomplete programs.** If the substrate eventually hashes incomplete programs (Hazel-style editing workflows), how do holes participate in the canonical form? Unique hole identities, wildcards that make hash matching a subsumption relation, or something else?
 - **Cross-version primitive aliasing.** If `int:add:v1` and `int:add:v2` differ only cosmetically, callers of v1 are orphaned. Is there an aliasing story, or is this just accepted cost of the manual-version discipline?
+- **Hashing types as well as terms.** Whether to promote types to first-class content-addressed objects — making type aliasing a free consequence of the namespace and changing how type-valued aspects are shaped. Sharpened above under *Threads under exploration*.
