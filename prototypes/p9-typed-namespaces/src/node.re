@@ -1,0 +1,165 @@
+/* Shallow AST node — what actually lives in the Store. Children are
+   Hash.t references; the full tree is reconstructed by walking the Store.
+   Node owns its own deterministic encoding and the hash-of-node primitive.
+
+   Language tag byte is 'P' (0x50) — single language for p9, but kept as
+   a prefix for hash-space hygiene against other prototypes that may
+   share the encoding by accident.
+
+   Hole is a leaf with no payload. Its hash is the constant
+   BLAKE2B('P' ++ tag_hole) — every hole in the Store collides on that
+   one entry, just as in p8.
+
+   Tag bytes are stable: do not renumber without invalidating every
+   stored hash. */
+
+[@deriving (eq, show)]
+type t =
+  | Var(int)
+  | Int_lit(int)
+  | Bool_lit(bool)
+  | String_lit(string)
+  | Lam(Ty.t, Hash.t)
+  | App(Hash.t, Hash.t)
+  | Let(Hash.t, Hash.t)
+  | If(Hash.t, Hash.t, Hash.t)
+  | Pair(Hash.t, Hash.t)
+  | Fst(Hash.t)
+  | Snd(Hash.t)
+  | Prim(Surface_ast.prim_op, list(Hash.t))
+  | Hole;
+
+let language_tag = 'P';
+
+let tag_var = '\x01';
+let tag_int_lit = '\x02';
+let tag_bool_lit = '\x03';
+let tag_string_lit = '\x04';
+let tag_lam = '\x05';
+let tag_app = '\x06';
+let tag_let = '\x07';
+let tag_if = '\x08';
+let tag_pair = '\x09';
+let tag_fst = '\x0a';
+let tag_snd = '\x0b';
+let tag_prim = '\x0c';
+let tag_hole = '\x0d';
+
+let prim_tag =
+  fun
+  | Surface_ast.Add => '\x21'
+  | Surface_ast.Sub => '\x22'
+  | Surface_ast.Mul => '\x23'
+  | Surface_ast.Div => '\x24'
+  | Surface_ast.Mod => '\x25'
+  | Surface_ast.And => '\x26'
+  | Surface_ast.Or => '\x27'
+  | Surface_ast.Not => '\x28'
+  | Surface_ast.Concat => '\x29'
+  | Surface_ast.Eq => '\x2a';
+
+let encode_int64 = (buf: Buffer.t, n: int): unit => {
+  let b = Bytes.create(8);
+  let n64 = Int64.of_int(n);
+  for (i in 0 to 7) {
+    let shift = (7 - i) * 8;
+    Bytes.set(
+      b,
+      i,
+      Char.chr(Int64.to_int(Int64.logand(Int64.shift_right_logical(n64, shift), 0xffL))),
+    );
+  };
+  Buffer.add_bytes(buf, b);
+};
+
+let encode_string = (buf: Buffer.t, s: string): unit => {
+  encode_int64(buf, String.length(s));
+  Buffer.add_string(buf, s);
+};
+
+let encode_bool = (buf: Buffer.t, b: bool): unit =>
+  Buffer.add_char(buf, b ? '\x01' : '\x00');
+
+let encode = (buf: Buffer.t, node: t): unit => {
+  Buffer.add_char(buf, language_tag);
+  let write_child = (h: Hash.t) => Buffer.add_string(buf, h);
+  switch (node) {
+  | Var(k) =>
+    Buffer.add_char(buf, tag_var);
+    encode_int64(buf, k);
+  | Int_lit(n) =>
+    Buffer.add_char(buf, tag_int_lit);
+    encode_int64(buf, n);
+  | Bool_lit(b) =>
+    Buffer.add_char(buf, tag_bool_lit);
+    encode_bool(buf, b);
+  | String_lit(s) =>
+    Buffer.add_char(buf, tag_string_lit);
+    encode_string(buf, s);
+  | Lam(ty, h) =>
+    Buffer.add_char(buf, tag_lam);
+    Ty.encode(buf, Ty.canonicalize(ty));
+    write_child(h);
+  | App(f, a) =>
+    Buffer.add_char(buf, tag_app);
+    write_child(f);
+    write_child(a);
+  | Let(rhs, body) =>
+    Buffer.add_char(buf, tag_let);
+    write_child(rhs);
+    write_child(body);
+  | If(c, t, e) =>
+    Buffer.add_char(buf, tag_if);
+    write_child(c);
+    write_child(t);
+    write_child(e);
+  | Pair(a, b) =>
+    Buffer.add_char(buf, tag_pair);
+    write_child(a);
+    write_child(b);
+  | Fst(a) =>
+    Buffer.add_char(buf, tag_fst);
+    write_child(a);
+  | Snd(a) =>
+    Buffer.add_char(buf, tag_snd);
+    write_child(a);
+  | Prim(op, args) =>
+    Buffer.add_char(buf, tag_prim);
+    Buffer.add_char(buf, prim_tag(op));
+    encode_int64(buf, List.length(args));
+    List.iter(write_child, args);
+  | Hole => Buffer.add_char(buf, tag_hole)
+  };
+};
+
+let hash = (node: t): Hash.t => {
+  let buf = Buffer.create(16);
+  encode(buf, node);
+  Hash.digest_buffer(buf);
+};
+
+let children = (node: t): list(Hash.t) =>
+  switch (node) {
+  | Var(_)
+  | Int_lit(_)
+  | Bool_lit(_)
+  | String_lit(_)
+  | Hole => []
+  | Lam(_, c)
+  | Fst(c)
+  | Snd(c) => [c]
+  | App(a, b)
+  | Let(a, b)
+  | Pair(a, b) => [a, b]
+  | If(a, b, c) => [a, b, c]
+  | Prim(_, args) => args
+  };
+
+let is_value =
+  fun
+  | Lam(_, _)
+  | Int_lit(_)
+  | Bool_lit(_)
+  | String_lit(_) => true
+  | Pair(_, _) => true
+  | _ => false;

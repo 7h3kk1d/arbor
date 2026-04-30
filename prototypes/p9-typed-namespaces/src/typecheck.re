@@ -1,0 +1,274 @@
+/* Permissive bidirectional type-checker for p9.
+
+   Three outcomes for any term:
+     Well_typed(ty)              — fully typed, no holes encountered
+     Well_typed_with_holes(ty)   — best-guess type; some subterm was a
+                                   hole or otherwise not fully constrained
+     Ill_typed(msg)              — hard mismatch (e.g. `1 + true`,
+                                   `(\x:Int. x) "abc"`); rejected at ingest
+
+   Hole semantics:
+     - `check ctx Hole expected` always succeeds (a hole accepts any
+       expected type) and reports has_holes=true.
+     - `synth ctx Hole` returns `(Int, has_holes=true)` as a "best guess
+       in the absence of context." The `has_holes` flag propagates up to
+       the top-level so the caller can decide between Well_typed and
+       Well_typed_with_holes.
+
+   Permissiveness:
+     When a downstream check would normally reject because an upstream
+     has-holes term has an indeterminate type, the checker swallows the
+     mismatch (since the holes might fill in a way that makes the program
+     well-typed). It only emits Ill_typed when both sides are fully
+     determinate (no holes in either) and they still don't match.
+
+   No unification (yet). The "best guess" type carried through holes is
+   produced by local rules: hole synth defaults to Int; If/Eq propagate
+   from the first non-holey branch; App falls back to Int when the
+   function position is holey. If practical use shows too many real
+   programs landing in `Type_with_holes(Int)` when something more
+   informative would help, escalate to ref-cell unification. */
+
+let ( let* ) = Result.bind;
+
+let aspect_id: Attachment.aspect_id = "typecheck";
+let procedure_id: Attachment.procedure_id = "typecheck:v1";
+
+let descriptor: Attachment.descriptor = {
+  id: aspect_id,
+  disposition: Attachment.Derived,
+  languages: ["p9"],
+};
+
+type check_result =
+  | Well_typed(Ty.t)
+  | Well_typed_with_holes(Ty.t)
+  | Ill_typed(string);
+
+/* Internal helpers return (type, has_holes, ()|err). The boolean
+   propagates "any subterm was holey or stretched our type discipline"
+   up to the top. */
+
+let rec synth =
+        (~ctx: list(Ty.t), t: Ast.t)
+        : result((Ty.t, bool), string) =>
+  switch (t) {
+  | Ast.Hole => Ok((Ty.Int, true))
+  | Ast.Int_lit(_) => Ok((Ty.Int, false))
+  | Ast.Bool_lit(_) => Ok((Ty.Bool, false))
+  | Ast.String_lit(_) => Ok((Ty.String, false))
+  | Ast.Var(k) =>
+    switch (List.nth_opt(ctx, k)) {
+    | Some(ty) => Ok((ty, false))
+    | None =>
+      Error("unbound de-Bruijn index " ++ string_of_int(k))
+    }
+  | Ast.Lam(ty_arg, body) =>
+    let* (body_ty, body_holes) = synth(~ctx=[ty_arg, ...ctx], body);
+    Ok((Ty.Arrow(ty_arg, body_ty), body_holes));
+  | Ast.App(f, a) =>
+    let* (f_ty, f_holes) = synth(~ctx, f);
+    switch (f_ty) {
+    | Ty.Arrow(dom, cod) =>
+      let* a_holes = check(~ctx, a, dom);
+      Ok((cod, f_holes || a_holes));
+    | _ =>
+      if (f_holes) {
+        /* function position was holey; we don't actually know its
+           shape. Just synthesize the argument and produce a permissive
+           best-guess type. */
+        let* (_, a_holes) = synth(~ctx, a);
+        Ok((Ty.Int, true || a_holes));
+      } else {
+        Error(
+          "application: function position has type "
+          ++ Ty.print(f_ty)
+          ++ " which is not an arrow",
+        );
+      }
+    };
+  | Ast.Let(rhs, body) =>
+    let* (rhs_ty, rhs_holes) = synth(~ctx, rhs);
+    let* (body_ty, body_holes) = synth(~ctx=[rhs_ty, ...ctx], body);
+    Ok((body_ty, rhs_holes || body_holes));
+  | Ast.If(c, th, el) =>
+    let* c_holes = check(~ctx, c, Ty.Bool);
+    let* (t_ty, t_holes) = synth(~ctx, th);
+    let* e_holes = check(~ctx, el, t_ty);
+    Ok((t_ty, c_holes || t_holes || e_holes));
+  | Ast.Pair(a, b) =>
+    let* (a_ty, a_holes) = synth(~ctx, a);
+    let* (b_ty, b_holes) = synth(~ctx, b);
+    Ok((Ty.Product(a_ty, b_ty), a_holes || b_holes));
+  | Ast.Fst(p) =>
+    let* (p_ty, p_holes) = synth(~ctx, p);
+    switch (p_ty) {
+    | Ty.Product(a, _) => Ok((a, p_holes))
+    | _ when p_holes => Ok((Ty.Int, true))
+    | _ =>
+      Error(
+        "fst: argument has type "
+        ++ Ty.print(p_ty)
+        ++ " which is not a product",
+      )
+    };
+  | Ast.Snd(p) =>
+    let* (p_ty, p_holes) = synth(~ctx, p);
+    switch (p_ty) {
+    | Ty.Product(_, b) => Ok((b, p_holes))
+    | _ when p_holes => Ok((Ty.Int, true))
+    | _ =>
+      Error(
+        "snd: argument has type "
+        ++ Ty.print(p_ty)
+        ++ " which is not a product",
+      )
+    };
+  | Ast.Prim(op, args) => synth_prim(~ctx, op, args)
+  }
+
+and check =
+    (~ctx: list(Ty.t), t: Ast.t, expected: Ty.t)
+    : result(bool, string) =>
+  switch (t) {
+  | Ast.Hole => Ok(true)
+  | _ =>
+    let* (got, got_holes) = synth(~ctx, t);
+    if (got_holes) {
+      Ok(true);
+    } else if (Ty.equal(got, expected)) {
+      Ok(false);
+    } else {
+      Error(
+        "expected " ++ Ty.print(expected) ++ ", got " ++ Ty.print(got),
+      );
+    }
+  }
+
+and synth_prim =
+    (~ctx: list(Ty.t), op: Surface_ast.prim_op, args: list(Ast.t))
+    : result((Ty.t, bool), string) => {
+  let need_arity = n =>
+    if (List.length(args) == n) {
+      Ok();
+    } else {
+      Error(
+        "operator "
+        ++ Surface_ast.prim_op_to_string(op)
+        ++ ": expected "
+        ++ string_of_int(n)
+        ++ " arguments, got "
+        ++ string_of_int(List.length(args)),
+      );
+    };
+  let nth = i => List.nth(args, i);
+  let check_two = (~a_ty, ~b_ty, ~result_ty) => {
+    let* () = need_arity(2);
+    let* h1 = check(~ctx, nth(0), a_ty);
+    let* h2 = check(~ctx, nth(1), b_ty);
+    Ok((result_ty, h1 || h2));
+  };
+  let check_one = (~arg_ty, ~result_ty) => {
+    let* () = need_arity(1);
+    let* h1 = check(~ctx, nth(0), arg_ty);
+    Ok((result_ty, h1));
+  };
+  switch (op) {
+  | Surface_ast.Add
+  | Surface_ast.Sub
+  | Surface_ast.Mul
+  | Surface_ast.Div
+  | Surface_ast.Mod =>
+    check_two(~a_ty=Ty.Int, ~b_ty=Ty.Int, ~result_ty=Ty.Int)
+  | Surface_ast.And
+  | Surface_ast.Or =>
+    check_two(~a_ty=Ty.Bool, ~b_ty=Ty.Bool, ~result_ty=Ty.Bool)
+  | Surface_ast.Not => check_one(~arg_ty=Ty.Bool, ~result_ty=Ty.Bool)
+  | Surface_ast.Concat =>
+    check_two(~a_ty=Ty.String, ~b_ty=Ty.String, ~result_ty=Ty.String)
+  | Surface_ast.Eq =>
+    let* () = need_arity(2);
+    let* (a_ty, a_holes) = synth(~ctx, nth(0));
+    if (a_holes) {
+      let* (_, b_holes) = synth(~ctx, nth(1));
+      Ok((Ty.Bool, true || b_holes));
+    } else {
+      switch (a_ty) {
+      | Ty.Int
+      | Ty.Bool
+      | Ty.String =>
+        let* b_holes = check(~ctx, nth(1), a_ty);
+        Ok((Ty.Bool, b_holes));
+      | _ =>
+        Error(
+          "==: cannot compare values of type " ++ Ty.print(a_ty),
+        )
+      };
+    };
+  };
+};
+
+let check_top = (t: Ast.t): check_result =>
+  switch (synth(~ctx=[], t)) {
+  | Ok((ty, false)) => Well_typed(ty)
+  | Ok((ty, true)) => Well_typed_with_holes(ty)
+  | Error(msg) => Ill_typed(msg)
+  };
+
+/* ==================== Aspect procedure ==================== */
+
+type error =
+  | Dangling_hash(Hash.t)
+  | Type_error(string);
+
+let error_to_string =
+  fun
+  | Dangling_hash(h) => "internal: dangling hash " ++ Hash.short(h)
+  | Type_error(msg) => "type error: " ++ msg;
+
+let peek_cache =
+    (att: Attachment.t, h: Hash.t): option(check_result) =>
+  switch (
+    Attachment.peek(att, ~target=h, ~aspect=aspect_id, ~procedure=procedure_id)
+  ) {
+  | Some(Attachment.Type_of(ty)) => Some(Well_typed(ty))
+  | Some(Attachment.Type_with_holes(ty)) => Some(Well_typed_with_holes(ty))
+  | _ => None
+  };
+
+let attach_result =
+    (att: Attachment.t, ~target: Hash.t, r: check_result): unit =>
+  switch (r) {
+  | Well_typed(ty) =>
+    Attachment.attach(
+      att,
+      ~target,
+      ~aspect=aspect_id,
+      ~procedure=procedure_id,
+      Attachment.Type_of(ty),
+    )
+  | Well_typed_with_holes(ty) =>
+    Attachment.attach(
+      att,
+      ~target,
+      ~aspect=aspect_id,
+      ~procedure=procedure_id,
+      Attachment.Type_with_holes(ty),
+    )
+  | Ill_typed(_) => ()
+  };
+
+let check_hash =
+    (~store: Store.t, ~att: Attachment.t, h: Hash.t)
+    : result((check_result, bool /* was_cached */), error) =>
+  switch (peek_cache(att, h)) {
+  | Some(r) => Ok((r, true))
+  | None =>
+    switch (Store.reconstruct(store, h)) {
+    | None => Error(Dangling_hash(h))
+    | Some(ast) =>
+      let r = check_top(ast);
+      attach_result(att, ~target=h, r);
+      Ok((r, false));
+    }
+  };

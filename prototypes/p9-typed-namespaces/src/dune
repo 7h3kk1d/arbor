@@ -1,0 +1,12 @@
+(library
+ (name p9_typed_namespaces_substrate)
+ (public_name p9_typed_namespaces.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml menhirLib))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser)
+ (flags --table))
