@@ -1,6 +1,7 @@
 (* Seed the Store + Namespace with example bindings that exercise the
    prototype's headline features: dot-paths, suffix resolution
-   ambiguity, holes, has-holes badge, and named-type aliases. *)
+   ambiguity, holes, has-holes badge, named-type aliases, and
+   primitive functions registered via the Primitive_registry. *)
 
 open P9_typed_namespaces_substrate
 
@@ -19,6 +20,11 @@ let ingest_ty ~store ~ns src =
 let seed ~store ~att ~ns =
   let bind name h = try Namespace.bind ns ~name h with _ -> () in
   let opt_bind name = function Some h -> bind name h | None -> () in
+  (* Built-in primitives — registered + name-bound through the
+     substrate's canonical Primitives module. The user calls them via
+     the namespace (`string.length "abc"`); no parser changes per
+     primitive. *)
+  Primitives.install ~store ~att ~ns;
   (* alias.* — type aliases are bound first so terms can reference them.
      `IntEndo` collides on the `IntEndo` Lam annotation in `math.apply`
      below, so the demo can show that named-alias and structural-form

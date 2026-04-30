@@ -35,6 +35,7 @@ type t =
   | Fst(Hash.t)
   | Snd(Hash.t)
   | Prim(Surface_ast.prim_op, list(Hash.t))
+  | Prim_call(string /* primitive id */, list(Hash.t))
   | Hole;
 
 let language_tag = 'P';
@@ -52,6 +53,7 @@ let tag_fst = '\x0a';
 let tag_snd = '\x0b';
 let tag_prim = '\x0c';
 let tag_hole = '\x0d';
+let tag_prim_call = '\x0e';
 
 let prim_tag =
   fun
@@ -136,6 +138,11 @@ let encode = (buf: Buffer.t, node: t): unit => {
     Buffer.add_char(buf, prim_tag(op));
     encode_int64(buf, List.length(args));
     List.iter(write_child, args);
+  | Prim_call(id, args) =>
+    Buffer.add_char(buf, tag_prim_call);
+    encode_string(buf, id);
+    encode_int64(buf, List.length(args));
+    List.iter(write_child, args);
   | Hole => Buffer.add_char(buf, tag_hole)
   };
 };
@@ -165,7 +172,8 @@ let children = (node: t): list(Hash.t) =>
   | Let(a, b)
   | Pair(a, b) => [a, b]
   | If(a, b, c) => [a, b, c]
-  | Prim(_, args) => args
+  | Prim(_, args)
+  | Prim_call(_, args) => args
   };
 
 let is_value =

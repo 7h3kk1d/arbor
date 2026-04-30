@@ -137,7 +137,35 @@ let rec eval_ast = (~budget: budget, t: Ast.t): ast_result =>
     | NF(_) => StuckAst
     }
   | Ast.Prim(op, args) => eval_prim(~budget, op, args)
+  | Ast.Prim_call(id, args) => eval_prim_call(~budget, id, args)
   }
+
+and eval_prim_call =
+    (~budget: budget, id: string, args: list(Ast.t)): ast_result => {
+  let rec eval_all = (acc, lst) =>
+    switch (lst) {
+    | [] => `All(List.rev(acc))
+    | [a, ...rest] =>
+      switch (eval_ast(~budget, a)) {
+      | StuckAst => `Stuck
+      | StepLimAst => `StepLim
+      | NF(v) => eval_all([v, ...acc], rest)
+      }
+    };
+  switch (eval_all([], args)) {
+  | `Stuck => StuckAst
+  | `StepLim => StepLimAst
+  | `All(vs) =>
+    switch (Primitive_registry.find(id)) {
+    | None => StuckAst
+    | Some({impl, _}) =>
+      switch (impl(vs)) {
+      | Some(result) => NF(result)
+      | None => StuckAst
+      }
+    }
+  };
+}
 
 and eval_prim =
     (~budget: budget, op: Surface_ast.prim_op, args: list(Ast.t)) => {

@@ -41,6 +41,7 @@ type t =
   | Fst(t)
   | Snd(t)
   | Prim(prim_op, list(t))
+  | Prim_call(string /* primitive id */, list(t))
   | Hole;
 
 let prim_op_to_string =
@@ -72,6 +73,7 @@ let rec count_holes = (t: t): int =>
   | Pair(a, b) => count_holes(a) + count_holes(b)
   | Fst(a)
   | Snd(a) => count_holes(a)
-  | Prim(_, args) =>
+  | Prim(_, args)
+  | Prim_call(_, args) =>
     List.fold_left((acc, a) => acc + count_holes(a), 0, args)
   };

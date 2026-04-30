@@ -203,6 +203,21 @@ let rec surface_of_hash_ctx =
           args,
         ),
       )
+    | Some(Node.Prim_call(id, args)) =>
+      Surface_ast.Prim_call(
+        id,
+        List.map(
+          h' =>
+            surface_of_hash_ctx(
+              ~namespace,
+              ~store,
+              ~in_scope,
+              ~top=false,
+              h',
+            ),
+          args,
+        ),
+      )
     };
   };
 };
@@ -308,6 +323,21 @@ let rec print_prec = (~prec: int, s: Surface_ast.t): string => {
     let arg_str =
       List.map(a => print_prec(~prec=8, a), args) |> String.concat(" ");
     wrap(7, Surface_ast.prim_op_to_string(op) ++ " " ++ arg_str);
+  | Surface_ast.Prim_call(id, args) =>
+    /* Display-only: primitives have no surface syntax, so this form
+       cannot round-trip through the parser. Rendered as `#<id> a b
+       c` so the user can see which built-in is being invoked when
+       inspecting the body of a primitive's wrapping Lam. The leading
+       `#` and the colons inside the id make this easy to recognize
+       as a primitive reference and impossible to confuse with a
+       regular IDENT. */
+    switch (args) {
+    | [] => wrap(8, "#" ++ id)
+    | _ =>
+      let arg_str =
+        List.map(a => print_prec(~prec=8, a), args) |> String.concat(" ");
+      wrap(7, "#" ++ id ++ " " ++ arg_str);
+    }
   };
 };
 

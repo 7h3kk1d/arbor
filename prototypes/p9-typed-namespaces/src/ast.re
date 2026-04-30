@@ -22,6 +22,7 @@ type t =
   | Fst(t)
   | Snd(t)
   | Prim(Surface_ast.prim_op, list(t))
+  | Prim_call(string /* primitive id */, list(t))
   | Hole;
 
 /* Highest free de Bruijn index in t, given binder depth d at the lookup
@@ -56,7 +57,8 @@ let rec max_free_index = (~depth: int=0, t: t): option(int) => {
     mix(max_free_index(~depth, a), max_free_index(~depth, b))
   | Fst(a)
   | Snd(a) => max_free_index(~depth, a)
-  | Prim(_, args) =>
+  | Prim(_, args)
+  | Prim_call(_, args) =>
     List.fold_left(
       (acc, t') => mix(acc, max_free_index(~depth, t')),
       None,
@@ -99,6 +101,8 @@ let rec shift = (~cutoff: int, ~by: int, t: t): t =>
   | Snd(a) => Snd(shift(~cutoff, ~by, a))
   | Prim(op, args) =>
     Prim(op, List.map(t' => shift(~cutoff, ~by, t'), args))
+  | Prim_call(id, args) =>
+    Prim_call(id, List.map(t' => shift(~cutoff, ~by, t'), args))
   };
 
 /* Substitution: [j ↦ s]t. */
@@ -124,6 +128,8 @@ let rec subst = (~j: int, ~s: t, t: t): t =>
   | Snd(a) => Snd(subst(~j, ~s, a))
   | Prim(op, args) =>
     Prim(op, List.map(t' => subst(~j, ~s, t'), args))
+  | Prim_call(id, args) =>
+    Prim_call(id, List.map(t' => subst(~j, ~s, t'), args))
   };
 
 /* β-reduce a Lam body applied to arg. */

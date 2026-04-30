@@ -136,6 +136,30 @@ If p9 were to introduce `Ref(hash)` later (per `04-naming-layer.md` long-term), 
 
 ---
 
+### 2026-04-30 — primitive registry for namespace-addressed built-ins
+
+**Decision:** built-in functions like `string.reverse`, `string.length`, `string.substring`, `int.abs`, `int.to_string` are added via a `Primitive_registry` rather than as new `prim_op` enum variants with grammar productions.
+
+Each primitive registers `(id, Ty.t, list(Ast.t) → option(Ast.t))`. The substrate builds a curried wrapping Lam whose body is `Ast.Prim_call(id, [Var(n-1); ...; Var 0])`; bootstrap ingests this Lam through the standard pipeline (typecheck + has-holes aspects attached) and binds the result hash to a namespace name. The user reaches primitives by the same `IDENT` → namespace path that resolves any other binding.
+
+**Why:** the existing `Surface_ast.prim_op` enum couples each built-in to dedicated grammar (a token, a parser production, a `prim_tag` byte, and clauses in `Typecheck.synth_prim` and `Eval.apply_prim`). Adding primitives like `substring` or `reverse` through that path is parser/grammar churn and a stable-tag-byte addition per primitive. Pushing primitives into the namespace gives them a uniform addressing story (same lookup path as user-defined definitions), uniform hashing (the wrapping Lam's hash is content-addressed and stable per id), and zero surface-syntax surface-area per added primitive.
+
+**Considered alternatives:**
+
+- *New `prim_op` variants per primitive.* Each addition means a new lexer keyword (or operator), parser production, tag byte, and pattern-match clauses. Doesn't scale. The existing `prim_op` enum stays as-is for the operator-shaped primitives that *do* warrant infix syntax (`+`, `mul`, `++`, `==`); `Prim_call` is for everything else.
+- *Generic `#<id>(args)` surface syntax.* Skipped on purpose — the user explicitly wanted no ad-hoc surface, and the namespace already does the indirection. The pretty-printer uses `#<id> args` as a *display-only* form for the bare primitive's body, intentionally not re-parseable.
+- *Higher-order partial application via `Prim_partial` runtime values.* Not needed: primitives are wrapped in curried Lams at registration, so partial application is just normal lambda currying. `let inc = string.length in inc "abc"` works because `string.length` is a real Lam value.
+
+**Implications:**
+
+- **Hashes include the id** but not the OCaml impl. Behavior changes require bumping the id's version (`v1` → `v2`), per the `03-content-addressing.md` discipline. A silent impl change without a version bump produces a cache that lies (inherited honest cost).
+- **Primitive registry is global** (a module-level `Hashtbl`). Re-registering the same id replaces the descriptor. Bootstrap and tests both call `Primitives.install`, which is idempotent.
+- **`Node.Prim_call(id, args_hashes)`** is a new shallow node form with stable tag byte `0x0e`. The `id` string is part of the hash input.
+- **Display.** The wrapping Lam's named binding (e.g. `string.reverse`) lets `Pretty.surface_of_hash_ctx` collapse references back to the namespace name. Inspecting the bare primitive (clicking `string.reverse` in the namespace tree) shows `\x: String. #string:reverse:v1 x` — readable but not re-parseable, which is the right contract for a substrate-internal reference.
+- **Default set.** `src/primitives.re` lists the canonical defaults (`string.length/reverse/substring`, `int.abs/to_string`). Both the web bootstrap and tests call `Primitives.install`. New primitives added there flow to both.
+
+---
+
 ### 2026-04-29 — `_opam` symlinks to p7's nested switch (not p3's)
 
 **Decision:** `prototypes/p9-typed-namespaces/_opam → ../p7-web-interface/_opam/_opam`.

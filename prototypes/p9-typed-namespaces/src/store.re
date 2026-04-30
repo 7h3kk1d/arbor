@@ -106,6 +106,9 @@ let rec ingest = (store: t, ast: Ast.t): Hash.t =>
   | Ast.Prim(op, args) =>
     let arg_hashes = List.map(t => ingest(store, t), args);
     register_term(store, Node.Prim(op, arg_hashes));
+  | Ast.Prim_call(id, args) =>
+    let arg_hashes = List.map(t => ingest(store, t), args);
+    register_term(store, Node.Prim_call(id, arg_hashes));
   };
 
 /* Reconstruct a term Ast.t from its hash. Lam re-fetches its Ty.t
@@ -165,5 +168,16 @@ let rec reconstruct = (store: t, h: Hash.t): option(Ast.t) =>
           }
         };
       Option.map(args' => Ast.Prim(op, args'), rec_all(args));
+    | Node.Prim_call(id, args) =>
+      let rec rec_all = args =>
+        switch (args) {
+        | [] => Some([])
+        | [h, ...rest] =>
+          switch (reconstruct(store, h), rec_all(rest)) {
+          | (Some(a), Some(rest')) => Some([a, ...rest'])
+          | _ => None
+          }
+        };
+      Option.map(args' => Ast.Prim_call(id, args'), rec_all(args));
     }
   };

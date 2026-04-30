@@ -649,6 +649,119 @@ let test_type_of_aspect_dedups = () => {
   );
 };
 
+/* ==================== Primitive operations ==================== */
+
+/* Helper substrate that also installs the canonical default primitive
+   set, so tests can exercise the namespace path. */
+let make_substrate_with_prims = () => {
+  let (store, att, ns) = make_substrate();
+  Primitives.install(~store, ~att, ~ns);
+  (store, att, ns);
+};
+
+/* Calling a registered primitive by namespace name evaluates via the
+   registered impl. */
+let test_prim_string_length = () => {
+  let (store, att, ns) = make_substrate_with_prims();
+  let r = must_ingest(~ns, ~store, ~att, "string.length \"hello\"");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(5)) => ()
+  | _ => Alcotest.fail("expected length 5")
+  };
+};
+
+let test_prim_string_reverse = () => {
+  let (store, att, ns) = make_substrate_with_prims();
+  let r = must_ingest(~ns, ~store, ~att, "string.reverse \"abcd\"");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.String_lit("dcba")) => ()
+  | _ => Alcotest.fail("expected reversed string \"dcba\"")
+  };
+};
+
+let test_prim_substring_ternary = () => {
+  let (store, att, ns) = make_substrate_with_prims();
+  let r =
+    must_ingest(~ns, ~store, ~att, "string.substring \"hello world\" 6 11");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.String_lit("world")) => ()
+  | _ => Alcotest.fail("expected substring \"world\"")
+  };
+};
+
+let test_prim_int_to_string_compose = () => {
+  let (store, att, ns) = make_substrate_with_prims();
+  /* Compose with the existing string.length primitive: encode an
+     integer then measure its string representation. Exercises the
+     primitive call inside another primitive call. */
+  let r =
+    must_ingest(
+      ~ns,
+      ~store,
+      ~att,
+      "string.length (int.to_string 12345)",
+    );
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(5)) => ()
+  | _ => Alcotest.fail("expected length 5 of \"12345\"")
+  };
+};
+
+/* The wrapping Lam's hash is stable across substrate instances —
+   re-installing the primitives in a fresh substrate reproduces the
+   same hash for the same id+type. */
+let test_prim_hash_stable = () => {
+  let (store_a, att_a, ns_a) = make_substrate_with_prims();
+  let (store_b, att_b, ns_b) = make_substrate_with_prims();
+  let _ = (att_a, att_b);
+  let _ = (store_a, store_b);
+  let h_a = Namespace.resolve(ns_a, "string.reverse");
+  let h_b = Namespace.resolve(ns_b, "string.reverse");
+  Alcotest.(check(option(string)))(
+    "string.reverse hash is identical across substrates",
+    h_a,
+    h_b,
+  );
+};
+
+/* The typecheck aspect on a primitive's wrapping Lam reflects the
+   declared type. */
+let test_prim_typecheck_aspect = () => {
+  let (store, att, ns) = make_substrate_with_prims();
+  switch (Namespace.resolve(ns, "string.length")) {
+  | None => Alcotest.fail("string.length not bound")
+  | Some(h) =>
+    switch (Typecheck.peek_cache(~store, att, h)) {
+    | Some(Typecheck.Well_typed(Ty.Arrow(Ty.String, Ty.Int))) => ()
+    | _ => Alcotest.fail("expected Well_typed(String -> Int) on string.length")
+    }
+  };
+};
+
+/* A user-defined wrapper that builds on a primitive type-checks and
+   evaluates correctly. */
+let test_prim_user_wrapper = () => {
+  let (store, att, ns) = make_substrate_with_prims();
+  let added =
+    must_ingest(
+      ~ns,
+      ~store,
+      ~att,
+      "\\s: String. string.length s + 1",
+    );
+  Namespace.bind(ns, ~name="length_plus_one", added.hash);
+  let r = must_ingest(~ns, ~store, ~att, "length_plus_one \"abc\"");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(4)) => ()
+  | _ => Alcotest.fail("expected 4 (length 3 + 1)")
+  };
+};
+
 /* ==================== Test registration ==================== */
 
 let () =
@@ -721,6 +834,46 @@ let () =
           Alcotest.test_case("garbage to hole", `Quick, test_recovery_garbage_to_hole),
           QCheck_alcotest.to_alcotest(total_parse_printable()),
           QCheck_alcotest.to_alcotest(total_parse_arbitrary()),
+        ],
+      ),
+      (
+        "primitives",
+        [
+          Alcotest.test_case(
+            "string.length",
+            `Quick,
+            test_prim_string_length,
+          ),
+          Alcotest.test_case(
+            "string.reverse",
+            `Quick,
+            test_prim_string_reverse,
+          ),
+          Alcotest.test_case(
+            "string.substring (ternary)",
+            `Quick,
+            test_prim_substring_ternary,
+          ),
+          Alcotest.test_case(
+            "compose primitives",
+            `Quick,
+            test_prim_int_to_string_compose,
+          ),
+          Alcotest.test_case(
+            "hash stable across substrates",
+            `Quick,
+            test_prim_hash_stable,
+          ),
+          Alcotest.test_case(
+            "typecheck aspect on wrapping Lam",
+            `Quick,
+            test_prim_typecheck_aspect,
+          ),
+          Alcotest.test_case(
+            "user wrapper composes",
+            `Quick,
+            test_prim_user_wrapper,
+          ),
         ],
       ),
       (

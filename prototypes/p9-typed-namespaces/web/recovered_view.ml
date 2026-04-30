@@ -109,6 +109,15 @@ let chunks_of_surface (s : Surface_ast.t) : chunk list =
             List.iter args ~f:(fun a ->
                 push_text " ";
                 walk ~prec:8 a))
+    | Prim_call (id, args) ->
+        (match args with
+         | [] -> wrap 8 (fun () -> push_text ("#" ^ id))
+         | _ ->
+             wrap 7 (fun () ->
+                 push_text ("#" ^ id);
+                 List.iter args ~f:(fun a ->
+                     push_text " ";
+                     walk ~prec:8 a)))
   in
   walk ~prec:0 s;
   flush ();

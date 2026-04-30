@@ -194,6 +194,21 @@ let rec resolve_ctx =
       };
     let* args' = resolve_all(args);
     Ok(Ast.Prim(op, args'));
+  | Surface_ast.Prim_call(id, args) =>
+    /* Defensive: the parser does not produce Prim_call from user
+       input — primitives are reached via the namespace by name.
+       This case only fires if a stored term is round-tripped
+       through the surface, which can happen during testing. */
+    let rec resolve_all = lst =>
+      switch (lst) {
+      | [] => Ok([])
+      | [a, ...rest] =>
+        let* a' = resolve_ctx(~context, ~namespace, ~store, a);
+        let* rest' = resolve_all(rest);
+        Ok([a', ...rest']);
+      };
+    let* args' = resolve_all(args);
+    Ok(Ast.Prim_call(id, args'));
   };
 
 let resolve = (~namespace, ~store, s): result(Ast.t, error) =>
@@ -261,7 +276,8 @@ let collect_resolved_names =
       walk(~in_scope, b);
     | Surface_ast.Fst(a)
     | Surface_ast.Snd(a) => walk(~in_scope, a)
-    | Surface_ast.Prim(_, args) =>
+    | Surface_ast.Prim(_, args)
+    | Surface_ast.Prim_call(_, args) =>
       List.iter(a => walk(~in_scope, a), args)
     };
   walk(~in_scope=[], surface);
@@ -319,6 +335,27 @@ let ingest =
     )
     : result(ingest_ok, error) => {
   let* ast = resolve(~namespace, ~store, surface);
+  let canonical = Canonicalize.canonicalize(ast);
+  switch (Typecheck.check_top(canonical)) {
+  | Typecheck.Ill_typed(msg) => Error(Type_error(msg))
+  | well_typed =>
+    let size_before = Store.size(store);
+    let h = Store.ingest(store, canonical);
+    let was_new = Store.size(store) > size_before;
+    Typecheck.attach_result(~store, att, ~target=h, well_typed);
+    let has_holes = Has_holes.compute(~store, ~att, h);
+    Ok({hash: h, was_new, type_result: well_typed, has_holes});
+  };
+};
+
+/* Ingest an already-resolved Ast.t (skipping the surface →
+   resolve step). Used by primitive registration in bootstrap, where
+   the wrapping Lam is built from a registry descriptor and is
+   closed by construction. The same canonicalize → typecheck → store
+   → aspects pipeline as `ingest`. */
+let ingest_ast =
+    (~store: Store.t, ~att: Attachment.t, ast: Ast.t)
+    : result(ingest_ok, error) => {
   let canonical = Canonicalize.canonicalize(ast);
   switch (Typecheck.check_top(canonical)) {
   | Typecheck.Ill_typed(msg) => Error(Type_error(msg))

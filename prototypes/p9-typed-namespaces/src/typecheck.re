@@ -125,6 +125,39 @@ let rec synth =
       )
     };
   | Ast.Prim(op, args) => synth_prim(~ctx, op, args)
+  | Ast.Prim_call(id, args) => synth_prim_call(~ctx, id, args)
+  }
+
+and synth_prim_call =
+    (~ctx: list(Ty.t), id: string, args: list(Ast.t))
+    : result((Ty.t, bool), string) =>
+  switch (Primitive_registry.find(id)) {
+  | None => Error("unknown primitive: " ++ id)
+  | Some({ty, _}) =>
+    let arg_tys = Primitive_registry.arg_types(ty);
+    let ret_ty = Primitive_registry.return_type(ty);
+    let expected_arity = List.length(arg_tys);
+    let actual_arity = List.length(args);
+    if (expected_arity != actual_arity) {
+      Error(
+        "primitive "
+        ++ id
+        ++ ": expected "
+        ++ string_of_int(expected_arity)
+        ++ " arguments, got "
+        ++ string_of_int(actual_arity),
+      );
+    } else {
+      let rec check_all = (acc_holes, args, tys) =>
+        switch (args, tys) {
+        | ([], []) => Ok((ret_ty, acc_holes))
+        | ([a, ...rest_a], [t, ...rest_t]) =>
+          let* h = check(~ctx, a, t);
+          check_all(acc_holes || h, rest_a, rest_t);
+        | _ => Error("primitive arity mismatch (internal)")
+        };
+      check_all(false, args, arg_tys);
+    }
   }
 
 and check =
