@@ -1,11 +1,22 @@
 /* Attachment — the substrate's aspect store. Carries from p4-p6 with
    p9-specific aspect_value variants:
-     - Type_of(Ty.t)            : typecheck cache, hole-free term
-     - Type_with_holes(Ty.t)    : typecheck cache, term has holes (best
-                                  guess; may be refined as holes fill in)
+     - Type_of(Hash.t)          : typecheck cache, hole-free term;
+                                  hash references a `Definition.Type`
+                                  whose Ty.t is the inferred type
+     - Type_with_holes(Hash.t)  : typecheck cache, term has holes (best
+                                  guess; may be refined as holes fill
+                                  in); hash references a Definition.Type
      - Has_holes(bool)          : has-holes:v1 cache; true if the root
                                   hash, transitively, has any Hole node
                                   in the stored DAG
+
+   Type_of / Type_with_holes were inline `Ty.t` values in p6 / p9-pre.
+   Hashing them through the Store gives free deduplication of common
+   types, makes the type-aliasing identity cleanly observable in the
+   aspect store (a name bound to the same type hash points at the same
+   aspect value), and unifies "what's stored" with "what's
+   referenced." See `docs/design/03-content-addressing.md` §"Hashing
+   types as well as terms."
 
    Keyed by (target hash, aspect id, procedure identity). Derived aspects
    are immutable once written for a given key; asserted aspects can be
@@ -23,8 +34,8 @@ type aspect_value =
   | Eval_value(Hash.t)
   | Eval_stuck(Hash.t)
   | Eval_step_limit(Hash.t)
-  | Type_of(Ty.t)
-  | Type_with_holes(Ty.t)
+  | Type_of(Hash.t)
+  | Type_with_holes(Hash.t)
   | Has_holes(bool);
 
 type descriptor = {

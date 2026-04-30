@@ -107,6 +107,35 @@ If p9 were to introduce `Ref(hash)` later (per `04-naming-layer.md` long-term), 
 
 ---
 
+### 2026-04-30 — extend p9 in place with content-addressed types and named-type bindings
+
+**Decision:** rather than fork to a new prototype, p9 gains:
+
+- `Definition.t = Term(Node.t) | Type(Ty.t)` — types are first-class definitions in the same Store, disambiguated from terms by `Ty.hash`'s leading `'T'` byte vs. terms' `'P'`.
+- `Node.Lam(Hash.t, Hash.t)` — the type-annotation slot becomes a content-addressed reference to a `Definition.Type`. Encoder writes the type's hash bytes; structurally-equal types share a hash, and the namespace can give them names.
+- `Surface_ty.t` — a parser-side type AST with `Named(string)` and `Hole` that the Resolver expands to `Ty.t` (kind-checked against the namespace).
+- `Attachment.Type_of(Hash.t)` and `Type_with_holes(Hash.t)` — typecheck-aspect values reference types by hash; readers reconstruct the `Ty.t` via `Store.lookup_type`.
+- A second parser entry point (`main_ty`) and a generic recovery driver that services both term and type panes.
+- A UI mode toggle (term ↔ type) on a single editor pane, each with its own buffer and bind-as input.
+
+**Why:** the `docs/design/03-content-addressing.md` thread "Hashing types as well as terms" reads as bigger than it is — p6 already hashes types (for procedure-id encoding), `Ty.canonicalize` is identity for the monomorphic types in p9, and the namespace already binds opaque strings to hashes. The minimal substrate change is a sum, a hash redirection in `Node.Lam`, and a kind-checking pass in the resolver. Doing it inside p9 lets the existing UI affordances (browser, detail, recovered-AST panel) carry forward and demonstrates the type-aliasing identity end-to-end without a fresh prototype.
+
+**Considered alternatives:**
+
+- *Fork to p10.* The "fresh tree per prototype" CLAUDE.md convention. Rejected because p9's holes/typecheck/UI machinery is what gives the alias demo its surface; reproducing it would be churn.
+- *Keep `Type_of(Ty.t)` inline.* Smaller diff, but loses the "the substrate uniformly content-addresses things named in the namespace" property that the thread is testing. We chose to migrate at the same time so the prototype actually answers the question.
+- *Introduce a dedicated `type Vector = ...` declaration form in the term parser.* The single-pane mode toggle keeps the term grammar unchanged; the type editor is its own start symbol. If users find the toggle awkward, an inline declaration form is a strict UX layer on top with no substrate consequence.
+
+**Implications:**
+
+- **Hash break.** Every existing Lam hash from prior p9 sessions is invalidated — the encoder now writes the type's hash rather than its inline bytes. Bootstrap reseeds; no migration story (consistent with the substrate's bootstrap-phase posture).
+- **Kind-mismatch errors.** Term names in type position and type names in term position both raise `Resolver.Kind_mismatch`. The browser shows a `T` badge on type leaves so the distinction is visible.
+- **Aspect store dedup.** Two terms with the same type now share a `Type_of` aspect-value (the type-hash). Reverse queries by type are unchanged externally but cheaper internally because the aspect-value space collapses.
+- **Bootstrap extension.** `alias.IntPair`, `alias.IntEndo`, `alias.BinOp` seed the namespace; `math.apply = \f: IntEndo. \x: Int. f x` exercises the named-alias resolution end-to-end.
+- **Hole-in-type-position behavior unchanged.** `Surface_ty.Hole` resolves to `Ty.Int` as it did pre-types. Promotion to a real `Ty.Unknown` remains a separate open question.
+
+---
+
 ### 2026-04-29 — `_opam` symlinks to p7's nested switch (not p3's)
 
 **Decision:** `prototypes/p9-typed-namespaces/_opam → ../p7-web-interface/_opam/_opam`.

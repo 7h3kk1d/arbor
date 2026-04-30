@@ -40,6 +40,11 @@ let upper_start = ['A'-'Z']
 let ident_cont  = ['a'-'z' 'A'-'Z' '0'-'9' '_']
 let lower_ident = lower_start ident_cont*
 let upper_ident = upper_start ident_cont*
+(* Dotted segments may start with either case — `alias.IntEndo`
+   should lex as one IDENT, not three tokens. Keyword rules (above
+   the IDENT rules) still win for bare keyword strings via
+   first-listed-on-tie. *)
+let any_ident   = (lower_start | upper_start) ident_cont*
 let digit = ['0'-'9']
 
 rule token = parse
@@ -86,8 +91,11 @@ rule token = parse
       let inner = String.sub raw 1 (String.length raw - 2) in
       STRING_LIT (unescape_string inner)
     }
-  (* identifiers — dotted is greedy, so `math.add` is one IDENT *)
-  | lower_ident ('.' lower_ident)+ { IDENT (Lexing.lexeme lexbuf) }
+  (* Identifiers — dotted is greedy, so `math.add` is one IDENT.
+     Each segment may start with lower-case, upper-case, or
+     underscore; this lets named types like `alias.IntEndo` lex as a
+     single dotted IDENT and be referenced from a Lam annotation. *)
+  | any_ident ('.' any_ident)+     { IDENT (Lexing.lexeme lexbuf) }
   | lower_ident                    { IDENT (Lexing.lexeme lexbuf) }
   | upper_ident                    { IDENT (Lexing.lexeme lexbuf) }
   | eof             { EOF }

@@ -74,18 +74,18 @@ let hash_matches_query ~ns h (q : string) : bool =
       let names = Namespace.names_of ns h in
       List.exists names ~f:(fun n -> String.is_substring n ~substring:q)
 
-let type_matches ~att h (tf : string option) : bool =
+let type_matches ~att ~store h (tf : string option) : bool =
   match tf with
   | None -> true
   | Some t ->
-      (match Typecheck.peek_cache att h with
+      (match Typecheck.peek_cache ~store att h with
        | Some (Well_typed ty) -> String.equal (Ty.print ty) t
        | Some (Well_typed_with_holes ty) -> String.equal (Ty.print ty) t
        | _ -> false)
 
 (* Names that explicitly survive the query filter. Used to decide which
    tree leaves and intermediate prefixes to show. *)
-let leaf_visible ~att ~filter ~ns h ~name =
+let leaf_visible ~att ~store ~filter ~ns h ~name =
   let q_ok =
     let q = String.strip filter.State.query in
     if String.is_empty q then true
@@ -97,14 +97,14 @@ let leaf_visible ~att ~filter ~ns h ~name =
       || String.is_substring name ~substring:q
   in
   let _ = ns in
-  q_ok && type_matches ~att h filter.type_filter
+  q_ok && type_matches ~att ~store h filter.type_filter
 
 (* ===== Aspect indicators ===== *)
 
-let render_aspect_icons ~(att : Attachment.t) (h : Hash.t) :
-    Vdom.Node.t list =
+let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
+    (h : Hash.t) : Vdom.Node.t list =
   let icons = ref [] in
-  (match Typecheck.peek_cache att h with
+  (match Typecheck.peek_cache ~store att h with
    | Some (Well_typed ty) ->
        icons :=
          Vdom.Node.span
@@ -167,8 +167,14 @@ let render_leaf_row
     Vdom.Attr.style (Css_gen.padding_left (`Px (8 + (depth * 14))))
   in
   let names = Namespace.names_of ns h in
+  let kind = Store.kind_of store h in
   let body =
-    try Pretty.print_named ~namespace:ns store h |> one_line |> truncate_body
+    try
+      (match kind with
+       | Some Definition.Type_kind ->
+           Pretty.print_named_ty ~namespace:ns store h
+       | _ -> Pretty.print_named ~namespace:ns store h)
+      |> one_line |> truncate_body
     with _ -> "(cannot render)"
   in
   let is_named = not (List.is_empty names) in
@@ -177,7 +183,19 @@ let render_leaf_row
     | State.Detail h' when Hash.equal h h' -> true
     | _ -> false
   in
-  let indicators = render_aspect_icons ~att h in
+  let indicators = render_aspect_icons ~att ~store h in
+  let kind_badge =
+    match kind with
+    | Some Definition.Type_kind ->
+        Vdom.Node.span
+          ~attrs:
+            [
+              Vdom.Attr.classes [ "kind-badge"; "kind-badge-type" ];
+              Vdom.Attr.title "type definition";
+            ]
+          [ Vdom.Node.text "T" ]
+    | _ -> Vdom.Node.none
+  in
   let alias_chips =
     (* If the leaf has multiple names, show the aliases inline after the
        primary label. The label itself is what the tree row is keyed on. *)
@@ -203,6 +221,7 @@ let render_leaf_row
             inject (State.Set_view (State.Detail h)));
       ]
     ([
+       kind_badge;
        Vdom.Node.span
          ~attrs:[ Vdom.Attr.class_ "browser-leaf-label" ]
          [ Vdom.Node.text label ];
@@ -245,7 +264,7 @@ let rec render_tree
           let path = path_join prefix seg in
           match sub with
           | Leaf h ->
-              if leaf_visible ~att ~filter:state.filter ~ns h ~name:path
+              if leaf_visible ~att ~store ~filter:state.filter ~ns h ~name:path
               then
                 [
                   render_leaf_row ~att ~store ~ns ~state ~inject ~depth
@@ -266,7 +285,7 @@ let rec render_tree
                           || String.equal name path
                         in
                         prefix_match
-                        && leaf_visible ~att ~filter:state.filter ~ns h
+                        && leaf_visible ~att ~store ~filter:state.filter ~ns h
                              ~name))
               in
               if not any_descendant_visible then []
@@ -353,7 +372,7 @@ let view
             not (List.exists named_hashes ~f:(Hash.equal h)))
         |> List.filter ~f:(fun h ->
                hash_matches_query ~ns h filter.query
-               && type_matches ~att h filter.type_filter)
+               && type_matches ~att ~store h filter.type_filter)
         |> List.sort ~compare:(fun a b ->
                String.compare (Hash.short a) (Hash.short b))
   in
@@ -362,9 +381,13 @@ let view
     else
       let rows =
         List.map anon_hashes ~f:(fun h ->
+            let kind = Store.kind_of store h in
             let body =
               try
-                Pretty.print_named ~namespace:ns store h
+                (match kind with
+                 | Some Definition.Type_kind ->
+                     Pretty.print_named_ty ~namespace:ns store h
+                 | _ -> Pretty.print_named ~namespace:ns store h)
                 |> one_line |> truncate_body
               with _ -> "(cannot render)"
             in
@@ -372,6 +395,18 @@ let view
               match state.view with
               | State.Detail h' when Hash.equal h h' -> true
               | _ -> false
+            in
+            let kind_badge =
+              match kind with
+              | Some Definition.Type_kind ->
+                  Vdom.Node.span
+                    ~attrs:
+                      [
+                        Vdom.Attr.classes [ "kind-badge"; "kind-badge-type" ];
+                        Vdom.Attr.title "type definition";
+                      ]
+                    [ Vdom.Node.text "T" ]
+              | _ -> Vdom.Node.none
             in
             Vdom.Node.div
               ~attrs:
@@ -384,12 +419,13 @@ let view
                       inject (State.Set_view (State.Detail h)));
                 ]
               [
+                kind_badge;
                 Vdom.Node.span
                   ~attrs:[ Vdom.Attr.class_ "browser-leaf-hash mono" ]
                   [ Vdom.Node.text (Hash.short ~len:8 h) ];
                 Vdom.Node.span
                   ~attrs:[ Vdom.Attr.class_ "row-aspects" ]
-                  (render_aspect_icons ~att h);
+                  (render_aspect_icons ~att ~store h);
                 Vdom.Node.span
                   ~attrs:[ Vdom.Attr.class_ "browser-leaf-body mono" ]
                   [ Vdom.Node.text body ];
@@ -410,7 +446,7 @@ let view
     List.length entries
     |> fun _ ->
     List.count entries ~f:(fun (name, h) ->
-        leaf_visible ~att ~filter ~ns h ~name)
+        leaf_visible ~att ~store ~filter ~ns h ~name)
   in
   let count_label =
     Printf.sprintf "%d shown · store %d · named %d · aspects %d"

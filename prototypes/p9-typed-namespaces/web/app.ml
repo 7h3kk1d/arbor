@@ -34,8 +34,11 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
       in
       { m with expanded_paths = next }
   | Set_filter f -> { m with filter = f }
+  | Set_editor_mode mode -> { m with editor_mode = mode }
   | Set_author_buffer s -> { m with author_buffer = s }
   | Set_bind_as s -> { m with author_bind_as = s }
+  | Set_author_ty_buffer s -> { m with author_ty_buffer = s }
+  | Set_ty_bind_as s -> { m with author_ty_bind_as = s }
   | Set_auto_eval b -> (
       let m = { m with auto_eval = b } in
       match b, m.feedback with
@@ -52,6 +55,36 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
       (match fb with
        | Recovered { ingest = Ingested { was_new = true; _ }; _ } -> bump m
        | _ -> m)
+  | Ty_feedback_updated fb ->
+      let m = { m with ty_feedback = fb } in
+      (match fb with
+       | Ty_recovered { ingest = Ty_ingested { was_new = true; _ }; _ } ->
+           bump m
+       | _ -> m)
+  | Bind_current_ty -> (
+      match m.ty_feedback, m.author_ty_bind_as with
+      | Ty_recovered { ingest = Ty_ingested { hash; _ }; _ }, name
+        when not (String.is_empty (String.strip name)) -> (
+          try
+            P9_typed_namespaces_substrate.Namespace.bind
+              Substrate.global.ns ~name hash;
+            bump
+              {
+                m with
+                author_ty_bind_as = "";
+                view = Detail hash;
+              }
+          with
+          | P9_typed_namespaces_substrate.Namespace.Name_already_bound _ -> (
+              match
+                P9_typed_namespaces_substrate.Namespace.resolve
+                  Substrate.global.ns name
+              with
+              | Some old ->
+                  { m with pending_rebind = Some (name, old, hash) }
+              | None -> m)
+          | _ -> m)
+      | _ -> m)
   | Bind_current -> (
       match m.feedback, m.author_bind_as with
       | Recovered { ingest = Ingested { hash; _ }; _ }, name

@@ -33,7 +33,7 @@ type t =
   | Int_lit(int)
   | Bool_lit(bool)
   | String_lit(string)
-  | Lam(string, Ty.t, t)
+  | Lam(string, Surface_ty.t, t)
   | App(t, t)
   | Let(string, t, t)
   | If(t, t, t)

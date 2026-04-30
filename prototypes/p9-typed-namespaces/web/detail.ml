@@ -10,10 +10,20 @@ let render_for_hash
     ~(state : State.t)
     ~(inject : State.action -> unit Vdom.Effect.t) (h : Hash.t) :
     Vdom.Node.t =
-  let _ = state in
-  let names = Namespace.names_of Substrate.global.ns h in
-  let body = Pretty.print_named ~namespace:Substrate.global.ns
-               Substrate.global.store h
+  let store = Substrate.global.store in
+  let ns = Substrate.global.ns in
+  let kind = Store.kind_of store h in
+  let kind_label =
+    match kind with
+    | Some Definition.Type_kind -> "type"
+    | Some Definition.Term_kind -> "term"
+    | None -> "?"
+  in
+  let names = Namespace.names_of ns h in
+  let body =
+    match kind with
+    | Some Definition.Type_kind -> Pretty.print_named_ty ~namespace:ns store h
+    | _ -> Pretty.print_named ~namespace:ns store h
   in
   let header =
     Vdom.Node.div
@@ -22,6 +32,9 @@ let render_for_hash
         Vdom.Node.h2
           ~attrs:[ Vdom.Attr.class_ "panel-title" ]
           [ Vdom.Node.text "detail" ];
+        Vdom.Node.span
+          ~attrs:[ Vdom.Attr.class_ "kind-badge" ]
+          [ Vdom.Node.text kind_label ];
         Vdom.Node.span
           ~attrs:[ Vdom.Attr.class_ "mono hash" ]
           [ Vdom.Node.text (Hash.short h) ];
@@ -54,10 +67,14 @@ let render_for_hash
           [ Vdom.Node.text body ];
       ]
   in
+  (* Type definitions don't participate in typecheck/has-holes/eval
+     aspects today; aspect rows are only rendered for terms. *)
   let aspect_rows =
-    Aspects_view.render_aspects ~inject ~att:Substrate.global.att
-      ~store:Substrate.global.store ~ns:Substrate.global.ns
-      ~filter:state.filter h
+    match kind with
+    | Some Definition.Type_kind -> []
+    | _ ->
+        Aspects_view.render_aspects ~inject ~att:Substrate.global.att
+          ~store ~ns ~filter:state.filter h
   in
   let unbind_buttons =
     if List.is_empty names then []

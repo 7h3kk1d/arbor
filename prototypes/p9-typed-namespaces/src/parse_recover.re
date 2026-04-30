@@ -1,6 +1,7 @@
 /* Error-recovering parser. Same incremental-API pattern as p8: every
-   string input parses into a Surface_ast.t without raising; subterms
-   that don't fit the grammar become `Hole` nodes.
+   string input parses into a Surface_ast.t (or Surface_ty.t for the
+   type editor) without raising; subterms that don't fit the grammar
+   become `Hole` nodes.
 
    Strategy:
    1. Pre-tokenize the whole input. Lexer is total — unknown bytes emit
@@ -12,15 +13,18 @@
       this unblocks most positions.
       - HOLE fits: drop the offender, continue.
       - HOLE doesn't fit either: drop the offender, try the next token.
-   4. max_errors caps recoveries to bound pathological inputs. */
+   4. max_errors caps recoveries to bound pathological inputs.
+
+   The driver is parameterized over the start checkpoint and a fallback
+   value (`Surface_ast.Hole` for terms, `Surface_ty.Hole` for types) so
+   the same logic services both entry points. */
 
 module MI = Parser.MenhirInterpreter;
 
 type triple = (Parser.token, Lexing.position, Lexing.position);
 
-let parse = (input: string): Surface_ast.t => {
+let tokenize = (input: string): list(triple) => {
   let lexbuf = Lexing.from_string(input);
-
   let rec collect = (acc: list(triple)): list(triple) => {
     let tok = Lexer.token(lexbuf);
     let start_p = lexbuf.Lexing.lex_start_p;
@@ -31,7 +35,12 @@ let parse = (input: string): Surface_ast.t => {
     | _ => collect([triple, ...acc])
     };
   };
-  let queue: ref(list(triple)) = ref(collect([]));
+  collect([]);
+};
+
+let drive_recover =
+    (~start: MI.checkpoint('a), ~fallback: 'a, input: string): 'a => {
+  let queue: ref(list(triple)) = ref(tokenize(input));
 
   let dummy = Lexing.dummy_pos;
   let hole_triple: triple = (Parser.HOLE, dummy, dummy);
@@ -45,7 +54,7 @@ let parse = (input: string): Surface_ast.t => {
       t;
     };
 
-  let rec advance = (cp: MI.checkpoint(Surface_ast.t)): MI.checkpoint(Surface_ast.t) =>
+  let rec advance = (cp: MI.checkpoint('a)): MI.checkpoint('a) =>
     switch (cp) {
     | MI.Shifting(_, _, _)
     | MI.AboutToReduce(_, _) => advance(MI.resume(cp))
@@ -57,31 +66,31 @@ let parse = (input: string): Surface_ast.t => {
 
   let rec drive =
           (
-            last_inp: option((MI.checkpoint(Surface_ast.t), triple)),
-            cp: MI.checkpoint(Surface_ast.t),
+            last_inp: option((MI.checkpoint('a), triple)),
+            cp: MI.checkpoint('a),
           )
-          : Surface_ast.t => {
+          : 'a => {
     let cp = advance(cp);
     switch (cp) {
     | MI.Accepted(v) => v
-    | MI.Rejected => Surface_ast.Hole
+    | MI.Rejected => fallback
     | MI.InputNeeded(_) =>
       let triple = take();
       drive(Some((cp, triple)), MI.offer(cp, triple));
     | MI.HandlingError(_) =>
       incr(errors);
       if (errors^ > max_errors) {
-        Surface_ast.Hole;
+        fallback;
       } else {
         switch (last_inp) {
-        | None => Surface_ast.Hole
+        | None => fallback
         | Some((inp_cp, bad_triple)) =>
           let with_hole = advance(MI.offer(inp_cp, hole_triple));
           switch (with_hole) {
           | MI.HandlingError(_) =>
             let (bad_tok, _, _) = bad_triple;
             if (bad_tok == Parser.EOF) {
-              Surface_ast.Hole;
+              fallback;
             } else {
               let next = take();
               drive(Some((inp_cp, next)), MI.offer(inp_cp, next));
@@ -92,10 +101,23 @@ let parse = (input: string): Surface_ast.t => {
         };
       };
     | MI.Shifting(_, _, _)
-    | MI.AboutToReduce(_, _) =>
-      Surface_ast.Hole
+    | MI.AboutToReduce(_, _) => fallback
     };
   };
 
-  drive(None, Parser.Incremental.main(dummy));
+  drive(None, start);
 };
+
+let parse = (input: string): Surface_ast.t =>
+  drive_recover(
+    ~start=Parser.Incremental.main(Lexing.dummy_pos),
+    ~fallback=Surface_ast.Hole,
+    input,
+  );
+
+let parse_ty = (input: string): Surface_ty.t =>
+  drive_recover(
+    ~start=Parser.Incremental.main_ty(Lexing.dummy_pos),
+    ~fallback=Surface_ty.Hole,
+    input,
+  );

@@ -6,6 +6,14 @@
    a prefix for hash-space hygiene against other prototypes that may
    share the encoding by accident.
 
+   Lam carries a type *hash* rather than an inline Ty.t. The Store
+   registers the lambda's parameter type as a `Definition.Type` first
+   and embeds the resulting hash here. Two concrete consequences:
+   structurally-equal types share a hash everywhere they appear, and a
+   namespace-bound type alias `type Vector = Int -> Int` produces the
+   same Lam hash whether the source said `\x: Vector. body` or
+   `\x: Int -> Int. body`.
+
    Hole is a leaf with no payload. Its hash is the constant
    BLAKE2B('P' ++ tag_hole) — every hole in the Store collides on that
    one entry, just as in p8.
@@ -19,7 +27,7 @@ type t =
   | Int_lit(int)
   | Bool_lit(bool)
   | String_lit(string)
-  | Lam(Ty.t, Hash.t)
+  | Lam(Hash.t /* type */, Hash.t /* body */)
   | App(Hash.t, Hash.t)
   | Let(Hash.t, Hash.t)
   | If(Hash.t, Hash.t, Hash.t)
@@ -96,10 +104,10 @@ let encode = (buf: Buffer.t, node: t): unit => {
   | String_lit(s) =>
     Buffer.add_char(buf, tag_string_lit);
     encode_string(buf, s);
-  | Lam(ty, h) =>
+  | Lam(ty_h, body_h) =>
     Buffer.add_char(buf, tag_lam);
-    Ty.encode(buf, Ty.canonicalize(ty));
-    write_child(h);
+    write_child(ty_h);
+    write_child(body_h);
   | App(f, a) =>
     Buffer.add_char(buf, tag_app);
     write_child(f);
@@ -138,6 +146,11 @@ let hash = (node: t): Hash.t => {
   Hash.digest_buffer(buf);
 };
 
+/* Term-side children only. Lam's type-hash is intentionally excluded:
+   it points at a `Definition.Type`, which lives in the Store but is
+   not part of the term DAG that derived aspects (eval, has-holes)
+   walk. has-holes specifically benefits — types are hole-free in p9,
+   so recursing into them would always return false. */
 let children = (node: t): list(Hash.t) =>
   switch (node) {
   | Var(_)
@@ -145,9 +158,9 @@ let children = (node: t): list(Hash.t) =>
   | Bool_lit(_)
   | String_lit(_)
   | Hole => []
-  | Lam(_, c)
-  | Fst(c)
-  | Snd(c) => [c]
+  | Lam(_ty, body) => [body]
+  | Fst(body)
+  | Snd(body) => [body]
   | App(a, b)
   | Let(a, b)
   | Pair(a, b) => [a, b]

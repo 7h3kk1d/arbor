@@ -5,7 +5,10 @@
   let mk_pair a b = Surface_ast.Pair (a, b)
   let mk_app f a = Surface_ast.App (f, a)
   let prim op args = Surface_ast.Prim (op, args)
-  let default_ty = Ty.Int
+  (* Default annotation in partial-form lambdas. Hole-in-type-position
+     resolves to Ty.Int at the Resolver, matching pre-named-types
+     behavior. *)
+  let default_ty = Surface_ty.Hole
 %}
 
 %token LET IN IF THEN ELSE FST SND NOT MUL_KW MOD_KW
@@ -21,11 +24,18 @@
 %token EOF
 
 %start <Surface_ast.t> main
+%start <Surface_ty.t> main_ty
 
 %%
 
 main:
   | e = expr; EOF { e }
+
+(* Type-only entry — used by the dedicated type editor pane. The same
+   `ty` non-terminal as inside lambda annotations, just promoted to a
+   start symbol so the recovery driver can drive it independently. *)
+main_ty:
+  | t = ty; EOF { t }
 
 (* Top-level expression productions. The "partial-form" productions
    (truncated let/if/lambda) let the grammar fall forward when a binder
@@ -126,22 +136,27 @@ atom:
   | LPAREN; e = expr; RPAREN           { e }
   | LPAREN; a = expr; COMMA; b = expr; RPAREN { mk_pair a b }
 
-(* TYPES. Right-associative arrows; product binds tighter than arrow. *)
+(* TYPES. Right-associative arrows; product binds tighter than arrow.
+   `IDENT` in atom position is a named type — resolved to a Ty.t via
+   the namespace at Resolver time. Hole-in-type-position is a real
+   Surface_ty.Hole; the Resolver decides what concrete Ty.t to
+   substitute. *)
 
 ty:
   | t = ty_arrow { t }
 
 ty_arrow:
-  | a = ty_product; ARROW; b = ty_arrow { Ty.Arrow (a, b) }
+  | a = ty_product; ARROW; b = ty_arrow { Surface_ty.Arrow (a, b) }
   | t = ty_product                       { t }
 
 ty_product:
-  | a = ty_atom; STAR; b = ty_product { Ty.Product (a, b) }
+  | a = ty_atom; STAR; b = ty_product { Surface_ty.Product (a, b) }
   | t = ty_atom                        { t }
 
 ty_atom:
-  | TY_INT                       { Ty.Int }
-  | TY_BOOL                      { Ty.Bool }
-  | TY_STRING                    { Ty.String }
+  | TY_INT                       { Surface_ty.Int }
+  | TY_BOOL                      { Surface_ty.Bool }
+  | TY_STRING                    { Surface_ty.String }
+  | n = IDENT                    { Surface_ty.Named n }
   | LPAREN; t = ty; RPAREN       { t }
-  | HOLE                         { default_ty }
+  | HOLE                         { Surface_ty.Hole }

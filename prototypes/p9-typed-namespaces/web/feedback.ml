@@ -10,6 +10,37 @@ let format_type_result : Typecheck.check_result -> string = function
   | Well_typed_with_holes ty -> Ty.print ty ^ "  (best guess; contains holes)"
   | Ill_typed _ -> "ill-typed"
 
+let compute_ty ~(s : Substrate.t) ~(buffer : string) :
+    State.ty_ingest_result =
+  if String.is_empty (String.strip buffer) then State.Ty_empty
+  else
+    let surface = Parse_recover.parse_ty buffer in
+    let hole_count = Surface_ty.count_holes surface in
+    let outcome : State.ty_ingest_outcome =
+      match Resolver.ingest_ty ~namespace:s.ns ~store:s.store surface with
+      | Ok r ->
+          let resolved =
+            Resolver.collect_resolved_names_ty ~namespace:s.ns surface
+          in
+          State.Ty_ingested
+            {
+              hash = r.hash;
+              was_new = r.was_new;
+              ty_summary = Ty.print r.ty;
+              resolved;
+            }
+      | Error (Unbound_name n) -> State.Ty_resolve_unbound n
+      | Error (Ambiguous_name (n, cs)) ->
+          State.Ty_resolve_ambiguous { name = n; candidates = cs }
+      | Error (Kind_mismatch _ as e) ->
+          State.Ty_kind_mismatch (Resolver.error_to_string e)
+      | Error (Missing_hash (n, h)) ->
+          State.Ty_kind_mismatch
+            (Printf.sprintf "missing hash for %s -> %s" n (Hash.short h))
+      | Error (Type_error msg) -> State.Ty_kind_mismatch msg
+    in
+    State.Ty_recovered { surface; hole_count; ingest = outcome }
+
 let compute ~(s : Substrate.t) ~(buffer : string) : State.ingest_result =
   if String.is_empty (String.strip buffer) then State.Empty
   else
@@ -33,6 +64,8 @@ let compute ~(s : Substrate.t) ~(buffer : string) : State.ingest_result =
       | Error (Ambiguous_name (n, cs)) ->
           State.Resolve_ambiguous { name = n; candidates = cs }
       | Error (Missing_hash (n, h)) -> State.Resolve_missing_hash (n, h)
+      | Error (Kind_mismatch _ as e) ->
+          State.Type_error (Resolver.error_to_string e)
       | Error (Type_error msg) -> State.Type_error msg
     in
     State.Recovered { surface; hole_count; ingest = outcome }

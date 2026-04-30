@@ -30,8 +30,8 @@ let rec compute = (~store: Store.t, ~att: Attachment.t, h: Hash.t): bool =>
   | Some(b) => b
   | None =>
     let result =
-      switch (Store.lookup(store, h)) {
-      | None => false
+      switch (Store.lookup_term(store, h)) {
+      | None => false /* missing or a type definition (no holes today) */
       | Some(Node.Hole) => true
       | Some(node) =>
         List.exists(c => compute(~store, ~att, c), Node.children(node))

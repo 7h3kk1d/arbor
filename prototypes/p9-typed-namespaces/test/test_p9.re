@@ -38,7 +38,7 @@ let int_value = (~store, ~att, src: string, expected: int) => {
   let (store_, att_, ns) = (store, att, Namespace.create());
   let r = must_ingest(~ns, ~store=store_, ~att=att_, src);
   let v = must_eval(~store=store_, ~att=att_, r.hash);
-  switch (Store.lookup(store_, v)) {
+  switch (Store.lookup_term(store_, v)) {
   | Some(Node.Int_lit(n)) =>
     Alcotest.(check(int))("int " ++ src, expected, n)
   | _ =>
@@ -52,7 +52,7 @@ let bool_value = (~store, ~att, src: string, expected: bool) => {
     must_ingest(~ns, ~store, ~att, src);
   };
   let v = must_eval(~store, ~att, r.hash);
-  switch (Store.lookup(store, v)) {
+  switch (Store.lookup_term(store, v)) {
   | Some(Node.Bool_lit(b)) =>
     Alcotest.(check(bool))("bool " ++ src, expected, b)
   | _ =>
@@ -66,7 +66,7 @@ let string_value = (~store, ~att, src: string, expected: string) => {
     must_ingest(~ns, ~store, ~att, src);
   };
   let v = must_eval(~store, ~att, r.hash);
-  switch (Store.lookup(store, v)) {
+  switch (Store.lookup_term(store, v)) {
   | Some(Node.String_lit(s)) =>
     Alcotest.(check(string))("string " ++ src, expected, s)
   | _ =>
@@ -136,7 +136,7 @@ let test_suffix_resolves = () => {
   Namespace.bind(ns, ~name="math.add", added);
   let ingested = must_ingest(~ns, ~store, ~att, "add 1 2");
   let v = must_eval(~store, ~att, ingested.hash);
-  switch (Store.lookup(store, v)) {
+  switch (Store.lookup_term(store, v)) {
   | Some(Node.Int_lit(3)) => ()
   | _ => Alcotest.fail("expected eval to 3")
   };
@@ -180,7 +180,7 @@ let test_full_path_resolves = () => {
   Namespace.bind(ns, ~name="math.inc", h);
   let r = must_ingest(~ns, ~store, ~att, "math.inc 41");
   let v = must_eval(~store, ~att, r.hash);
-  switch (Store.lookup(store, v)) {
+  switch (Store.lookup_term(store, v)) {
   | Some(Node.Int_lit(42)) => ()
   | _ => Alcotest.fail("expected eval to 42")
   };
@@ -255,7 +255,7 @@ let test_pair_fst = () => {
   let (store, att, ns) = make_substrate();
   let r = must_ingest(~ns, ~store, ~att, "fst (1, 2)");
   let v = must_eval(~store, ~att, r.hash);
-  switch (Store.lookup(store, v)) {
+  switch (Store.lookup_term(store, v)) {
   | Some(Node.Int_lit(1)) => ()
   | _ => Alcotest.fail("expected fst (1,2) = 1")
   };
@@ -265,7 +265,7 @@ let test_pair_snd = () => {
   let (store, att, ns) = make_substrate();
   let r = must_ingest(~ns, ~store, ~att, "snd (true, \"x\")");
   let v = must_eval(~store, ~att, r.hash);
-  switch (Store.lookup(store, v)) {
+  switch (Store.lookup_term(store, v)) {
   | Some(Node.String_lit("x")) => ()
   | _ => Alcotest.fail("expected snd (true, \"x\") = \"x\"")
   };
@@ -449,7 +449,7 @@ let test_recovery_truncated_if = () => {
 let test_recovery_truncated_lambda = () => {
   let surface = parse("\\x: Int.");
   switch (surface) {
-  | Surface_ast.Lam("x", Ty.Int, Surface_ast.Hole) => ()
+  | Surface_ast.Lam("x", Surface_ty.Int, Surface_ast.Hole) => ()
   | _ =>
     Alcotest.failf(
       "expected Lam(x, Int, Hole), got %s",
@@ -464,6 +464,189 @@ let test_recovery_garbage_to_hole = () => {
      or a partially-recovered shape. The contract is "doesn't raise". */
   let _: int = Surface_ast.count_holes(surface);
   ();
+};
+
+/* ==================== Type bindings & aliasing ==================== */
+
+let ingest_ty = (~ns, ~store, src: string): Resolver.ingest_ty_ok => {
+  let surface_ty = Parse_recover.parse_ty(src);
+  switch (Resolver.ingest_ty(~namespace=ns, ~store, surface_ty)) {
+  | Ok(r) => r
+  | Error(e) =>
+    Alcotest.failf(
+      "ingest_ty(%s) => %s",
+      src,
+      Resolver.error_to_string(e),
+    )
+  };
+};
+
+/* The aliasing identity: a Lam annotated with a named type produces
+   the same Node hash as the same Lam annotated with the underlying
+   structural type. This is the core demonstration that names binding
+   to type hashes are aliases by content. */
+let test_named_type_alias_identity = () => {
+  let (store, att, ns) = make_substrate();
+  let ty_r = ingest_ty(~ns, ~store, "Int -> Int");
+  Namespace.bind(ns, ~name="Endo", ty_r.hash);
+  let h_named = (must_ingest(~ns, ~store, ~att, "\\f: Endo. f")).hash;
+  let h_struct =
+    (must_ingest(~ns, ~store, ~att, "\\f: Int -> Int. f")).hash;
+  Alcotest.(check(string))(
+    "named alias and structural type produce identical Lam hash",
+    h_named,
+    h_struct,
+  );
+};
+
+/* Two distinct alias names binding the same structural type share
+   the type-hash, so Lams annotated by either name still match. */
+let test_two_aliases_share_hash = () => {
+  let (store, att, ns) = make_substrate();
+  let r1 = ingest_ty(~ns, ~store, "Int -> Int");
+  let r2 = ingest_ty(~ns, ~store, "Int -> Int");
+  Alcotest.(check(string))(
+    "structurally-equal types share hash",
+    r1.hash,
+    r2.hash,
+  );
+  Namespace.bind(ns, ~name="A", r1.hash);
+  Namespace.bind(ns, ~name="B", r2.hash);
+  let h_a = (must_ingest(~ns, ~store, ~att, "\\f: A. f")).hash;
+  let h_b = (must_ingest(~ns, ~store, ~att, "\\f: B. f")).hash;
+  Alcotest.(check(string))(
+    "aliased annotations share Lam hash",
+    h_a,
+    h_b,
+  );
+};
+
+/* Mixed-case dotted names (like the bootstrapped `alias.IntEndo`)
+   must lex as a single IDENT so they can be referenced inside a
+   Lam annotation. Regression: prior to this fix, the dotted-ident
+   regex required lower_ident on both sides of `.`, so an upper-case
+   suffix split into multiple tokens and the resolver saw an
+   unbound name. */
+let test_mixed_case_dotted_name_in_annotation = () => {
+  let (store, att, ns) = make_substrate();
+  let ty_r = ingest_ty(~ns, ~store, "Int -> Int");
+  Namespace.bind(ns, ~name="alias.IntEndo", ty_r.hash);
+  let h_named =
+    (must_ingest(~ns, ~store, ~att, "\\f: alias.IntEndo. f")).hash;
+  let h_struct =
+    (must_ingest(~ns, ~store, ~att, "\\f: Int -> Int. f")).hash;
+  Alcotest.(check(string))(
+    "mixed-case dotted alias resolves the same as structural form",
+    h_named,
+    h_struct,
+  );
+};
+
+/* Recursive aliasing: a named type whose body itself uses a named
+   type. */
+let test_recursive_alias = () => {
+  let (store, att, ns) = make_substrate();
+  let pair = ingest_ty(~ns, ~store, "Int * Int");
+  Namespace.bind(ns, ~name="Pair", pair.hash);
+  let endo_pair = ingest_ty(~ns, ~store, "Pair -> Pair");
+  Namespace.bind(ns, ~name="EndoPair", endo_pair.hash);
+  let h_named = (must_ingest(~ns, ~store, ~att, "\\f: EndoPair. f")).hash;
+  let h_struct =
+    (must_ingest(~ns, ~store, ~att, "\\f: Int * Int -> Int * Int. f")).hash;
+  Alcotest.(check(string))(
+    "recursive alias resolves through chain",
+    h_named,
+    h_struct,
+  );
+};
+
+/* Kind-mismatch: a term-named binding used in type position. */
+let test_term_in_type_position_errors = () => {
+  let (store, att, ns) = make_substrate();
+  let term = (must_ingest(~ns, ~store, ~att, "1")).hash;
+  Namespace.bind(ns, ~name="ONE", term);
+  let surface = parse("\\x: ONE. x");
+  switch (Resolver.ingest(~namespace=ns, ~store, ~att, surface)) {
+  | Error(Resolver.Kind_mismatch({name: "ONE", expected: Definition.Type_kind, got: Definition.Term_kind})) =>
+    ()
+  | Error(e) =>
+    Alcotest.failf(
+      "expected Kind_mismatch, got %s",
+      Resolver.error_to_string(e),
+    )
+  | Ok(_) =>
+    Alcotest.fail("expected Kind_mismatch when term name in type position")
+  };
+};
+
+/* Kind-mismatch: a type-named binding used in term position. */
+let test_type_in_term_position_errors = () => {
+  let (store, att, ns) = make_substrate();
+  let ty_r = ingest_ty(~ns, ~store, "Int");
+  Namespace.bind(ns, ~name="MyInt", ty_r.hash);
+  let surface = parse("MyInt");
+  switch (Resolver.ingest(~namespace=ns, ~store, ~att, surface)) {
+  | Error(Resolver.Kind_mismatch({name: "MyInt", expected: Definition.Term_kind, got: Definition.Type_kind})) =>
+    ()
+  | Error(e) =>
+    Alcotest.failf(
+      "expected Kind_mismatch, got %s",
+      Resolver.error_to_string(e),
+    )
+  | Ok(_) =>
+    Alcotest.fail("expected Kind_mismatch when type name in term position")
+  };
+};
+
+/* The Type_of aspect now stores the type's hash; a typecheck
+   peek_cache should reconstruct the same Ty.t out of the Store. */
+let test_type_of_aspect_round_trips = () => {
+  let (store, att, ns) = make_substrate();
+  let r = must_ingest(~ns, ~store, ~att, "\\x: Int. x + 1");
+  switch (Typecheck.peek_cache(~store, att, r.hash)) {
+  | Some(Typecheck.Well_typed(Ty.Arrow(Ty.Int, Ty.Int))) => ()
+  | _ =>
+    Alcotest.fail(
+      "expected Well_typed(Int -> Int) reconstructed from cached type-hash",
+    )
+  };
+};
+
+/* Two terms with the same type share the cached type-hash in
+   their respective Type_of aspect entries. */
+let test_type_of_aspect_dedups = () => {
+  let (store, att, ns) = make_substrate();
+  let r1 = must_ingest(~ns, ~store, ~att, "\\x: Int. x + 1");
+  let r2 = must_ingest(~ns, ~store, ~att, "\\y: Int. y - 1");
+  let ty_h1 =
+    switch (
+      Attachment.peek(
+        att,
+        ~target=r1.hash,
+        ~aspect=Typecheck.aspect_id,
+        ~procedure=Typecheck.procedure_id,
+      )
+    ) {
+    | Some(Attachment.Type_of(h)) => h
+    | _ => Alcotest.fail("expected Type_of aspect on r1")
+    };
+  let ty_h2 =
+    switch (
+      Attachment.peek(
+        att,
+        ~target=r2.hash,
+        ~aspect=Typecheck.aspect_id,
+        ~procedure=Typecheck.procedure_id,
+      )
+    ) {
+    | Some(Attachment.Type_of(h)) => h
+    | _ => Alcotest.fail("expected Type_of aspect on r2")
+    };
+  Alcotest.(check(string))(
+    "two Int->Int terms share their type hash",
+    ty_h1,
+    ty_h2,
+  );
 };
 
 /* ==================== Test registration ==================== */
@@ -538,6 +721,51 @@ let () =
           Alcotest.test_case("garbage to hole", `Quick, test_recovery_garbage_to_hole),
           QCheck_alcotest.to_alcotest(total_parse_printable()),
           QCheck_alcotest.to_alcotest(total_parse_arbitrary()),
+        ],
+      ),
+      (
+        "type-bindings",
+        [
+          Alcotest.test_case(
+            "named alias = structural",
+            `Quick,
+            test_named_type_alias_identity,
+          ),
+          Alcotest.test_case(
+            "two aliases share hash",
+            `Quick,
+            test_two_aliases_share_hash,
+          ),
+          Alcotest.test_case(
+            "mixed-case dotted alias in annotation",
+            `Quick,
+            test_mixed_case_dotted_name_in_annotation,
+          ),
+          Alcotest.test_case(
+            "recursive alias",
+            `Quick,
+            test_recursive_alias,
+          ),
+          Alcotest.test_case(
+            "term in type position errors",
+            `Quick,
+            test_term_in_type_position_errors,
+          ),
+          Alcotest.test_case(
+            "type in term position errors",
+            `Quick,
+            test_type_in_term_position_errors,
+          ),
+          Alcotest.test_case(
+            "Type_of aspect round-trips",
+            `Quick,
+            test_type_of_aspect_round_trips,
+          ),
+          Alcotest.test_case(
+            "Type_of aspect dedups",
+            `Quick,
+            test_type_of_aspect_dedups,
+          ),
         ],
       ),
     ],

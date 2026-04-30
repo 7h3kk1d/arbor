@@ -26,10 +26,11 @@ let type_chip
 
 let render_typecheck
     ~(att : Attachment.t)
+    ~(store : Store.t)
     ~(filter : State.filter)
     ~(inject : State.action -> unit Vdom.Effect.t)
     (h : Hash.t) : Vdom.Node.t =
-  match Typecheck.peek_cache att h with
+  match Typecheck.peek_cache ~store att h with
   | None ->
       Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "aspect-row" ]
@@ -149,7 +150,7 @@ let render_aspects
     ~(ns : Namespace.t)
     ~(filter : State.filter) (h : Hash.t) : Vdom.Node.t list =
   [
-    render_typecheck ~att ~filter ~inject h;
+    render_typecheck ~att ~store ~filter ~inject h;
     render_has_holes ~att h;
     render_eval ~att ~store ~ns ~inject h;
   ]

@@ -226,49 +226,66 @@ let error_to_string =
   | Dangling_hash(h) => "internal: dangling hash " ++ Hash.short(h)
   | Type_error(msg) => "type error: " ++ msg;
 
+/* peek_cache resolves the cached type-hash back to a Ty.t via the
+   Store. If the type-hash is dangling (cannot happen in normal
+   operation, since attach_result always registers it first), we fall
+   through as a cache miss. */
 let peek_cache =
-    (att: Attachment.t, h: Hash.t): option(check_result) =>
+    (~store: Store.t, att: Attachment.t, h: Hash.t)
+    : option(check_result) =>
   switch (
     Attachment.peek(att, ~target=h, ~aspect=aspect_id, ~procedure=procedure_id)
   ) {
-  | Some(Attachment.Type_of(ty)) => Some(Well_typed(ty))
-  | Some(Attachment.Type_with_holes(ty)) => Some(Well_typed_with_holes(ty))
+  | Some(Attachment.Type_of(ty_h)) =>
+    Option.map(ty => Well_typed(ty), Store.lookup_type(store, ty_h))
+  | Some(Attachment.Type_with_holes(ty_h)) =>
+    Option.map(
+      ty => Well_typed_with_holes(ty),
+      Store.lookup_type(store, ty_h),
+    )
   | _ => None
   };
 
+/* attach_result registers the inferred type as a Definition.Type in
+   the Store before storing the resulting hash in the aspect entry.
+   This is the round-trip the aspect store needs: a future peek can
+   resolve back to the Ty.t value. */
 let attach_result =
-    (att: Attachment.t, ~target: Hash.t, r: check_result): unit =>
+    (~store: Store.t, att: Attachment.t, ~target: Hash.t, r: check_result)
+    : unit =>
   switch (r) {
   | Well_typed(ty) =>
+    let ty_h = Store.register_type(store, ty);
     Attachment.attach(
       att,
       ~target,
       ~aspect=aspect_id,
       ~procedure=procedure_id,
-      Attachment.Type_of(ty),
-    )
+      Attachment.Type_of(ty_h),
+    );
   | Well_typed_with_holes(ty) =>
+    let ty_h = Store.register_type(store, ty);
     Attachment.attach(
       att,
       ~target,
       ~aspect=aspect_id,
       ~procedure=procedure_id,
-      Attachment.Type_with_holes(ty),
-    )
+      Attachment.Type_with_holes(ty_h),
+    );
   | Ill_typed(_) => ()
   };
 
 let check_hash =
     (~store: Store.t, ~att: Attachment.t, h: Hash.t)
     : result((check_result, bool /* was_cached */), error) =>
-  switch (peek_cache(att, h)) {
+  switch (peek_cache(~store, att, h)) {
   | Some(r) => Ok((r, true))
   | None =>
     switch (Store.reconstruct(store, h)) {
     | None => Error(Dangling_hash(h))
     | Some(ast) =>
       let r = check_top(ast);
-      attach_result(att, ~target=h, r);
+      attach_result(~store, att, ~target=h, r);
       Ok((r, false));
     }
   };
