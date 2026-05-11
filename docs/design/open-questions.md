@@ -80,6 +80,15 @@ Sharpened in `10-minted-identity.md`.
 - **Where the mint mark lives in `Definition.t`.** First-class field with a sentinel for structural, a separate constructor, or an aspect with a hash-stable contract.
 - **Interface surfacing.** Badge, color, nothing — bound up with the editing gesture in the per-definition reading.
 
+## Label sort
+
+Sharpened in `11-label-sort.md`. Substrate direction is settled in several places (resolve labels via namespace like any other name; canonicalize by sorted label hash; one sort serving record fields, sum constructors, and method names alike; fresh mint by default, intentional sharing on demand). What's open:
+
+- **Editor affordances for minting and pre-commit marking.** The auto-mint shortcut on unresolved names, the pre-commit pass that lets users mark which references should be fresh mints vs existing bindings, and the "use existing label" suggestion when sharing a label across types. Substrate gives clean primitives; the UX shape is open.
+- **How variants attach payload-type information to labels.** Aspect on the label, richer label-node shape, or eventual split into a separate sort.
+- **Recursive modules.** Modules whose fields reference other definitions in the same module force the substrate to canonicalize mutual reference. Intersects the existing "Mutual recursion canonicalization" item under "Content addressing"; will get resolved there once a language forces the issue.
+- **Type-language shape that consumes shared labels.** Whether early prototypes get away with structural subtyping over fixed label sets, or need explicit row variables from the start.
+
 ## Roadmap
 
 Feeds from `09-roadmap.md`.

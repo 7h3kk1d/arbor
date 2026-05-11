@@ -71,6 +71,7 @@ Step in slowly. When in doubt, prefer the narrow, concrete implementation over t
 - `08-tech-stack.md` — OCaml reuse vs alternatives.
 - `09-roadmap.md` — prioritization, first prototype.
 - `10-minted-identity.md` — opt-in axis of identity, orthogonal to content addressing, for definitions that should not collapse with coincidental structural twins.
+- `11-label-sort.md` — labels as a first-class minted sort, decoupling record/module field identity from the human-readable field name.
 - `decisions.md` — ADR-lite log of commitments, with dates and rationale.
 - `open-questions.md` — running list; items graduate to docs or decisions as they resolve.
 - `prototype-findings.md` — stocktake across the prototype series: recurring patterns, single-prototype experiments, and shapes left open. Observational, not prescriptive.

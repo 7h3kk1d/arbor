@@ -22,7 +22,7 @@ Canonicalization is **syntactic by default.** Experimenting with coarser equival
 
 Other per-language canonicalizations a language might declare:
 
-- Normalizing record or variant field order, if the language's semantics treat them as unordered.
+- Normalizing record or variant field order, if the language's semantics treat them as unordered. (See `11-label-sort.md` for the substrate's preferred treatment of field labels — once labels are content-addressed hashes rather than strings, sort-by-label-hash becomes a natural canonical order.)
 - Canonicalizing the presentation order of mutually recursive members (when we add recursion).
 - Normalizing type-variable names in languages with explicit type binders.
 

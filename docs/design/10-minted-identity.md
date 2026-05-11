@@ -85,3 +85,4 @@ Tracked in `open-questions.md` under "Minted identity."
 - `04-naming-layer.md` — names remain separate from identity; minting strengthens that separation rather than weakening it.
 - `07-hazel-substrate.md` §Grove — committed-layer counterpart to Grove's edit-layer UIDs.
 - `open-questions.md` §"Update strategies" — natural callsite for "follow latest version of this mint thread" once minting is concrete.
+- `11-label-sort.md` — labels are the first concrete sort minted by default; partial answer-by-example to the per-definition vs. per-language opt-in thread above.
