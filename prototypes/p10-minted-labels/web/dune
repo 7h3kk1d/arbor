@@ -1,0 +1,11 @@
+(library
+ (name p10_web)
+ (libraries
+  p10_minted_labels_substrate
+  bonsai
+  bonsai.web
+  virtual_dom
+  core
+  js_of_ocaml)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai js_of_ocaml-ppx)))

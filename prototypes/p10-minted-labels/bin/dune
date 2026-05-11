@@ -1,0 +1,7 @@
+(executable
+ (name p10_main)
+ (modes
+  (byte js))
+ (libraries p10_web)
+ (preprocess
+  (pps js_of_ocaml-ppx)))

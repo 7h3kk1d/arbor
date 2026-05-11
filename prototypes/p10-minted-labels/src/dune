@@ -1,0 +1,12 @@
+(library
+ (name p10_minted_labels_substrate)
+ (public_name p10_minted_labels.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml menhirLib))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser)
+ (flags --table))
