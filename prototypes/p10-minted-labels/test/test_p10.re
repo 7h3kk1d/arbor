@@ -846,6 +846,40 @@ let test_label_mints_distinct = () => {
   };
 };
 
+/* Ty.Record hash is canonicalized by sorted label hash. Two records
+   with the same fields in different orders produce the same hash. */
+let test_record_ty_field_order_canonical = () => {
+  let l1 = Label.fresh();
+  let l2 = Label.fresh();
+  let h1 = Label.hash(l1);
+  let h2 = Label.hash(l2);
+  let r_xy = Ty.Record([(h1, Ty.Int), (h2, Ty.String)]);
+  let r_yx = Ty.Record([(h2, Ty.String), (h1, Ty.Int)]);
+  Alcotest.(check(string))(
+    "record field order doesn't affect Ty hash",
+    Ty.hash(r_xy),
+    Ty.hash(r_yx),
+  );
+};
+
+/* Tuple type hashes are arity-sensitive. */
+let test_tuple_ty_arity_distinct = () => {
+  let t2 = Ty.Tuple([Ty.Int, Ty.Int]);
+  let t3 = Ty.Tuple([Ty.Int, Ty.Int, Ty.Int]);
+  if (Ty.hash(t2) == Ty.hash(t3)) {
+    Alcotest.fail("Tuple(2) and Tuple(3) should hash differently");
+  };
+};
+
+/* List type hash is element-sensitive. */
+let test_list_ty_element_distinct = () => {
+  let li = Ty.List(Ty.Int);
+  let lb = Ty.List(Ty.Bool);
+  if (Ty.hash(li) == Ty.hash(lb)) {
+    Alcotest.fail("List Int and List Bool should hash differently");
+  };
+};
+
 /* ==================== Test registration ==================== */
 
 let () =
@@ -1027,6 +1061,21 @@ let () =
             "Label.fresh produces distinct hashes",
             `Quick,
             test_label_mints_distinct,
+          ),
+          Alcotest.test_case(
+            "Ty.Record field order canonicalized",
+            `Quick,
+            test_record_ty_field_order_canonical,
+          ),
+          Alcotest.test_case(
+            "Ty.Tuple arity distinct hashes",
+            `Quick,
+            test_tuple_ty_arity_distinct,
+          ),
+          Alcotest.test_case(
+            "Ty.List element type distinct hashes",
+            `Quick,
+            test_list_ty_element_distinct,
           ),
         ],
       ),

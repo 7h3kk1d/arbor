@@ -80,6 +80,29 @@ let rec surface_ty_of =
         surface_ty_of(~namespace, ~top=false, a),
         surface_ty_of(~namespace, ~top=false, b),
       )
+    | Ty.Tuple(ts) =>
+      Surface_ty.Tuple(
+        List.map(t => surface_ty_of(~namespace, ~top=false, t), ts),
+      )
+    | Ty.Record(fields) =>
+      /* For now, render label hashes as short-prefix strings; a
+         later slice will reverse-resolve them via the namespace. */
+      Surface_ty.Record_decl(
+        List.map(
+          ((h, t)) =>
+            (Hash.short(h), surface_ty_of(~namespace, ~top=false, t)),
+          fields,
+        ),
+      )
+    | Ty.List(t) =>
+      Surface_ty.List(surface_ty_of(~namespace, ~top=false, t))
+    | Ty.Named(h) =>
+      /* Best-effort: if the namespace has a name for this type hash,
+         use it; otherwise fall back to a short-hash placeholder. */
+      switch (Namespace.names_of(namespace, h)) {
+      | [name, ..._] => Surface_ty.Named(name)
+      | [] => Surface_ty.Named(Hash.short(h))
+      }
     }
   };
 };

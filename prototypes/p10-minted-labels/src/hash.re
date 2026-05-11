@@ -10,6 +10,8 @@ let digest_buffer = (buf: Buffer.t): t =>
 
 let equal: (t, t) => bool = String.equal;
 
+let compare: (t, t) => int = String.compare;
+
 let display_prefix = "#";
 
 let to_string = (h: t): string => display_prefix ++ h;

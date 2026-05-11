@@ -93,6 +93,47 @@ let rec resolve_ty =
     let* a' = resolve_ty(~namespace, ~store, a);
     let* b' = resolve_ty(~namespace, ~store, b);
     Ok(Ty.Product(a', b'));
+  | Surface_ty.Tuple(ts) =>
+    let rec all = (acc, ts) =>
+      switch (ts) {
+      | [] => Ok(List.rev(acc))
+      | [t, ...rest] =>
+        let* t' = resolve_ty(~namespace, ~store, t);
+        all([t', ...acc], rest);
+      };
+    let* ts' = all([], ts);
+    Ok(Ty.Tuple(ts'));
+  | Surface_ty.List(t) =>
+    let* t' = resolve_ty(~namespace, ~store, t);
+    Ok(Ty.List(t'));
+  | Surface_ty.Record_decl(fields) =>
+    /* Resolve each (name, ty) pair: the name is looked up in the
+       namespace as a Label; if unbound, mint a fresh Label, bind it
+       to the name, and use its hash. This is the "type-declaration
+       site mints labels" semantics from doc 11. */
+    let resolve_field = (acc, (name, ty)) => {
+      let* acc = acc;
+      let* ty' = resolve_ty(~namespace, ~store, ty);
+      let label_h =
+        switch (Namespace.resolve_query(namespace, name)) {
+        | Ok(h) =>
+          /* Existing binding: reuse (intentional sharing). Caller
+             relies on this being a Label hash; the kind check
+             happens at use sites. */
+          h
+        | Error(_) =>
+          /* Unbound: mint a fresh Label and bind it. */
+          let label = Label.fresh();
+          let h = Store.register_label(store, label);
+          try(Namespace.bind(namespace, ~name, h)) {
+          | _ => ()
+          };
+          h;
+        };
+      Ok([(label_h, ty'), ...acc]);
+    };
+    let* fields_rev = List.fold_left(resolve_field, Ok([]), fields);
+    Ok(Ty.Record(List.rev(fields_rev)));
   | Surface_ty.Named(name) =>
     switch (Namespace.resolve_query(namespace, name)) {
     | Error(Namespace.Unbound) => Error(Unbound_name(name))
@@ -250,6 +291,12 @@ let collect_resolved_names =
     | Surface_ty.Product(a, b) =>
       walk_ty(a);
       walk_ty(b);
+    | Surface_ty.Tuple(ts) => List.iter(walk_ty, ts)
+    | Surface_ty.List(t) => walk_ty(t)
+    | Surface_ty.Record_decl(fields) =>
+      /* Field names that already resolve count as resolved
+         references in the recovered-names list. */
+      List.iter(((name, t)) => { try_resolve(name); walk_ty(t); }, fields)
     };
   let rec walk = (~in_scope, s) =>
     switch (s) {
@@ -311,6 +358,19 @@ let collect_resolved_names_ty =
     | Surface_ty.Product(a, b) =>
       walk(a);
       walk(b);
+    | Surface_ty.Tuple(ts) => List.iter(walk, ts)
+    | Surface_ty.List(t) => walk(t)
+    | Surface_ty.Record_decl(fields) =>
+      List.iter(
+        ((name, t)) => {
+          switch (Namespace.resolve_query(namespace, name)) {
+          | Ok(h) => push(name, h)
+          | Error(_) => ()
+          };
+          walk(t);
+        },
+        fields,
+      )
     };
   walk(surface_ty);
   List.rev(acc^);
