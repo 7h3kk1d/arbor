@@ -253,6 +253,95 @@ let rec resolve_ctx =
       };
     let* args' = resolve_all(args);
     Ok(Ast.Prim_call(id, args'));
+  | Surface_ast.Tuple(items) =>
+    let rec resolve_all = lst =>
+      switch (lst) {
+      | [] => Ok([])
+      | [t, ...rest] =>
+        let* t' = resolve_ctx(~context, ~namespace, ~store, t);
+        let* rest' = resolve_all(rest);
+        Ok([t', ...rest']);
+      };
+    let* items' = resolve_all(items);
+    Ok(Ast.Tuple(items'));
+  | Surface_ast.List_lit(items) =>
+    let rec resolve_all = lst =>
+      switch (lst) {
+      | [] => Ok([])
+      | [t, ...rest] =>
+        let* t' = resolve_ctx(~context, ~namespace, ~store, t);
+        let* rest' = resolve_all(rest);
+        Ok([t', ...rest']);
+      };
+    let* items' = resolve_all(items);
+    Ok(Ast.List_lit(items'));
+  | Surface_ast.Record_lit(fields) =>
+    /* Resolve each field name to a Label hash via the namespace.
+       If the name is unbound, mint a fresh Label and bind it. This
+       gives the "record literal first-use mints a label" UX for
+       record literals when no prior type-declaration introduced
+       the label. */
+    let rec resolve_all = lst =>
+      switch (lst) {
+      | [] => Ok([])
+      | [(name, t), ...rest] =>
+        let label_h =
+          switch (Namespace.resolve_query(namespace, name)) {
+          | Ok(h) => h
+          | Error(_) =>
+            let label = Label.fresh();
+            let h = Store.register_label(store, label);
+            try(Namespace.bind(namespace, ~name, h)) {
+            | _ => ()
+            };
+            h;
+          };
+        let* t' = resolve_ctx(~context, ~namespace, ~store, t);
+        let* rest' = resolve_all(rest);
+        Ok([(label_h, t'), ...rest']);
+      };
+    let* fields' = resolve_all(fields);
+    Ok(Ast.Record_lit(fields'));
+  | Surface_ast.Record_update(target, fields) =>
+    let* target' = resolve_ctx(~context, ~namespace, ~store, target);
+    let rec resolve_all = lst =>
+      switch (lst) {
+      | [] => Ok([])
+      | [(name, t), ...rest] =>
+        let label_h =
+          switch (Namespace.resolve_query(namespace, name)) {
+          | Ok(h) => h
+          | Error(_) =>
+            let label = Label.fresh();
+            let h = Store.register_label(store, label);
+            try(Namespace.bind(namespace, ~name, h)) {
+            | _ => ()
+            };
+            h;
+          };
+        let* t' = resolve_ctx(~context, ~namespace, ~store, t);
+        let* rest' = resolve_all(rest);
+        Ok([(label_h, t'), ...rest']);
+      };
+    let* fields' = resolve_all(fields);
+    Ok(Ast.Record_update(target', fields'));
+  | Surface_ast.Project_field(target, name) =>
+    let* target' = resolve_ctx(~context, ~namespace, ~store, target);
+    let label_h =
+      switch (Namespace.resolve_query(namespace, name)) {
+      | Ok(h) => h
+      | Error(_) =>
+        let label = Label.fresh();
+        let h = Store.register_label(store, label);
+        try(Namespace.bind(namespace, ~name, h)) {
+        | _ => ()
+        };
+        h;
+      };
+    Ok(Ast.Project_field(target', label_h));
+  | Surface_ast.Project_index(target, i) =>
+    let* target' = resolve_ctx(~context, ~namespace, ~store, target);
+    Ok(Ast.Project_index(target', i));
   };
 
 let resolve = (~namespace, ~store, s): result(Ast.t, error) =>
@@ -326,6 +415,30 @@ let collect_resolved_names =
       walk(~in_scope, b);
     | Surface_ast.Fst(a)
     | Surface_ast.Snd(a) => walk(~in_scope, a)
+    | Surface_ast.Tuple(items)
+    | Surface_ast.List_lit(items) =>
+      List.iter(a => walk(~in_scope, a), items)
+    | Surface_ast.Record_lit(fields) =>
+      List.iter(
+        ((name, t)) => {
+          try_resolve(name);
+          walk(~in_scope, t);
+        },
+        fields,
+      )
+    | Surface_ast.Record_update(target, fields) =>
+      walk(~in_scope, target);
+      List.iter(
+        ((name, t)) => {
+          try_resolve(name);
+          walk(~in_scope, t);
+        },
+        fields,
+      );
+    | Surface_ast.Project_field(target, name) =>
+      walk(~in_scope, target);
+      try_resolve(name);
+    | Surface_ast.Project_index(target, _) => walk(~in_scope, target)
     | Surface_ast.Prim(_, args)
     | Surface_ast.Prim_call(_, args) =>
       List.iter(a => walk(~in_scope, a), args)

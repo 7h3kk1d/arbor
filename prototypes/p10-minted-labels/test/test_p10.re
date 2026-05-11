@@ -846,6 +846,133 @@ let test_label_mints_distinct = () => {
   };
 };
 
+/* Tuple round-trip through ingest + reconstruct + eval. Built
+   directly as an Ast.t since the parser doesn't yet recognize tuple
+   syntax. */
+let test_tuple_ast_roundtrip = () => {
+  let (store, _att, _ns) = make_substrate();
+  let ast =
+    Ast.Tuple([
+      Ast.Int_lit(1),
+      Ast.String_lit("hi"),
+      Ast.Bool_lit(true),
+    ]);
+  let h = Store.ingest(store, ast);
+  switch (Store.reconstruct(store, h)) {
+  | Some(Ast.Tuple([
+      Ast.Int_lit(1),
+      Ast.String_lit("hi"),
+      Ast.Bool_lit(true),
+    ])) => ()
+  | _ => Alcotest.fail("tuple did not round-trip")
+  };
+};
+
+/* List_lit round-trip + eval. */
+let test_list_ast_roundtrip = () => {
+  let (store, _att, _ns) = make_substrate();
+  let ast = Ast.List_lit([Ast.Int_lit(1), Ast.Int_lit(2), Ast.Int_lit(3)]);
+  let h = Store.ingest(store, ast);
+  switch (Store.reconstruct(store, h)) {
+  | Some(Ast.List_lit([
+      Ast.Int_lit(1),
+      Ast.Int_lit(2),
+      Ast.Int_lit(3),
+    ])) => ()
+  | _ => Alcotest.fail("list literal did not round-trip")
+  };
+};
+
+/* Record_lit with two minted labels. The labels' identities are part
+   of the canonical encoding, so two different label hashes produce
+   distinct Record_lit hashes even with the same value list. */
+let test_record_lit_label_identity = () => {
+  let (store, _att, _ns) = make_substrate();
+  let l_x = Label.fresh();
+  let l_y = Label.fresh();
+  let xh = Store.register_label(store, l_x);
+  let yh = Store.register_label(store, l_y);
+  let r1 =
+    Store.ingest(
+      store,
+      Ast.Record_lit([(xh, Ast.Int_lit(1)), (yh, Ast.Int_lit(2))]),
+    );
+  let r2 =
+    Store.ingest(
+      store,
+      Ast.Record_lit([(yh, Ast.Int_lit(2)), (xh, Ast.Int_lit(1))]),
+    );
+  /* Field order in the literal must not perturb the hash. */
+  Alcotest.(check(string))(
+    "record literal field order is canonical",
+    r1,
+    r2,
+  );
+};
+
+/* Project_index of a tuple evaluates to the chosen element. */
+let test_project_index_tuple = () => {
+  let (store, att, _ns) = make_substrate();
+  let ast =
+    Ast.Project_index(
+      Ast.Tuple([
+        Ast.Int_lit(10),
+        Ast.Int_lit(20),
+        Ast.Int_lit(30),
+      ]),
+      1,
+    );
+  let h = Store.ingest(store, ast);
+  let v = must_eval(~store, ~att, h);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(20)) => ()
+  | _ => Alcotest.fail("expected Int_lit 20 from tuple index 1")
+  };
+};
+
+/* Project_field on a record evaluates to the chosen field's value. */
+let test_project_field_record = () => {
+  let (store, att, _ns) = make_substrate();
+  let l_x = Label.fresh();
+  let l_y = Label.fresh();
+  let xh = Store.register_label(store, l_x);
+  let yh = Store.register_label(store, l_y);
+  let ast =
+    Ast.Project_field(
+      Ast.Record_lit([(xh, Ast.Int_lit(7)), (yh, Ast.Int_lit(13))]),
+      yh,
+    );
+  let h = Store.ingest(store, ast);
+  let v = must_eval(~store, ~att, h);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(13)) => ()
+  | _ => Alcotest.fail("expected Int_lit 13 from record .y projection")
+  };
+};
+
+/* Record_update replaces matching label-keyed fields and preserves
+   the others. */
+let test_record_update = () => {
+  let (store, att, _ns) = make_substrate();
+  let l_x = Label.fresh();
+  let l_y = Label.fresh();
+  let xh = Store.register_label(store, l_x);
+  let yh = Store.register_label(store, l_y);
+  let original =
+    Ast.Record_lit([(xh, Ast.Int_lit(1)), (yh, Ast.Int_lit(2))]);
+  let updated = Ast.Record_update(original, [(xh, Ast.Int_lit(99))]);
+  let proj_x = Ast.Project_field(updated, xh);
+  let proj_y = Ast.Project_field(updated, yh);
+  let hx = Store.ingest(store, proj_x);
+  let hy = Store.ingest(store, proj_y);
+  let vx = must_eval(~store, ~att, hx);
+  let vy = must_eval(~store, ~att, hy);
+  switch (Store.lookup_term(store, vx), Store.lookup_term(store, vy)) {
+  | (Some(Node.Int_lit(99)), Some(Node.Int_lit(2))) => ()
+  | _ => Alcotest.fail("record update produced wrong values")
+  };
+};
+
 /* Ty.Record hash is canonicalized by sorted label hash. Two records
    with the same fields in different orders produce the same hash. */
 let test_record_ty_field_order_canonical = () => {
@@ -1076,6 +1203,36 @@ let () =
             "Ty.List element type distinct hashes",
             `Quick,
             test_list_ty_element_distinct,
+          ),
+          Alcotest.test_case(
+            "Tuple AST round-trip",
+            `Quick,
+            test_tuple_ast_roundtrip,
+          ),
+          Alcotest.test_case(
+            "List literal AST round-trip",
+            `Quick,
+            test_list_ast_roundtrip,
+          ),
+          Alcotest.test_case(
+            "Record literal canonical by label order",
+            `Quick,
+            test_record_lit_label_identity,
+          ),
+          Alcotest.test_case(
+            "Project_index of tuple evaluates",
+            `Quick,
+            test_project_index_tuple,
+          ),
+          Alcotest.test_case(
+            "Project_field of record evaluates",
+            `Quick,
+            test_project_field_record,
+          ),
+          Alcotest.test_case(
+            "Record_update replaces selected fields",
+            `Quick,
+            test_record_update,
           ),
         ],
       ),

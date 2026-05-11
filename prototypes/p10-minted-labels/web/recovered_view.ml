@@ -118,6 +118,42 @@ let chunks_of_surface (s : Surface_ast.t) : chunk list =
                  List.iter args ~f:(fun a ->
                      push_text " ";
                      walk ~prec:8 a)))
+    | Tuple items ->
+        push_text "(";
+        List.iteri items ~f:(fun i a ->
+            if i > 0 then push_text ", ";
+            walk ~prec:0 a);
+        push_text ")"
+    | List_lit items ->
+        push_text "[";
+        List.iteri items ~f:(fun i a ->
+            if i > 0 then push_text ", ";
+            walk ~prec:0 a);
+        push_text "]"
+    | Record_lit fields ->
+        push_text "{ ";
+        List.iteri fields ~f:(fun i (name, v) ->
+            if i > 0 then push_text ", ";
+            push_text (name ^ " = ");
+            walk ~prec:0 v);
+        push_text " }"
+    | Record_update (target, fields) ->
+        push_text "{ ";
+        walk ~prec:0 target;
+        push_text " with ";
+        List.iteri fields ~f:(fun i (name, v) ->
+            if i > 0 then push_text ", ";
+            push_text (name ^ " = ");
+            walk ~prec:0 v);
+        push_text " }"
+    | Project_field (target, name) ->
+        wrap 8 (fun () ->
+            walk ~prec:8 target;
+            push_text ("." ^ name))
+    | Project_index (target, i) ->
+        wrap 8 (fun () ->
+            walk ~prec:8 target;
+            push_text ("." ^ Int.to_string i))
   in
   walk ~prec:0 s;
   flush ();

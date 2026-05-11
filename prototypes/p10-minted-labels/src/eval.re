@@ -145,6 +145,101 @@ let rec eval_ast = (~budget: budget, t: Ast.t): ast_result =>
     }
   | Ast.Prim(op, args) => eval_prim(~budget, op, args)
   | Ast.Prim_call(id, args) => eval_prim_call(~budget, id, args)
+  | Ast.Tuple(items) =>
+    let rec eval_all = (acc, lst) =>
+      switch (lst) {
+      | [] => NF(Ast.Tuple(List.rev(acc)))
+      | [t, ...rest] =>
+        switch (eval_ast(~budget, t)) {
+        | StuckAst => StuckAst
+        | StepLimAst => StepLimAst
+        | NF(v) => eval_all([v, ...acc], rest)
+        }
+      };
+    eval_all([], items);
+  | Ast.List_lit(items) =>
+    let rec eval_all = (acc, lst) =>
+      switch (lst) {
+      | [] => NF(Ast.List_lit(List.rev(acc)))
+      | [t, ...rest] =>
+        switch (eval_ast(~budget, t)) {
+        | StuckAst => StuckAst
+        | StepLimAst => StepLimAst
+        | NF(v) => eval_all([v, ...acc], rest)
+        }
+      };
+    eval_all([], items);
+  | Ast.Record_lit(fields) =>
+    let rec eval_all = (acc, lst) =>
+      switch (lst) {
+      | [] => NF(Ast.Record_lit(List.rev(acc)))
+      | [(label_h, t), ...rest] =>
+        switch (eval_ast(~budget, t)) {
+        | StuckAst => StuckAst
+        | StepLimAst => StepLimAst
+        | NF(v) => eval_all([(label_h, v), ...acc], rest)
+        }
+      };
+    eval_all([], fields);
+  | Ast.Record_update(target, updates) =>
+    switch (eval_ast(~budget, target)) {
+    | StuckAst => StuckAst
+    | StepLimAst => StepLimAst
+    | NF(Ast.Record_lit(existing)) =>
+      let rec eval_updates = (acc, lst) =>
+        switch (lst) {
+        | [] => NF(Ast.Record_lit(List.rev(acc)))
+        | [(label_h, t), ...rest] =>
+          switch (eval_ast(~budget, t)) {
+          | StuckAst => StuckAst
+          | StepLimAst => StepLimAst
+          | NF(v) => eval_updates([(label_h, v), ...acc], rest)
+          }
+        };
+      switch (eval_updates([], updates)) {
+      | NF(Ast.Record_lit(updated)) =>
+        /* Merge: for each label in existing, if updated has it, use
+           the new value; otherwise keep the old. */
+        let merged =
+          List.map(
+            ((label_h, old_v)) =>
+              switch (List.assoc_opt(label_h, updated)) {
+              | Some(new_v) => (label_h, new_v)
+              | None => (label_h, old_v)
+              },
+            existing,
+          );
+        NF(Ast.Record_lit(merged));
+      | other => other
+      };
+    | NF(_) => StuckAst
+    }
+  | Ast.Project_field(target, label_h) =>
+    switch (eval_ast(~budget, target)) {
+    | StuckAst => StuckAst
+    | StepLimAst => StepLimAst
+    | NF(Ast.Record_lit(fields)) =>
+      switch (List.assoc_opt(label_h, fields)) {
+      | Some(v) => NF(v)
+      | None => StuckAst
+      }
+    | NF(_) => StuckAst
+    }
+  | Ast.Project_index(target, i) =>
+    switch (eval_ast(~budget, target)) {
+    | StuckAst => StuckAst
+    | StepLimAst => StepLimAst
+    | NF(Ast.Tuple(items)) =>
+      switch (List.nth_opt(items, i)) {
+      | Some(v) => NF(v)
+      | None => StuckAst
+      }
+    /* Allow projecting from a binary Pair via index 0/1 as a
+       transitional kindness. */
+    | NF(Ast.Pair(a, _)) when i == 0 => NF(a)
+    | NF(Ast.Pair(_, b)) when i == 1 => NF(b)
+    | NF(_) => StuckAst
+    }
   }
 
 and eval_prim_call =

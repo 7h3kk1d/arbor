@@ -126,6 +126,123 @@ let rec synth =
     };
   | Ast.Prim(op, args) => synth_prim(~ctx, op, args)
   | Ast.Prim_call(id, args) => synth_prim_call(~ctx, id, args)
+  | Ast.Tuple(items) =>
+    let rec synth_all = (acc_ty, acc_holes, lst) =>
+      switch (lst) {
+      | [] => Ok((Ty.Tuple(List.rev(acc_ty)), acc_holes))
+      | [t, ...rest] =>
+        let* (t_ty, t_holes) = synth(~ctx, t);
+        synth_all([t_ty, ...acc_ty], acc_holes || t_holes, rest);
+      };
+    synth_all([], false, items);
+  | Ast.List_lit([]) =>
+    /* Empty list with no context — best-guess Int element. */
+    Ok((Ty.List(Ty.Int), true))
+  | Ast.List_lit([first, ...rest]) =>
+    let* (first_ty, first_holes) = synth(~ctx, first);
+    let rec check_rest = (holes, lst) =>
+      switch (lst) {
+      | [] => Ok(holes)
+      | [t, ...rest] =>
+        let* t_holes = check(~ctx, t, first_ty);
+        check_rest(holes || t_holes, rest);
+      };
+    let* rest_holes = check_rest(false, rest);
+    Ok((Ty.List(first_ty), first_holes || rest_holes));
+  | Ast.Record_lit(fields) =>
+    let rec synth_all = (acc_ty, acc_holes, lst) =>
+      switch (lst) {
+      | [] => Ok((Ty.Record(List.rev(acc_ty)), acc_holes))
+      | [(label_h, t), ...rest] =>
+        let* (t_ty, t_holes) = synth(~ctx, t);
+        synth_all([(label_h, t_ty), ...acc_ty], acc_holes || t_holes, rest);
+      };
+    synth_all([], false, fields);
+  | Ast.Record_update(target, updates) =>
+    let* (target_ty, target_holes) = synth(~ctx, target);
+    switch (target_ty) {
+    | Ty.Record(existing_fields) =>
+      let rec check_updates = (holes, lst) =>
+        switch (lst) {
+        | [] => Ok(holes)
+        | [(label_h, t), ...rest] =>
+          switch (List.assoc_opt(label_h, existing_fields)) {
+          | None =>
+            if (target_holes) {
+              /* Permissive: holes may yet make this make sense. */
+              let* (_, t_holes) = synth(~ctx, t);
+              check_updates(holes || t_holes || true, rest);
+            } else {
+              Error(
+                "record update: label "
+                ++ Hash.short(label_h)
+                ++ " not in target record",
+              );
+            }
+          | Some(expected) =>
+            let* t_holes = check(~ctx, t, expected);
+            check_updates(holes || t_holes, rest);
+          }
+        };
+      let* update_holes = check_updates(false, updates);
+      Ok((target_ty, target_holes || update_holes));
+    | _ when target_holes => Ok((Ty.Int, true))
+    | _ =>
+      Error(
+        "record update: target has type "
+        ++ Ty.print(target_ty)
+        ++ " which is not a record",
+      )
+    };
+  | Ast.Project_field(target, label_h) =>
+    let* (target_ty, target_holes) = synth(~ctx, target);
+    switch (target_ty) {
+    | Ty.Record(fields) =>
+      switch (List.assoc_opt(label_h, fields)) {
+      | Some(ty) => Ok((ty, target_holes))
+      | None when target_holes => Ok((Ty.Int, true))
+      | None =>
+        Error(
+          "field projection: label "
+          ++ Hash.short(label_h)
+          ++ " not in record type "
+          ++ Ty.print(target_ty),
+        )
+      }
+    | _ when target_holes => Ok((Ty.Int, true))
+    | _ =>
+      Error(
+        "field projection: target has type "
+        ++ Ty.print(target_ty)
+        ++ " which is not a record",
+      )
+    };
+  | Ast.Project_index(target, i) =>
+    let* (target_ty, target_holes) = synth(~ctx, target);
+    switch (target_ty) {
+    | Ty.Tuple(items) =>
+      switch (List.nth_opt(items, i)) {
+      | Some(ty) => Ok((ty, target_holes))
+      | None when target_holes => Ok((Ty.Int, true))
+      | None =>
+        Error(
+          "tuple index "
+          ++ string_of_int(i)
+          ++ " out of bounds for "
+          ++ Ty.print(target_ty),
+        )
+      }
+    /* Transitional: also accept binary Product when i is 0 or 1. */
+    | Ty.Product(a, _) when i == 0 => Ok((a, target_holes))
+    | Ty.Product(_, b) when i == 1 => Ok((b, target_holes))
+    | _ when target_holes => Ok((Ty.Int, true))
+    | _ =>
+      Error(
+        "tuple index: target has type "
+        ++ Ty.print(target_ty)
+        ++ " which is not a tuple",
+      )
+    };
   }
 
 and synth_prim_call =

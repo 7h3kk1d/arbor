@@ -173,6 +173,27 @@ let rec ingest = (store: t, ast: Ast.t): Hash.t =>
   | Ast.Prim_call(id, args) =>
     let arg_hashes = List.map(t => ingest(store, t), args);
     register_term(store, Node.Prim_call(id, arg_hashes));
+  | Ast.Tuple(items) =>
+    let item_hashes = List.map(t => ingest(store, t), items);
+    register_term(store, Node.Tuple(item_hashes));
+  | Ast.List_lit(items) =>
+    let item_hashes = List.map(t => ingest(store, t), items);
+    register_term(store, Node.List_lit(item_hashes));
+  | Ast.Record_lit(fields) =>
+    let field_hashes =
+      List.map(((label_h, t)) => (label_h, ingest(store, t)), fields);
+    register_term(store, Node.Record_lit(field_hashes));
+  | Ast.Record_update(target, fields) =>
+    let target_h = ingest(store, target);
+    let field_hashes =
+      List.map(((label_h, t)) => (label_h, ingest(store, t)), fields);
+    register_term(store, Node.Record_update(target_h, field_hashes));
+  | Ast.Project_field(target, label_h) =>
+    let target_h = ingest(store, target);
+    register_term(store, Node.Project_field(target_h, label_h));
+  | Ast.Project_index(target, i) =>
+    let target_h = ingest(store, target);
+    register_term(store, Node.Project_index(target_h, i));
   };
 
 /* Reconstruct follows Named wrappers transparently — callers asking
@@ -247,5 +268,66 @@ let rec reconstruct = (store: t, h: Hash.t): option(Ast.t) =>
           }
         };
       Option.map(args' => Ast.Prim_call(id, args'), rec_all(args));
+    | Node.Tuple(items) =>
+      let rec rec_all = items =>
+        switch (items) {
+        | [] => Some([])
+        | [h, ...rest] =>
+          switch (reconstruct(store, h), rec_all(rest)) {
+          | (Some(a), Some(rest')) => Some([a, ...rest'])
+          | _ => None
+          }
+        };
+      Option.map(items' => Ast.Tuple(items'), rec_all(items));
+    | Node.List_lit(items) =>
+      let rec rec_all = items =>
+        switch (items) {
+        | [] => Some([])
+        | [h, ...rest] =>
+          switch (reconstruct(store, h), rec_all(rest)) {
+          | (Some(a), Some(rest')) => Some([a, ...rest'])
+          | _ => None
+          }
+        };
+      Option.map(items' => Ast.List_lit(items'), rec_all(items));
+    | Node.Record_lit(fields) =>
+      let rec rec_all = fields =>
+        switch (fields) {
+        | [] => Some([])
+        | [(label_h, value_h), ...rest] =>
+          switch (reconstruct(store, value_h), rec_all(rest)) {
+          | (Some(v), Some(rest')) => Some([(label_h, v), ...rest'])
+          | _ => None
+          }
+        };
+      Option.map(fields' => Ast.Record_lit(fields'), rec_all(fields));
+    | Node.Record_update(target, fields) =>
+      switch (reconstruct(store, target)) {
+      | None => None
+      | Some(target') =>
+        let rec rec_all = fields =>
+          switch (fields) {
+          | [] => Some([])
+          | [(label_h, value_h), ...rest] =>
+            switch (reconstruct(store, value_h), rec_all(rest)) {
+            | (Some(v), Some(rest')) => Some([(label_h, v), ...rest'])
+            | _ => None
+            }
+          };
+        Option.map(
+          fields' => Ast.Record_update(target', fields'),
+          rec_all(fields),
+        );
+      }
+    | Node.Project_field(target, label_h) =>
+      Option.map(
+        t' => Ast.Project_field(t', label_h),
+        reconstruct(store, target),
+      )
+    | Node.Project_index(target, i) =>
+      Option.map(
+        t' => Ast.Project_index(t', i),
+        reconstruct(store, target),
+      )
     }
   };

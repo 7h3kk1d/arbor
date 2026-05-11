@@ -241,6 +241,114 @@ let rec surface_of_hash_ctx =
           args,
         ),
       )
+    | Some(Node.Tuple(items)) =>
+      Surface_ast.Tuple(
+        List.map(
+          h' =>
+            surface_of_hash_ctx(
+              ~namespace,
+              ~store,
+              ~in_scope,
+              ~top=false,
+              h',
+            ),
+          items,
+        ),
+      )
+    | Some(Node.List_lit(items)) =>
+      Surface_ast.List_lit(
+        List.map(
+          h' =>
+            surface_of_hash_ctx(
+              ~namespace,
+              ~store,
+              ~in_scope,
+              ~top=false,
+              h',
+            ),
+          items,
+        ),
+      )
+    | Some(Node.Record_lit(fields)) =>
+      Surface_ast.Record_lit(
+        List.map(
+          ((label_h, value_h)) => {
+            let name =
+              switch (Namespace.names_of(namespace, label_h)) {
+              | [n, ..._] => n
+              | [] => Hash.short(label_h)
+              };
+            (
+              name,
+              surface_of_hash_ctx(
+                ~namespace,
+                ~store,
+                ~in_scope,
+                ~top=false,
+                value_h,
+              ),
+            );
+          },
+          fields,
+        ),
+      )
+    | Some(Node.Record_update(target, fields)) =>
+      Surface_ast.Record_update(
+        surface_of_hash_ctx(
+          ~namespace,
+          ~store,
+          ~in_scope,
+          ~top=false,
+          target,
+        ),
+        List.map(
+          ((label_h, value_h)) => {
+            let name =
+              switch (Namespace.names_of(namespace, label_h)) {
+              | [n, ..._] => n
+              | [] => Hash.short(label_h)
+              };
+            (
+              name,
+              surface_of_hash_ctx(
+                ~namespace,
+                ~store,
+                ~in_scope,
+                ~top=false,
+                value_h,
+              ),
+            );
+          },
+          fields,
+        ),
+      )
+    | Some(Node.Project_field(target, label_h)) =>
+      let name =
+        switch (Namespace.names_of(namespace, label_h)) {
+        | [n, ..._] => n
+        | [] => Hash.short(label_h)
+        };
+      Surface_ast.Project_field(
+        surface_of_hash_ctx(
+          ~namespace,
+          ~store,
+          ~in_scope,
+          ~top=false,
+          target,
+        ),
+        name,
+      );
+    | Some(Node.Project_index(target, i)) =>
+      Surface_ast.Project_index(
+        surface_of_hash_ctx(
+          ~namespace,
+          ~store,
+          ~in_scope,
+          ~top=false,
+          target,
+        ),
+        i,
+      )
     };
   };
 };
@@ -348,12 +456,7 @@ let rec print_prec = (~prec: int, s: Surface_ast.t): string => {
     wrap(7, Surface_ast.prim_op_to_string(op) ++ " " ++ arg_str);
   | Surface_ast.Prim_call(id, args) =>
     /* Display-only: primitives have no surface syntax, so this form
-       cannot round-trip through the parser. Rendered as `#<id> a b
-       c` so the user can see which built-in is being invoked when
-       inspecting the body of a primitive's wrapping Lam. The leading
-       `#` and the colons inside the id make this easy to recognize
-       as a primitive reference and impossible to confuse with a
-       regular IDENT. */
+       cannot round-trip through the parser. */
     switch (args) {
     | [] => wrap(8, "#" ++ id)
     | _ =>
@@ -361,6 +464,40 @@ let rec print_prec = (~prec: int, s: Surface_ast.t): string => {
         List.map(a => print_prec(~prec=8, a), args) |> String.concat(" ");
       wrap(7, "#" ++ id ++ " " ++ arg_str);
     }
+  | Surface_ast.Tuple(items) =>
+    "("
+    ++ (List.map(a => print_prec(~prec=0, a), items) |> String.concat(", "))
+    ++ ")"
+  | Surface_ast.List_lit(items) =>
+    "["
+    ++ (List.map(a => print_prec(~prec=0, a), items) |> String.concat(", "))
+    ++ "]"
+  | Surface_ast.Record_lit(fields) =>
+    "{ "
+    ++ (
+      List.map(
+        ((name, v)) => name ++ " = " ++ print_prec(~prec=0, v),
+        fields,
+      )
+      |> String.concat(", ")
+    )
+    ++ " }"
+  | Surface_ast.Record_update(target, fields) =>
+    "{ "
+    ++ print_prec(~prec=0, target)
+    ++ " with "
+    ++ (
+      List.map(
+        ((name, v)) => name ++ " = " ++ print_prec(~prec=0, v),
+        fields,
+      )
+      |> String.concat(", ")
+    )
+    ++ " }"
+  | Surface_ast.Project_field(target, name) =>
+    wrap(8, print_prec(~prec=8, target) ++ "." ++ name)
+  | Surface_ast.Project_index(target, i) =>
+    wrap(8, print_prec(~prec=8, target) ++ "." ++ string_of_int(i))
   };
 };
 

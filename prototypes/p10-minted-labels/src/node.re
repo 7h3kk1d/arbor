@@ -34,6 +34,12 @@ type t =
   | Pair(Hash.t, Hash.t)
   | Fst(Hash.t)
   | Snd(Hash.t)
+  | Tuple(list(Hash.t))              /* p10: n-ary positional */
+  | List_lit(list(Hash.t))            /* p10: [a, b, c] */
+  | Record_lit(list((Hash.t /* label */, Hash.t /* value */)))
+  | Record_update(Hash.t /* target */, list((Hash.t, Hash.t)))
+  | Project_field(Hash.t /* target */, Hash.t /* label */)
+  | Project_index(Hash.t /* target */, int)
   | Prim(Surface_ast.prim_op, list(Hash.t))
   | Prim_call(string /* primitive id */, list(Hash.t))
   | Hole;
@@ -54,6 +60,12 @@ let tag_snd = '\x0b';
 let tag_prim = '\x0c';
 let tag_hole = '\x0d';
 let tag_prim_call = '\x0e';
+let tag_tuple = '\x0f';
+let tag_list_lit = '\x10';
+let tag_record_lit = '\x11';
+let tag_record_update = '\x12';
+let tag_project_field = '\x13';
+let tag_project_index = '\x14';
 
 let prim_tag =
   fun
@@ -143,6 +155,51 @@ let encode = (buf: Buffer.t, node: t): unit => {
     encode_string(buf, id);
     encode_int64(buf, List.length(args));
     List.iter(write_child, args);
+  | Tuple(items) =>
+    Buffer.add_char(buf, tag_tuple);
+    encode_int64(buf, List.length(items));
+    List.iter(write_child, items);
+  | List_lit(items) =>
+    Buffer.add_char(buf, tag_list_lit);
+    encode_int64(buf, List.length(items));
+    List.iter(write_child, items);
+  | Record_lit(fields) =>
+    /* Canonical encoding: sort fields by label hash so literal-order
+       doesn't perturb the resulting hash. */
+    let sorted =
+      List.sort(((h1, _), (h2, _)) => Hash.compare(h1, h2), fields);
+    Buffer.add_char(buf, tag_record_lit);
+    encode_int64(buf, List.length(sorted));
+    List.iter(
+      ((label_h, value_h)) => {
+        write_child(label_h);
+        write_child(value_h);
+      },
+      sorted,
+    );
+  | Record_update(target, fields) =>
+    /* Sort fields by label hash for canonical form. The target is
+       written first since its hash is independent of label order. */
+    let sorted =
+      List.sort(((h1, _), (h2, _)) => Hash.compare(h1, h2), fields);
+    Buffer.add_char(buf, tag_record_update);
+    write_child(target);
+    encode_int64(buf, List.length(sorted));
+    List.iter(
+      ((label_h, value_h)) => {
+        write_child(label_h);
+        write_child(value_h);
+      },
+      sorted,
+    );
+  | Project_field(target, label_h) =>
+    Buffer.add_char(buf, tag_project_field);
+    write_child(target);
+    write_child(label_h);
+  | Project_index(target, i) =>
+    Buffer.add_char(buf, tag_project_index);
+    write_child(target);
+    encode_int64(buf, i);
   | Hole => Buffer.add_char(buf, tag_hole)
   };
 };
@@ -172,6 +229,16 @@ let children = (node: t): list(Hash.t) =>
   | Let(a, b)
   | Pair(a, b) => [a, b]
   | If(a, b, c) => [a, b, c]
+  | Tuple(items)
+  | List_lit(items) => items
+  | Record_lit(fields) =>
+    /* Label children are themselves stored Definitions (Labels) and
+       are part of the DAG, so they count. */
+    List.concat_map(((l, v)) => [l, v], fields)
+  | Record_update(target, fields) =>
+    [target, ...List.concat_map(((l, v)) => [l, v], fields)]
+  | Project_field(target, label_h) => [target, label_h]
+  | Project_index(target, _) => [target]
   | Prim(_, args)
   | Prim_call(_, args) => args
   };
@@ -183,4 +250,7 @@ let is_value =
   | Bool_lit(_)
   | String_lit(_) => true
   | Pair(_, _) => true
+  | Tuple(_) => true
+  | List_lit(_) => true
+  | Record_lit(_) => true
   | _ => false;

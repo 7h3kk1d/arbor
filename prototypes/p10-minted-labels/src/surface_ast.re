@@ -40,6 +40,12 @@ type t =
   | Pair(t, t)
   | Fst(t)
   | Snd(t)
+  | Tuple(list(t))             /* (a, b, c) — n-ary, p10 */
+  | List_lit(list(t))           /* [a, b, c] — p10 */
+  | Record_lit(list((string, t)))  /* { x = a, y = b } — p10; labels resolve */
+  | Record_update(t, list((string, t)))  /* { p with x = a } — p10 */
+  | Project_field(t, string)    /* p.x — p10 */
+  | Project_index(t, int)       /* p.0 — p10 */
   | Prim(prim_op, list(t))
   | Prim_call(string /* primitive id */, list(t))
   | Hole;
@@ -73,6 +79,16 @@ let rec count_holes = (t: t): int =>
   | Pair(a, b) => count_holes(a) + count_holes(b)
   | Fst(a)
   | Snd(a) => count_holes(a)
+  | Tuple(ts)
+  | List_lit(ts) =>
+    List.fold_left((acc, t) => acc + count_holes(t), 0, ts)
+  | Record_lit(fields) =>
+    List.fold_left((acc, (_, t)) => acc + count_holes(t), 0, fields)
+  | Record_update(target, fields) =>
+    count_holes(target)
+    + List.fold_left((acc, (_, t)) => acc + count_holes(t), 0, fields)
+  | Project_field(t, _) => count_holes(t)
+  | Project_index(t, _) => count_holes(t)
   | Prim(_, args)
   | Prim_call(_, args) =>
     List.fold_left((acc, a) => acc + count_holes(a), 0, args)

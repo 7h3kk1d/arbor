@@ -21,6 +21,12 @@ type t =
   | Pair(t, t)
   | Fst(t)
   | Snd(t)
+  | Tuple(list(t))              /* (a, b, c) — p10 */
+  | List_lit(list(t))            /* [a, b, c] — p10 */
+  | Record_lit(list((Hash.t, t)))   /* { x = a, … }, x resolved to label hash */
+  | Record_update(t, list((Hash.t, t)))   /* { p with x = a, … } */
+  | Project_field(t, Hash.t)     /* p.x — label-hash-keyed */
+  | Project_index(t, int)        /* p.0 — positional */
   | Prim(Surface_ast.prim_op, list(t))
   | Prim_call(string /* primitive id */, list(t))
   | Hole;
@@ -57,6 +63,28 @@ let rec max_free_index = (~depth: int=0, t: t): option(int) => {
     mix(max_free_index(~depth, a), max_free_index(~depth, b))
   | Fst(a)
   | Snd(a) => max_free_index(~depth, a)
+  | Tuple(ts)
+  | List_lit(ts) =>
+    List.fold_left(
+      (acc, t') => mix(acc, max_free_index(~depth, t')),
+      None,
+      ts,
+    )
+  | Record_lit(fields) =>
+    List.fold_left(
+      (acc, (_, t')) => mix(acc, max_free_index(~depth, t')),
+      None,
+      fields,
+    )
+  | Record_update(target, fields) =>
+    let target_max = max_free_index(~depth, target);
+    List.fold_left(
+      (acc, (_, t')) => mix(acc, max_free_index(~depth, t')),
+      target_max,
+      fields,
+    );
+  | Project_field(t', _) => max_free_index(~depth, t')
+  | Project_index(t', _) => max_free_index(~depth, t')
   | Prim(_, args)
   | Prim_call(_, args) =>
     List.fold_left(
@@ -99,6 +127,17 @@ let rec shift = (~cutoff: int, ~by: int, t: t): t =>
   | Pair(a, b) => Pair(shift(~cutoff, ~by, a), shift(~cutoff, ~by, b))
   | Fst(a) => Fst(shift(~cutoff, ~by, a))
   | Snd(a) => Snd(shift(~cutoff, ~by, a))
+  | Tuple(ts) => Tuple(List.map(t' => shift(~cutoff, ~by, t'), ts))
+  | List_lit(ts) => List_lit(List.map(t' => shift(~cutoff, ~by, t'), ts))
+  | Record_lit(fields) =>
+    Record_lit(List.map(((h, t')) => (h, shift(~cutoff, ~by, t')), fields))
+  | Record_update(target, fields) =>
+    Record_update(
+      shift(~cutoff, ~by, target),
+      List.map(((h, t')) => (h, shift(~cutoff, ~by, t')), fields),
+    )
+  | Project_field(t', h) => Project_field(shift(~cutoff, ~by, t'), h)
+  | Project_index(t', i) => Project_index(shift(~cutoff, ~by, t'), i)
   | Prim(op, args) =>
     Prim(op, List.map(t' => shift(~cutoff, ~by, t'), args))
   | Prim_call(id, args) =>
@@ -126,6 +165,17 @@ let rec subst = (~j: int, ~s: t, t: t): t =>
   | Pair(a, b) => Pair(subst(~j, ~s, a), subst(~j, ~s, b))
   | Fst(a) => Fst(subst(~j, ~s, a))
   | Snd(a) => Snd(subst(~j, ~s, a))
+  | Tuple(ts) => Tuple(List.map(t' => subst(~j, ~s, t'), ts))
+  | List_lit(ts) => List_lit(List.map(t' => subst(~j, ~s, t'), ts))
+  | Record_lit(fields) =>
+    Record_lit(List.map(((h, t')) => (h, subst(~j, ~s, t')), fields))
+  | Record_update(target, fields) =>
+    Record_update(
+      subst(~j, ~s, target),
+      List.map(((h, t')) => (h, subst(~j, ~s, t')), fields),
+    )
+  | Project_field(t', h) => Project_field(subst(~j, ~s, t'), h)
+  | Project_index(t', i) => Project_index(subst(~j, ~s, t'), i)
   | Prim(op, args) =>
     Prim(op, List.map(t' => subst(~j, ~s, t'), args))
   | Prim_call(id, args) =>
