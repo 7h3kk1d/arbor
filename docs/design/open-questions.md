@@ -70,6 +70,16 @@ Still open:
 - **Notebooks.** Interface mode interleaving text cells and program cells. Minimum: a text cell (free prose), a binding cell (sets a name → hash, like the current editor), and an eval cell (evaluates an expression and shows output). Open: is a notebook itself a content-addressed artifact; how are cells ordered; what is the re-evaluation granularity when an upstream binding changes; does a binding cell publish to the global namespace, a notebook-scoped namespace, or both?
 - **Editing context.** A "checked-out context" — a set of bindings the user is treating as simultaneously in-flight before any are committed to the namespace. Live display (type feedback, evaluation, probes) assumes all checked-out bindings are updated together atomically. Enables co-dependent edits: if `f` calls `g` and both change together, both type-check against each other's new definitions. Open: what is the granularity of a context; how does committing work; how does the UI surface context vs. committed state; relationship to a notebook's cell scope; relationship to Grove-style collaborative editing.
 
+## Minted identity
+
+Sharpened in `10-minted-identity.md`.
+
+- **Per-definition vs. per-language opt-in.** Unison-style `unique` per definition, a language-wide declaration that all its definitions are minted, or both with the per-language default overridable per-definition.
+- **Marks across content edits.** Whether a mint mark dies with its hash (blocks coincidental collapsing, nothing more) or survives edits (gives the substrate a second identity axis and a home for editing history / update propagation). Entangled with the Grove direction in `07-hazel-substrate.md`.
+- **How marks are minted.** Random UID, monotonic counter, content-derived from creation context, something else. Affects reproducibility under re-ingest and import.
+- **Where the mint mark lives in `Definition.t`.** First-class field with a sentinel for structural, a separate constructor, or an aspect with a hash-stable contract.
+- **Interface surfacing.** Badge, color, nothing — bound up with the editing gesture in the per-definition reading.
+
 ## Roadmap
 
 Feeds from `09-roadmap.md`.

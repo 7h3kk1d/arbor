@@ -92,7 +92,7 @@ The thread is whether to promote types to first-class content-addressed objects.
 
 Pascal/Haskell-style type aliases are usually a separate language feature — `type` declarations, transparent expansion, scope rules of their own. If types are content-addressed *and* the namespace already binds names to hashes, an alias is just multiple names binding the same type hash, with the same semantics names already have for terms. `type Vector = Int -> Int -> Int` becomes a namespace bind; two names pointing at the same type hash are aliases by content, not by lookup-chasing.
 
-Newtypes (distinct identity for an isomorphic carrier) remain a separate concept: they require the type-language to introduce a constructor that produces a *different* hash from its inner type. Alias vs. newtype thus becomes a type-language design choice, not a substrate one — the substrate doesn't need to know which it is.
+Newtypes (distinct identity for an isomorphic carrier) remain a separate concept: they require the type-language to introduce a constructor that produces a *different* hash from its inner type. Alias vs. newtype thus becomes a type-language design choice, not a substrate one — the substrate doesn't need to know which it is. The substrate-level generalization of the newtype maneuver — opt-in opaque identity stamped into the canonical form for any definition, not just types — is sharpened in `10-minted-identity.md` as *minted identity*.
 
 #### What's open
 
@@ -123,3 +123,4 @@ Tracked in `open-questions.md` under "Content addressing."
 - **Holes and incomplete programs.** If the substrate eventually hashes incomplete programs (Hazel-style editing workflows), how do holes participate in the canonical form? Unique hole identities, wildcards that make hash matching a subsumption relation, or something else?
 - **Cross-version primitive aliasing.** If `int:add:v1` and `int:add:v2` differ only cosmetically, callers of v1 are orphaned. Is there an aliasing story, or is this just accepted cost of the manual-version discipline?
 - **Hashing types as well as terms.** Whether to promote types to first-class content-addressed objects — making type aliasing a free consequence of the namespace and changing how type-valued aspects are shaped. Sharpened above under *Threads under exploration*.
+- **Minted identity.** Whether definitions can opt into an opaque, non-stringly-typed identity stamped into their canonical form, so coincidentally-equal structural twins do not deduplicate and the substrate has a stable handle for editing history and update propagation. Sharpened in `10-minted-identity.md`.
