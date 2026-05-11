@@ -57,7 +57,8 @@ let term_entries = (store: t): list((Hash.t, Node.t)) =>
     (h, def, acc) =>
       switch (def) {
       | Definition.Term(n) => [(h, n), ...acc]
-      | Definition.Type(_) => acc
+      | Definition.Type(_)
+      | Definition.Label(_) => acc
       },
     store,
     [],
@@ -116,7 +117,8 @@ let rec ingest = (store: t, ast: Ast.t): Hash.t =>
 let rec reconstruct = (store: t, h: Hash.t): option(Ast.t) =>
   switch (lookup(store, h)) {
   | None
-  | Some(Definition.Type(_)) => None
+  | Some(Definition.Type(_))
+  | Some(Definition.Label(_)) => None
   | Some(Definition.Term(node)) =>
     switch (node) {
     | Node.Var(k) => Some(Ast.Var(k))

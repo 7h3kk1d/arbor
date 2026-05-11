@@ -14,7 +14,7 @@ let procedure_id: Attachment.procedure_id = "has-holes:v1";
 let descriptor: Attachment.descriptor = {
   id: aspect_id,
   disposition: Attachment.Derived,
-  languages: ["p9"],
+  languages: ["p10"],
 };
 
 let peek_cache = (att: Attachment.t, h: Hash.t): option(bool) =>

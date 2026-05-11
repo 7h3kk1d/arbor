@@ -40,9 +40,10 @@ let rec encode = (buf: Buffer.t, ty: t): unit =>
 
 let hash = (ty: t): Hash.t => {
   let buf = Buffer.create(8);
-  /* Distinctive prefix so Ty hashes cannot collide with Definition hashes
-     (which start with the language tag byte 'P'). */
-  Buffer.add_char(buf, 'T');
+  /* Distinctive prefix so Ty hashes cannot collide with Term hashes
+     (which start with the language tag byte 'Q'). 'U' is one byte
+     past 'T' — same idea as p9, distinct space. */
+  Buffer.add_char(buf, 'U');
   encode(buf, canonicalize(ty));
   Hash.digest_buffer(buf);
 };

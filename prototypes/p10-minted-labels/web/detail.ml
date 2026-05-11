@@ -17,6 +17,7 @@ let render_for_hash
     match kind with
     | Some Definition.Type_kind -> "type"
     | Some Definition.Term_kind -> "term"
+    | Some Definition.Label_kind -> "label"
     | None -> "?"
   in
   let names = Namespace.names_of ns h in

@@ -2,9 +2,9 @@
    Hash.t references; the full tree is reconstructed by walking the Store.
    Node owns its own deterministic encoding and the hash-of-node primitive.
 
-   Language tag byte is 'P' (0x50) — single language for p9, but kept as
-   a prefix for hash-space hygiene against other prototypes that may
-   share the encoding by accident.
+   Language tag byte is 'Q' (0x51) in p10 — distinct from p9's 'P' so the
+   two prototypes' hash spaces don't accidentally overlap. Single
+   language for p10 still, but the prefix gives us room.
 
    Lam carries a type *hash* rather than an inline Ty.t. The Store
    registers the lambda's parameter type as a `Definition.Type` first
@@ -15,8 +15,8 @@
    `\x: Int -> Int. body`.
 
    Hole is a leaf with no payload. Its hash is the constant
-   BLAKE2B('P' ++ tag_hole) — every hole in the Store collides on that
-   one entry, just as in p8.
+   BLAKE2B('Q' ++ tag_hole) — every hole in the Store collides on that
+   one entry, just as in p9.
 
    Tag bytes are stable: do not renumber without invalidating every
    stored hash. */
@@ -38,7 +38,7 @@ type t =
   | Prim_call(string /* primitive id */, list(Hash.t))
   | Hole;
 
-let language_tag = 'P';
+let language_tag = 'Q';
 
 let tag_var = '\x01';
 let tag_int_lit = '\x02';

@@ -110,6 +110,14 @@ let rec resolve_ty =
             got: Definition.Term_kind,
           }),
         )
+      | Some(Definition.Label(_)) =>
+        Error(
+          Kind_mismatch({
+            name,
+            expected: Definition.Type_kind,
+            got: Definition.Label_kind,
+          }),
+        )
       }
     }
   };
@@ -140,6 +148,14 @@ let rec resolve_ctx =
               name,
               expected: Definition.Term_kind,
               got: Definition.Type_kind,
+            }),
+          )
+        | Some(Definition.Label(_)) =>
+          Error(
+            Kind_mismatch({
+              name,
+              expected: Definition.Term_kind,
+              got: Definition.Label_kind,
             }),
           )
         | Some(Definition.Term(_)) =>

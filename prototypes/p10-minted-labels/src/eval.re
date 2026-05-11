@@ -18,7 +18,7 @@ let procedure_id: Attachment.procedure_id = "eval:v1";
 let descriptor: Attachment.descriptor = {
   id: aspect_id,
   disposition: Attachment.Derived,
-  languages: ["p9"],
+  languages: ["p10"],
 };
 
 type result =

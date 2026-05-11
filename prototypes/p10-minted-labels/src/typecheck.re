@@ -37,7 +37,7 @@ let procedure_id: Attachment.procedure_id = "typecheck:v1";
 let descriptor: Attachment.descriptor = {
   id: aspect_id,
   disposition: Attachment.Derived,
-  languages: ["p9"],
+  languages: ["p10"],
 };
 
 type check_result =
