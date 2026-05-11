@@ -40,10 +40,12 @@ let upper_start = ['A'-'Z']
 let ident_cont  = ['a'-'z' 'A'-'Z' '0'-'9' '_']
 let lower_ident = lower_start ident_cont*
 let upper_ident = upper_start ident_cont*
-(* Dotted segments may start with either case — `alias.IntEndo`
-   should lex as one IDENT, not three tokens. Keyword rules (above
-   the IDENT rules) still win for bare keyword strings via
-   first-listed-on-tie. *)
+(* p10 disambiguation: a Capitalized leading segment makes the whole
+   dotted name one IDENT (namespace path; can have lowercase tail
+   segments like `Math.add` or further capitalized like
+   `Geom.Point`). A lowercase leading segment does NOT fuse across
+   dots, so `p.x` lexes as IDENT-DOT-IDENT (field projection) and
+   `p.0` lexes as IDENT-DOT-INT_LIT (tuple index). *)
 let any_ident   = (lower_start | upper_start) ident_cont*
 let digit = ['0'-'9']
 
@@ -63,13 +65,16 @@ rule token = parse
   | "not"           { NOT }
   | "mul"           { MUL_KW }
   | "mod"           { MOD_KW }
+  | "with"          { WITH }
   (* type-name keywords (uppercase) — checked before upper_ident *)
   | "Int"           { TY_INT }
   | "Bool"          { TY_BOOL }
   | "String"        { TY_STRING }
+  | "List"          { TY_LIST }
   (* operators / punctuation *)
   | "=="            { EQEQ }
   | "++"            { CONCAT_OP }
+  | "=>"            { FATARROW }
   | "->"            { ARROW }
   | "&&"            { ANDAND }
   | "||"            { OROR }
@@ -77,6 +82,10 @@ rule token = parse
   | '.'             { DOT }
   | '('             { LPAREN }
   | ')'             { RPAREN }
+  | '['             { LBRACKET }
+  | ']'             { RBRACKET }
+  | '{'             { LBRACE }
+  | '}'             { RBRACE }
   | ','             { COMMA }
   | ':'             { COLON }
   | '='             { EQ }
@@ -91,11 +100,14 @@ rule token = parse
       let inner = String.sub raw 1 (String.length raw - 2) in
       STRING_LIT (unescape_string inner)
     }
-  (* Identifiers — dotted is greedy, so `math.add` is one IDENT.
-     Each segment may start with lower-case, upper-case, or
-     underscore; this lets named types like `alias.IntEndo` lex as a
-     single dotted IDENT and be referenced from a Lam annotation. *)
-  | any_ident ('.' any_ident)+     { IDENT (Lexing.lexeme lexbuf) }
+  (* Identifiers. Two cases:
+     - Capitalized-leading dotted name fuses into one IDENT: `Math.add`,
+       `Geom.Point`, `Geom.Point.x` (namespace paths).
+     - Lowercase-leading does NOT fuse across dots: `p.x` produces
+       IDENT(p) DOT IDENT(x). This lets the parser route `p.x` to
+       field projection on the value `p`. Lowercase standalone idents
+       (`x`, `add`) are normal IDENTs. *)
+  | upper_ident ('.' any_ident)+   { IDENT (Lexing.lexeme lexbuf) }
   | lower_ident                    { IDENT (Lexing.lexeme lexbuf) }
   | upper_ident                    { IDENT (Lexing.lexeme lexbuf) }
   | eof             { EOF }

@@ -78,7 +78,7 @@ let string_value = (~store, ~att, src: string, expected: string) => {
 
 let test_roundtrip = () => {
   let (store, att, ns) = make_substrate();
-  let src = "\\x: Int. x + 1";
+  let src = "\\x: Int => x + 1";
   let r = must_ingest(~ns, ~store, ~att, src);
   let printed = Pretty.print_named(~namespace=ns, store, r.hash);
   let r2 = must_ingest(~ns, ~store, ~att, printed);
@@ -87,7 +87,7 @@ let test_roundtrip = () => {
 
 let test_roundtrip_let = () => {
   let (store, att, ns) = make_substrate();
-  let src = "let f = \\x: Int. x + 1 in f 41";
+  let src = "let f = \\x: Int => x + 1 in f 41";
   let r = must_ingest(~ns, ~store, ~att, src);
   let printed = Pretty.print_named(~namespace=ns, store, r.hash);
   let r2 = must_ingest(~ns, ~store, ~att, printed);
@@ -105,8 +105,8 @@ let test_hole_hash_stable = () => {
 
 let test_hole_under_lambda_different_types = () => {
   let (store, att, ns) = make_substrate();
-  let h1 = (must_ingest(~ns, ~store, ~att, "\\x: Int. ?")).hash;
-  let h2 = (must_ingest(~ns, ~store, ~att, "\\y: Bool. ?")).hash;
+  let h1 = (must_ingest(~ns, ~store, ~att, "\\x: Int => ?")).hash;
+  let h2 = (must_ingest(~ns, ~store, ~att, "\\y: Bool => ?")).hash;
   Alcotest.(check(neg(string)))(
     "lambda over hole differs by annotation",
     h1,
@@ -116,8 +116,8 @@ let test_hole_under_lambda_different_types = () => {
 
 let test_alpha_equivalent_lambdas = () => {
   let (store, att, ns) = make_substrate();
-  let h1 = (must_ingest(~ns, ~store, ~att, "\\x: Int. x")).hash;
-  let h2 = (must_ingest(~ns, ~store, ~att, "\\y: Int. y")).hash;
+  let h1 = (must_ingest(~ns, ~store, ~att, "\\x: Int => x")).hash;
+  let h2 = (must_ingest(~ns, ~store, ~att, "\\y: Int => y")).hash;
   Alcotest.(check(string))("alpha-equivalent lambdas share hash", h1, h2);
 };
 
@@ -132,7 +132,7 @@ let test_alpha_equivalent_lets = () => {
 
 let test_suffix_resolves = () => {
   let (store, att, ns) = make_substrate();
-  let added = (must_ingest(~ns, ~store, ~att, "\\x: Int. \\y: Int. x + y")).hash;
+  let added = (must_ingest(~ns, ~store, ~att, "\\x: Int => \\y: Int => x + y")).hash;
   Namespace.bind(ns, ~name="math.add", added);
   let ingested = must_ingest(~ns, ~store, ~att, "add 1 2");
   let v = must_eval(~store, ~att, ingested.hash);
@@ -144,7 +144,7 @@ let test_suffix_resolves = () => {
 
 let test_suffix_ambiguous = () => {
   let (store, att, ns) = make_substrate();
-  let h = (must_ingest(~ns, ~store, ~att, "\\x: Int. \\y: Int. x + y")).hash;
+  let h = (must_ingest(~ns, ~store, ~att, "\\x: Int => \\y: Int => x + y")).hash;
   Namespace.bind(ns, ~name="math.add", h);
   Namespace.bind(ns, ~name="vector.add", h);
   let surface = parse("add 1 2");
@@ -176,7 +176,7 @@ let test_suffix_segment_bounded = () => {
 
 let test_full_path_resolves = () => {
   let (store, att, ns) = make_substrate();
-  let h = (must_ingest(~ns, ~store, ~att, "\\x: Int. x + 1")).hash;
+  let h = (must_ingest(~ns, ~store, ~att, "\\x: Int => x + 1")).hash;
   Namespace.bind(ns, ~name="math.inc", h);
   let r = must_ingest(~ns, ~store, ~att, "math.inc 41");
   let v = must_eval(~store, ~att, r.hash);
@@ -190,19 +190,19 @@ let test_full_path_resolves = () => {
 
 let test_has_holes_root = () => {
   let (store, att, ns) = make_substrate();
-  let r = must_ingest(~ns, ~store, ~att, "\\x: Int. ?");
+  let r = must_ingest(~ns, ~store, ~att, "\\x: Int => ?");
   Alcotest.(check(bool))("has holes", true, r.has_holes);
 };
 
 let test_has_holes_no_holes = () => {
   let (store, att, ns) = make_substrate();
-  let r = must_ingest(~ns, ~store, ~att, "\\x: Int. x + 1");
+  let r = must_ingest(~ns, ~store, ~att, "\\x: Int => x + 1");
   Alcotest.(check(bool))("no holes", false, r.has_holes);
 };
 
 let test_has_holes_cached = () => {
   let (store, att, ns) = make_substrate();
-  let r = must_ingest(~ns, ~store, ~att, "\\x: Int. ?");
+  let r = must_ingest(~ns, ~store, ~att, "\\x: Int => ?");
   Attachment.reset_counters(att);
   let _: bool = Has_holes.compute(~store, ~att, r.hash);
   /* Cached path: peek_cache has no get/miss accounting, so we verify
@@ -216,7 +216,7 @@ let test_has_holes_cached = () => {
 
 let test_permissive_hole_in_arith = () => {
   let (store, att, ns) = make_substrate();
-  let r = must_ingest(~ns, ~store, ~att, "\\x: Int. ? + x");
+  let r = must_ingest(~ns, ~store, ~att, "\\x: Int => ? + x");
   switch (r.type_result) {
   | Typecheck.Well_typed_with_holes(Ty.Arrow(Ty.Int, Ty.Int)) => ()
   | other =>
@@ -241,7 +241,7 @@ let test_strict_reject_prim_mismatch = () => {
 
 let test_strict_reject_app_mismatch = () => {
   let (store, att, ns) = make_substrate();
-  let surface = parse("(\\x: Int. x) \"abc\"");
+  let surface = parse("(\\x: Int => x) \"abc\"");
   switch (Resolver.ingest(~namespace=ns, ~store, ~att, surface)) {
   | Error(Resolver.Type_error(_)) => ()
   | _ =>
@@ -345,7 +345,7 @@ let test_print_parse_idempotent = () => {
     "true",
     "\"hello\"",
     "1 + 2",
-    "\\x: Int. x + 1",
+    "\\x: Int => x + 1",
     "let x = 1 in x",
     "if true then 1 else 2",
     "(1, 2)",
@@ -447,7 +447,7 @@ let test_recovery_truncated_if = () => {
 };
 
 let test_recovery_truncated_lambda = () => {
-  let surface = parse("\\x: Int.");
+  let surface = parse("\\x: Int =>");
   switch (surface) {
   | Surface_ast.Lam("x", Surface_ty.Int, Surface_ast.Hole) => ()
   | _ =>
@@ -489,9 +489,9 @@ let test_named_type_alias_identity = () => {
   let (store, att, ns) = make_substrate();
   let ty_r = ingest_ty(~ns, ~store, "Int -> Int");
   Namespace.bind(ns, ~name="Endo", ty_r.hash);
-  let h_named = (must_ingest(~ns, ~store, ~att, "\\f: Endo. f")).hash;
+  let h_named = (must_ingest(~ns, ~store, ~att, "\\f: Endo => f")).hash;
   let h_struct =
-    (must_ingest(~ns, ~store, ~att, "\\f: Int -> Int. f")).hash;
+    (must_ingest(~ns, ~store, ~att, "\\f: Int -> Int => f")).hash;
   Alcotest.(check(string))(
     "named alias and structural type produce identical Lam hash",
     h_named,
@@ -512,8 +512,8 @@ let test_two_aliases_share_hash = () => {
   );
   Namespace.bind(ns, ~name="A", r1.hash);
   Namespace.bind(ns, ~name="B", r2.hash);
-  let h_a = (must_ingest(~ns, ~store, ~att, "\\f: A. f")).hash;
-  let h_b = (must_ingest(~ns, ~store, ~att, "\\f: B. f")).hash;
+  let h_a = (must_ingest(~ns, ~store, ~att, "\\f: A => f")).hash;
+  let h_b = (must_ingest(~ns, ~store, ~att, "\\f: B => f")).hash;
   Alcotest.(check(string))(
     "aliased annotations share Lam hash",
     h_a,
@@ -532,9 +532,9 @@ let test_mixed_case_dotted_name_in_annotation = () => {
   let ty_r = ingest_ty(~ns, ~store, "Int -> Int");
   Namespace.bind(ns, ~name="alias.IntEndo", ty_r.hash);
   let h_named =
-    (must_ingest(~ns, ~store, ~att, "\\f: alias.IntEndo. f")).hash;
+    (must_ingest(~ns, ~store, ~att, "\\f: alias.IntEndo => f")).hash;
   let h_struct =
-    (must_ingest(~ns, ~store, ~att, "\\f: Int -> Int. f")).hash;
+    (must_ingest(~ns, ~store, ~att, "\\f: Int -> Int => f")).hash;
   Alcotest.(check(string))(
     "mixed-case dotted alias resolves the same as structural form",
     h_named,
@@ -550,9 +550,9 @@ let test_recursive_alias = () => {
   Namespace.bind(ns, ~name="Pair", pair.hash);
   let endo_pair = ingest_ty(~ns, ~store, "Pair -> Pair");
   Namespace.bind(ns, ~name="EndoPair", endo_pair.hash);
-  let h_named = (must_ingest(~ns, ~store, ~att, "\\f: EndoPair. f")).hash;
+  let h_named = (must_ingest(~ns, ~store, ~att, "\\f: EndoPair => f")).hash;
   let h_struct =
-    (must_ingest(~ns, ~store, ~att, "\\f: Int * Int -> Int * Int. f")).hash;
+    (must_ingest(~ns, ~store, ~att, "\\f: Int * Int -> Int * Int => f")).hash;
   Alcotest.(check(string))(
     "recursive alias resolves through chain",
     h_named,
@@ -565,7 +565,7 @@ let test_term_in_type_position_errors = () => {
   let (store, att, ns) = make_substrate();
   let term = (must_ingest(~ns, ~store, ~att, "1")).hash;
   Namespace.bind(ns, ~name="ONE", term);
-  let surface = parse("\\x: ONE. x");
+  let surface = parse("\\x: ONE => x");
   switch (Resolver.ingest(~namespace=ns, ~store, ~att, surface)) {
   | Error(Resolver.Kind_mismatch({name: "ONE", expected: Definition.Type_kind, got: Definition.Term_kind})) =>
     ()
@@ -602,7 +602,7 @@ let test_type_in_term_position_errors = () => {
    peek_cache should reconstruct the same Ty.t out of the Store. */
 let test_type_of_aspect_round_trips = () => {
   let (store, att, ns) = make_substrate();
-  let r = must_ingest(~ns, ~store, ~att, "\\x: Int. x + 1");
+  let r = must_ingest(~ns, ~store, ~att, "\\x: Int => x + 1");
   switch (Typecheck.peek_cache(~store, att, r.hash)) {
   | Some(Typecheck.Well_typed(Ty.Arrow(Ty.Int, Ty.Int))) => ()
   | _ =>
@@ -616,8 +616,8 @@ let test_type_of_aspect_round_trips = () => {
    their respective Type_of aspect entries. */
 let test_type_of_aspect_dedups = () => {
   let (store, att, ns) = make_substrate();
-  let r1 = must_ingest(~ns, ~store, ~att, "\\x: Int. x + 1");
-  let r2 = must_ingest(~ns, ~store, ~att, "\\y: Int. y - 1");
+  let r1 = must_ingest(~ns, ~store, ~att, "\\x: Int => x + 1");
+  let r2 = must_ingest(~ns, ~store, ~att, "\\y: Int => y - 1");
   let ty_h1 =
     switch (
       Attachment.peek(
@@ -767,7 +767,7 @@ let test_prim_user_wrapper = () => {
       ~ns,
       ~store,
       ~att,
-      "\\s: String. string.length s + 1",
+      "\\s: String => string.length s + 1",
     );
   Namespace.bind(ns, ~name="length_plus_one", added.hash);
   let r = must_ingest(~ns, ~store, ~att, "length_plus_one \"abc\"");
@@ -843,6 +843,131 @@ let test_label_mints_distinct = () => {
   let l2 = Label.fresh();
   if (Label.hash(l1) == Label.hash(l2)) {
     Alcotest.fail("two Label.fresh produced the same hash");
+  };
+};
+
+/* ==================== Parser-level tests for new syntax ==================== */
+
+/* `(a, b, c)` parses as Tuple([a, b, c]). */
+let test_parse_tuple_3 = () => {
+  let (store, att, ns) = make_substrate();
+  let r = must_ingest(~ns, ~store, ~att, "(1, 2, 3)");
+  switch (Store.lookup_term(store, r.hash)) {
+  | Some(Node.Tuple([_, _, _])) => ()
+  | _ => Alcotest.fail("(1, 2, 3) did not parse as Tuple of 3")
+  };
+};
+
+/* `[1, 2, 3]` parses as List_lit. */
+let test_parse_list_lit = () => {
+  let (store, att, ns) = make_substrate();
+  let r = must_ingest(~ns, ~store, ~att, "[1, 2, 3]");
+  switch (Store.lookup_term(store, r.hash)) {
+  | Some(Node.List_lit([_, _, _])) => ()
+  | _ => Alcotest.fail("[1, 2, 3] did not parse as List_lit of 3")
+  };
+};
+
+/* `[]` parses as empty list literal. */
+let test_parse_empty_list = () => {
+  let (store, att, ns) = make_substrate();
+  let r = must_ingest(~ns, ~store, ~att, "[]");
+  switch (Store.lookup_term(store, r.hash)) {
+  | Some(Node.List_lit([])) => ()
+  | _ => Alcotest.fail("[] did not parse as empty List_lit")
+  };
+};
+
+/* `{ x = 1, y = 2 }` parses as Record_lit. Labels are minted on
+   first use through the resolver. */
+let test_parse_record_lit = () => {
+  let (store, att, ns) = make_substrate();
+  let r = must_ingest(~ns, ~store, ~att, "{ x = 1, y = 2 }");
+  switch (Store.lookup_term(store, r.hash)) {
+  | Some(Node.Record_lit([_, _])) => ()
+  | _ => Alcotest.fail("{ x = 1, y = 2 } did not parse as Record_lit of 2")
+  };
+  /* The labels should be bound in the namespace by now. */
+  switch (Namespace.resolve(ns, "x"), Namespace.resolve(ns, "y")) {
+  | (Some(_), Some(_)) => ()
+  | _ => Alcotest.fail("record literal did not mint x and y labels")
+  };
+};
+
+/* `p.x` after a record value evaluates to the field. */
+let test_parse_field_projection_eval = () => {
+  let (store, att, ns) = make_substrate();
+  let r =
+    must_ingest(
+      ~ns,
+      ~store,
+      ~att,
+      "let p = { x = 7, y = 13 } in p.x",
+    );
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(7)) => ()
+  | _ => Alcotest.fail("expected p.x to evaluate to 7")
+  };
+};
+
+/* `p.0` on a tuple value evaluates to the indexed item. */
+let test_parse_index_projection_eval = () => {
+  let (store, att, ns) = make_substrate();
+  let r =
+    must_ingest(~ns, ~store, ~att, "let t = (10, 20, 30) in t.1");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(20)) => ()
+  | _ => Alcotest.fail("expected t.1 to evaluate to 20")
+  };
+};
+
+/* `{ p with x = 99 }` parses as Record_update and replaces the field. */
+let test_parse_record_update_eval = () => {
+  let (store, att, ns) = make_substrate();
+  let r =
+    must_ingest(
+      ~ns,
+      ~store,
+      ~att,
+      "let p = { x = 1, y = 2 } in (let q = { p with x = 99 } in q.x)",
+    );
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(99)) => ()
+  | _ => Alcotest.fail("expected updated record q.x to evaluate to 99")
+  };
+};
+
+/* `List Int` parses as the List type. */
+let test_parse_list_type = () => {
+  let (store, _att, ns) = make_substrate();
+  let r =
+    Parse_recover.parse_ty("List Int") |> Resolver.ingest_ty(~namespace=ns, ~store);
+  switch (r) {
+  | Ok({hash, _}) =>
+    switch (Store.lookup_type(store, hash)) {
+    | Some(Ty.List(Ty.Int)) => ()
+    | _ => Alcotest.fail("expected List Int")
+    }
+  | Error(_) => Alcotest.fail("type parse failed")
+  };
+};
+
+/* Record type syntax: `{ x : Int, y : Int }` */
+let test_parse_record_type = () => {
+  let (store, _att, ns) = make_substrate();
+  let r =
+    Parse_recover.parse_ty("{ x : Int, y : Int }")
+    |> Resolver.ingest_ty(~namespace=ns, ~store);
+  switch (r) {
+  | Ok({hash, _}) =>
+    switch (Store.lookup_type(store, hash)) {
+    | Some(Ty.Record([_, _])) => ()
+    | _ => Alcotest.fail("expected Record with 2 fields")
+    }
+  | Error(_) => Alcotest.fail("type parse failed")
   };
 };
 
@@ -1233,6 +1358,56 @@ let () =
             "Record_update replaces selected fields",
             `Quick,
             test_record_update,
+          ),
+        ],
+      ),
+      (
+        "new-surface-syntax",
+        [
+          Alcotest.test_case(
+            "(a, b, c) parses as Tuple",
+            `Quick,
+            test_parse_tuple_3,
+          ),
+          Alcotest.test_case(
+            "[1, 2, 3] parses as List_lit",
+            `Quick,
+            test_parse_list_lit,
+          ),
+          Alcotest.test_case(
+            "[] parses as empty List_lit",
+            `Quick,
+            test_parse_empty_list,
+          ),
+          Alcotest.test_case(
+            "{ x = 1, y = 2 } parses + mints labels",
+            `Quick,
+            test_parse_record_lit,
+          ),
+          Alcotest.test_case(
+            "p.x field projection evaluates",
+            `Quick,
+            test_parse_field_projection_eval,
+          ),
+          Alcotest.test_case(
+            "t.0 index projection evaluates",
+            `Quick,
+            test_parse_index_projection_eval,
+          ),
+          Alcotest.test_case(
+            "{ p with x = 99 } record update evaluates",
+            `Quick,
+            test_parse_record_update_eval,
+          ),
+          Alcotest.test_case(
+            "List Int parses as List type",
+            `Quick,
+            test_parse_list_type,
+          ),
+          Alcotest.test_case(
+            "{ x : Int, y : Int } parses as Record type",
+            `Quick,
+            test_parse_record_type,
           ),
         ],
       ),

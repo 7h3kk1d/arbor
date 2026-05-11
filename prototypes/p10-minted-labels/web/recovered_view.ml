@@ -57,7 +57,7 @@ let chunks_of_surface (s : Surface_ast.t) : chunk list =
     | Hole -> push_hole ()
     | Lam (x, ty, body) ->
         wrap 0 (fun () ->
-            push_text ("\\" ^ x ^ ": " ^ Surface_ty.print ty ^ ". ");
+            push_text ("\\" ^ x ^ ": " ^ Surface_ty.print ty ^ " => ");
             walk ~prec:0 body)
     | Let (x, rhs, body) ->
         wrap 0 (fun () ->

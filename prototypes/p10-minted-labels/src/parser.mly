@@ -11,10 +11,10 @@
   let default_ty = Surface_ty.Hole
 %}
 
-%token LET IN IF THEN ELSE FST SND NOT MUL_KW MOD_KW
-%token TY_INT TY_BOOL TY_STRING
-%token EQEQ CONCAT_OP ARROW ANDAND OROR
-%token BACKSLASH DOT LPAREN RPAREN COMMA COLON EQ
+%token LET IN IF THEN ELSE FST SND NOT MUL_KW MOD_KW WITH
+%token TY_INT TY_BOOL TY_STRING TY_LIST
+%token EQEQ CONCAT_OP ARROW FATARROW ANDAND OROR
+%token BACKSLASH DOT LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE COMMA COLON EQ
 %token PLUS MINUS STAR SLASH
 %token <string> IDENT
 %token <int> INT_LIT
@@ -65,15 +65,15 @@ expr:
       { mk_if c Surface_ast.Hole Surface_ast.Hole }
   | IF
       { mk_if Surface_ast.Hole Surface_ast.Hole Surface_ast.Hole }
-  | BACKSLASH; x = binder; COLON; ty = ty; DOT; body = expr
+  | BACKSLASH; x = binder; COLON; ty = ty; FATARROW; body = expr
       { mk_lam x ty body }
-  | BACKSLASH; x = binder; COLON; ty = ty; DOT
+  | BACKSLASH; x = binder; COLON; ty = ty; FATARROW
       { mk_lam x ty Surface_ast.Hole }
   | BACKSLASH; x = binder; COLON; ty = ty
       { mk_lam x ty Surface_ast.Hole }
   | BACKSLASH; x = binder; COLON
       { mk_lam x default_ty Surface_ast.Hole }
-  | BACKSLASH; x = binder; DOT
+  | BACKSLASH; x = binder; FATARROW
       { mk_lam x default_ty Surface_ast.Hole }
   | BACKSLASH; x = binder
       { mk_lam x default_ty Surface_ast.Hole }
@@ -120,12 +120,21 @@ prefix_expr:
   | NOT; e = prefix_expr { prim Surface_ast.Not [e] }
   | e = app_expr         { e }
 
-(* Application is left-associative. Fst/Snd take a single atom argument. *)
+(* Application is left-associative. Fst/Snd take a single proj_expr
+   argument. Projection (`p.x`, `p.0`) binds tighter than application:
+   `f p.x` parses as `f (p.x)`. *)
 app_expr:
-  | f = app_expr; a = atom { mk_app f a }
-  | FST; a = atom          { Surface_ast.Fst a }
-  | SND; a = atom          { Surface_ast.Snd a }
-  | a = atom               { a }
+  | f = app_expr; a = proj_expr { mk_app f a }
+  | FST; a = proj_expr          { Surface_ast.Fst a }
+  | SND; a = proj_expr          { Surface_ast.Snd a }
+  | a = proj_expr               { a }
+
+proj_expr:
+  | e = proj_expr; DOT; n = IDENT
+      { Surface_ast.Project_field (e, n) }
+  | e = proj_expr; DOT; i = INT_LIT
+      { Surface_ast.Project_index (e, i) }
+  | a = atom { a }
 
 atom:
   | x = IDENT                          { Surface_ast.Var x }
@@ -133,8 +142,42 @@ atom:
   | b = BOOL_LIT                       { Surface_ast.Bool_lit b }
   | s = STRING_LIT                     { Surface_ast.String_lit s }
   | HOLE                               { Surface_ast.Hole }
-  | LPAREN; e = expr; RPAREN           { e }
-  | LPAREN; a = expr; COMMA; b = expr; RPAREN { mk_pair a b }
+  | LPAREN; e = expr; tail = paren_tail; RPAREN
+      { match tail with
+        | [] -> e                            (* (e) — grouping *)
+        | [b] -> mk_pair e b                 (* (a, b) — pair *)
+        | more -> Surface_ast.Tuple (e :: more) (* (a, b, c, …) — tuple *) }
+  | LBRACKET; items = list_items; RBRACKET
+      { Surface_ast.List_lit items }
+  | LBRACE; fields = record_body; RBRACE
+      { fields }
+
+(* Trailing items in a parenthesized expression: zero or more `,` expr. *)
+paren_tail:
+  | (* empty *) { [] }
+  | COMMA; e = expr; rest = paren_tail { e :: rest }
+
+(* Comma-separated expression list inside `[ ... ]`. Empty allowed. *)
+list_items:
+  | (* empty *) { [] }
+  | e = expr { [e] }
+  | e = expr; COMMA; rest = list_items { e :: rest }
+
+(* Record body. A `with` after the first expression turns the body
+   into a Record_update; otherwise it's a Record_lit. The "first
+   expression" for an update is the target record value. *)
+record_body:
+  | fields = record_fields
+      { Surface_ast.Record_lit fields }
+  | target = expr; WITH; fields = record_fields
+      { Surface_ast.Record_update (target, fields) }
+
+(* name = expr, name = expr, … — one or more bindings. *)
+record_fields:
+  | x = IDENT; EQ; v = expr
+      { [(x, v)] }
+  | x = IDENT; EQ; v = expr; COMMA; rest = record_fields
+      { (x, v) :: rest }
 
 (* TYPES. Right-associative arrows; product binds tighter than arrow.
    `IDENT` in atom position is a named type — resolved to a Ty.t via
@@ -157,6 +200,28 @@ ty_atom:
   | TY_INT                       { Surface_ty.Int }
   | TY_BOOL                      { Surface_ty.Bool }
   | TY_STRING                    { Surface_ty.String }
-  | n = IDENT                    { Surface_ty.Named n }
-  | LPAREN; t = ty; RPAREN       { t }
+  | TY_LIST; t = ty_atom         { Surface_ty.List t }
+  | n = ty_dotted_name           { Surface_ty.Named n }
+  | LPAREN; t = ty; tail = ty_paren_tail; RPAREN
+      { match tail with
+        | [] -> t                                (* (T) — grouping *)
+        | more -> Surface_ty.Tuple (t :: more)   (* (T, U, …) — tuple type *) }
+  | LBRACE; fields = record_ty_fields; RBRACE
+      { Surface_ty.Record_decl fields }
   | HOLE                         { Surface_ty.Hole }
+
+ty_paren_tail:
+  | (* empty *) { [] }
+  | COMMA; t = ty; rest = ty_paren_tail { t :: rest }
+
+(* In type position there's no field projection, so we re-fuse
+   dotted names (lowercase or mixed) into a single Named string. *)
+ty_dotted_name:
+  | n = IDENT { n }
+  | n = IDENT; DOT; rest = ty_dotted_name { n ^ "." ^ rest }
+
+record_ty_fields:
+  | x = IDENT; COLON; t = ty
+      { [(x, t)] }
+  | x = IDENT; COLON; t = ty; COMMA; rest = record_ty_fields
+      { (x, t) :: rest }

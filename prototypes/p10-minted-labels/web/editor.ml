@@ -279,7 +279,7 @@ let view
                 Vdom.Attr.create "autocomplete" "off";
                 Vdom.Attr.create "autofocus" "true";
                 Vdom.Attr.placeholder
-                  "e.g.  let inc = \\x: Int. x + 1 in inc 41";
+                  "e.g.  let inc = \\x: Int => x + 1 in inc 41";
                 Vdom.Attr.value state.author_buffer;
                 Vdom.Attr.on_keydown (fun ev ->
                     let is_enter = ev##.keyCode = 13 in

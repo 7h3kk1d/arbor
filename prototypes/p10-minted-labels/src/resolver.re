@@ -326,19 +326,56 @@ let rec resolve_ctx =
     let* fields' = resolve_all(fields);
     Ok(Ast.Record_update(target', fields'));
   | Surface_ast.Project_field(target, name) =>
-    let* target' = resolve_ctx(~context, ~namespace, ~store, target);
-    let label_h =
-      switch (Namespace.resolve_query(namespace, name)) {
-      | Ok(h) => h
+    /* Backward-compat: if the surface form is `Var(a) . b` and the
+       dotted name `a.b` resolves in the namespace, prefer that
+       interpretation (namespace lookup) over field projection.
+       This lets users keep writing `math.add` even though the
+       lexer now splits lowercase paths at the dot. */
+    switch (target) {
+    | Surface_ast.Var(a)
+        when !List.exists(n => n == a, context) =>
+      let dotted = a ++ "." ++ name;
+      switch (Namespace.resolve_query(namespace, dotted)) {
+      | Ok(_h) =>
+        /* Re-dispatch through the Var path so kind-checking +
+           inlining works exactly as for any other namespace name. */
+        resolve_ctx(
+          ~context,
+          ~namespace,
+          ~store,
+          Surface_ast.Var(dotted),
+        );
       | Error(_) =>
-        let label = Label.fresh();
-        let h = Store.register_label(store, label);
-        try(Namespace.bind(namespace, ~name, h)) {
-        | _ => ()
+        /* Fall through to real field projection. */
+        let* target' = resolve_ctx(~context, ~namespace, ~store, target);
+        let label_h =
+          switch (Namespace.resolve_query(namespace, name)) {
+          | Ok(h) => h
+          | Error(_) =>
+            let label = Label.fresh();
+            let h = Store.register_label(store, label);
+            try(Namespace.bind(namespace, ~name, h)) {
+            | _ => ()
+            };
+            h;
+          };
+        Ok(Ast.Project_field(target', label_h));
+      }
+    | _ =>
+      let* target' = resolve_ctx(~context, ~namespace, ~store, target);
+      let label_h =
+        switch (Namespace.resolve_query(namespace, name)) {
+        | Ok(h) => h
+        | Error(_) =>
+          let label = Label.fresh();
+          let h = Store.register_label(store, label);
+          try(Namespace.bind(namespace, ~name, h)) {
+          | _ => ()
+          };
+          h;
         };
-        h;
-      };
-    Ok(Ast.Project_field(target', label_h));
+      Ok(Ast.Project_field(target', label_h));
+    };
   | Surface_ast.Project_index(target, i) =>
     let* target' = resolve_ctx(~context, ~namespace, ~store, target);
     Ok(Ast.Project_index(target', i));

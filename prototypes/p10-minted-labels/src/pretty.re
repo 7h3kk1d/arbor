@@ -405,7 +405,7 @@ let rec print_prec = (~prec: int, s: Surface_ast.t): string => {
       ++ x
       ++ ": "
       ++ Surface_ty.print(ty)
-      ++ ". "
+      ++ " => "
       ++ print_prec(~prec=0, body),
     )
   | Surface_ast.Let(x, rhs, body) =>
