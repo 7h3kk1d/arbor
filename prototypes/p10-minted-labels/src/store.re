@@ -1,11 +1,25 @@
-/* Content-addressed DAG storage. p9 holds two definition kinds in one
-   table: terms (Node.t) under tag byte 'P', types (Ty.t) under leading
-   byte 'T'. Lookup returns Definition.t; consumers that only want one
-   kind use lookup_term / lookup_type. */
+/* Content-addressed DAG storage. p10 holds five entry sorts in one
+   table:
+
+   - Substructure: Term(Node.t) and Type(Ty.t) — structural,
+     content-shareable. Internal AST nodes and inline types live here.
+   - Named: Named_term(Mint, body_hash) and Named_type(Mint, body_hash)
+     — mint-wrapped pointers into substructure. User-bound top-level
+     definitions live here. Two ingests of the same source mint two
+     distinct Named entries pointing at the same body.
+   - Label(Label.t) — minted record/constructor/method identities.
+
+   Namespace bindings point at Named entries (or Labels). References
+   inside stored bodies — Lam's parameter type, App's children, Let's
+   rhs/body — point at substructure entries, so the DAG's structural
+   sharing wins are preserved regardless of the surrounding mint. */
 
 type t = Hashtbl.t(Hash.t, Definition.t);
 
 let create = (): t => Hashtbl.create(64);
+
+/* Substructure registration. Same shape as p9 — registering the same
+   Node.t / Ty.t twice is idempotent. */
 
 let register_term = (store: t, n: Node.t): Hash.t => {
   let h = Node.hash(n);
@@ -23,23 +37,67 @@ let register_type = (store: t, ty: Ty.t): Hash.t => {
   h;
 };
 
+/* Named registration. Mints a fresh mark every call; never idempotent.
+   The body_hash must already be registered as a substructure
+   Term / Type — the caller is responsible. */
+
+let register_named_term = (store: t, body: Hash.t): Hash.t => {
+  let mint = Mint.fresh();
+  let def = Definition.Named_term(mint, body);
+  let h = Definition.hash(def);
+  Hashtbl.add(store, h, def);
+  h;
+};
+
+let register_named_type = (store: t, body: Hash.t): Hash.t => {
+  let mint = Mint.fresh();
+  let def = Definition.Named_type(mint, body);
+  let h = Definition.hash(def);
+  Hashtbl.add(store, h, def);
+  h;
+};
+
+let register_label = (store: t, label: Label.t): Hash.t => {
+  let h = Label.hash(label);
+  if (!Hashtbl.mem(store, h)) {
+    Hashtbl.add(store, h, Definition.Label(label));
+  };
+  h;
+};
+
 let lookup = (store: t, h: Hash.t): option(Definition.t) =>
   Hashtbl.find_opt(store, h);
 
-let lookup_term = (store: t, h: Hash.t): option(Node.t) =>
+/* `lookup_term` and `lookup_type` follow named wrappers automatically.
+   Callers that want the underlying substructure should not need to
+   care whether they're holding a named hash or a substructure hash. */
+let rec lookup_term = (store: t, h: Hash.t): option(Node.t) =>
   switch (lookup(store, h)) {
   | Some(Definition.Term(n)) => Some(n)
+  | Some(Definition.Named_term(_, body)) => lookup_term(store, body)
   | _ => None
   };
 
-let lookup_type = (store: t, h: Hash.t): option(Ty.t) =>
+let rec lookup_type = (store: t, h: Hash.t): option(Ty.t) =>
   switch (lookup(store, h)) {
   | Some(Definition.Type(ty)) => Some(ty)
+  | Some(Definition.Named_type(_, body)) => lookup_type(store, body)
   | _ => None
   };
 
 let kind_of = (store: t, h: Hash.t): option(Definition.kind) =>
   Option.map(Definition.kind, lookup(store, h));
+
+/* Unwrap Named_term and Named_type wrappers: returns the substructure
+   body hash if `h` is a Named wrapper, otherwise `h` unchanged. Used
+   by aspect lookups (typecheck, has-holes) so callers can pass a
+   user-visible Named hash and get the cache hit on the body. */
+let rec unwrap_named = (store: t, h: Hash.t): Hash.t =>
+  switch (lookup(store, h)) {
+  | Some(Definition.Named_term(_, body))
+  | Some(Definition.Named_type(_, body)) => unwrap_named(store, body)
+  | _ => h
+  };
 
 let has = (store: t, h: Hash.t): bool => Hashtbl.mem(store, h);
 
@@ -51,13 +109,17 @@ let hashes = (store: t): list(Hash.t) =>
 let entries = (store: t): list((Hash.t, Definition.t)) =>
   Hashtbl.fold((h, n, acc) => [(h, n), ...acc], store, []);
 
-/* Convenience: only the term entries. */
+/* Convenience: only the term entries (substructure + named).
+   `term_entries` returns substructure pairs (Hash.t * Node.t); for
+   named-term iteration use `entries` and filter. */
 let term_entries = (store: t): list((Hash.t, Node.t)) =>
   Hashtbl.fold(
     (h, def, acc) =>
       switch (def) {
       | Definition.Term(n) => [(h, n), ...acc]
       | Definition.Type(_)
+      | Definition.Named_term(_, _)
+      | Definition.Named_type(_, _)
       | Definition.Label(_) => acc
       },
     store,
@@ -67,9 +129,10 @@ let term_entries = (store: t): list((Hash.t, Node.t)) =>
 let resolve_prefix = (store: t, prefix: string): Hash.lookup_result =>
   Hash.lookup_by_prefix(prefix, hashes(store));
 
-/* Ingest an Ast.t bottom-up. Lam's type annotation is registered as a
-   Definition.Type before the Lam itself, so the Node carries the
-   type's hash. */
+/* Ingest an Ast.t bottom-up as substructure. Lam's type annotation is
+   registered as a substructure `Type` first. Internal references stay
+   in substructure space — never wrapped with a mint. The bind action
+   is what wraps with `register_named_term`. */
 let rec ingest = (store: t, ast: Ast.t): Hash.t =>
   switch (ast) {
   | Ast.Var(k) => register_term(store, Node.Var(k))
@@ -112,13 +175,16 @@ let rec ingest = (store: t, ast: Ast.t): Hash.t =>
     register_term(store, Node.Prim_call(id, arg_hashes));
   };
 
-/* Reconstruct a term Ast.t from its hash. Lam re-fetches its Ty.t
-   from the type-hash; a missing type definition produces None. */
+/* Reconstruct follows Named wrappers transparently — callers asking
+   for the Ast.t at a hash get the body's Ast.t regardless of whether
+   the hash is a substructure Term or a Named_term wrapping one. */
 let rec reconstruct = (store: t, h: Hash.t): option(Ast.t) =>
   switch (lookup(store, h)) {
   | None
   | Some(Definition.Type(_))
+  | Some(Definition.Named_type(_, _))
   | Some(Definition.Label(_)) => None
+  | Some(Definition.Named_term(_, body)) => reconstruct(store, body)
   | Some(Definition.Term(node)) =>
     switch (node) {
     | Node.Var(k) => Some(Ast.Var(k))

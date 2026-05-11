@@ -128,7 +128,7 @@ let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
            [ Vdom.Node.text ":t" ]
          :: !icons
    | _ -> ());
-  (match Eval.peek_cache att h with
+  (match Eval.peek_cache ~store att h with
    | Some _ ->
        icons :=
          Vdom.Node.span
@@ -140,7 +140,7 @@ let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
            [ Vdom.Node.text "⇓" ]
          :: !icons
    | None -> ());
-  (match Has_holes.peek_cache att h with
+  (match Has_holes.peek_cache ~store att h with
    | Some true ->
        icons :=
          Vdom.Node.span

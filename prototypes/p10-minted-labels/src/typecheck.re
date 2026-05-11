@@ -265,7 +265,10 @@ let error_to_string =
    through as a cache miss. */
 let peek_cache =
     (~store: Store.t, att: Attachment.t, h: Hash.t)
-    : option(check_result) =>
+    : option(check_result) => {
+  /* Follow Named_term/Named_type wrappers: aspects are cached on the
+     substructure body, not on the minted wrapper. */
+  let h = Store.unwrap_named(store, h);
   switch (
     Attachment.peek(att, ~target=h, ~aspect=aspect_id, ~procedure=procedure_id)
   ) {
@@ -278,6 +281,7 @@ let peek_cache =
     )
   | _ => None
   };
+};
 
 /* attach_result registers the inferred type as a Definition.Type in
    the Store before storing the resulting hash in the aspect entry.

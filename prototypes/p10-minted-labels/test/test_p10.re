@@ -714,17 +714,33 @@ let test_prim_int_to_string_compose = () => {
 /* The wrapping Lam's hash is stable across substrate instances —
    re-installing the primitives in a fresh substrate reproduces the
    same hash for the same id+type. */
+/* Under p10's mint-by-default, every namespace binding wraps the
+   substructure body with a fresh Named_term mint. So the top-level
+   hash for `string.reverse` differs across substrates, but the
+   underlying body (the substructure Lam) is structurally identical
+   and shares a hash. */
 let test_prim_hash_stable = () => {
   let (store_a, att_a, ns_a) = make_substrate_with_prims();
   let (store_b, att_b, ns_b) = make_substrate_with_prims();
   let _ = (att_a, att_b);
-  let _ = (store_a, store_b);
   let h_a = Namespace.resolve(ns_a, "string.reverse");
   let h_b = Namespace.resolve(ns_b, "string.reverse");
+  /* Minted wrappers must differ — that's the whole point of
+     mint-by-default. */
+  switch (h_a, h_b) {
+  | (Some(a), Some(b)) when a == b =>
+    Alcotest.fail("mint-by-default: minted wrapper hashes should differ")
+  | (Some(_), Some(_)) => ()
+  | _ => Alcotest.fail("string.reverse not bound in one or both substrates")
+  };
+  /* But unwrapping to the substructure body, the hashes must match —
+     structural sharing still works at the substructure level. */
+  let body_a = Option.map(Store.unwrap_named(store_a), h_a);
+  let body_b = Option.map(Store.unwrap_named(store_b), h_b);
   Alcotest.(check(option(string)))(
-    "string.reverse hash is identical across substrates",
-    h_a,
-    h_b,
+    "unwrapped string.reverse body is identical across substrates",
+    body_a,
+    body_b,
   );
 };
 
@@ -759,6 +775,74 @@ let test_prim_user_wrapper = () => {
   switch (Store.lookup_term(store, v)) {
   | Some(Node.Int_lit(4)) => ()
   | _ => Alcotest.fail("expected 4 (length 3 + 1)")
+  };
+};
+
+/* ==================== Mint-by-default behavior ==================== */
+
+/* Mint.fresh produces distinct marks call to call. */
+let test_mint_fresh_distinct = () => {
+  let a = Mint.fresh();
+  let b = Mint.fresh();
+  if (a == b) {
+    Alcotest.fail("Mint.fresh produced two identical marks");
+  };
+};
+
+/* The deterministic counter generator produces a stable sequence. */
+let test_mint_counter_stable = () => {
+  Mint.reset_counter();
+  let a = Mint.from_counter();
+  let b = Mint.from_counter();
+  Mint.reset_counter();
+  let a' = Mint.from_counter();
+  let b' = Mint.from_counter();
+  Alcotest.(check(string))(
+    "counter mark 1 reproducible after reset",
+    a,
+    a',
+  );
+  Alcotest.(check(string))(
+    "counter mark 2 reproducible after reset",
+    b,
+    b',
+  );
+  if (a == b) {
+    Alcotest.fail("counter marks within one run should differ");
+  };
+};
+
+/* Store.register_named_term wraps a substructure body with a fresh
+   mint; two calls on the same body produce distinct named hashes,
+   while the underlying body remains shared. */
+let test_register_named_term_mints = () => {
+  let (store, att, ns) = make_substrate();
+  let body = (must_ingest(~ns, ~store, ~att, "1 + 2")).hash;
+  let n1 = Store.register_named_term(store, body);
+  let n2 = Store.register_named_term(store, body);
+  if (n1 == n2) {
+    Alcotest.fail("two register_named_term calls produced identical hashes");
+  };
+  /* Unwrapping both returns the same body. */
+  Alcotest.(check(string))(
+    "named wrappers share an unwrapped body",
+    Store.unwrap_named(store, n1),
+    Store.unwrap_named(store, n2),
+  );
+  Alcotest.(check(string))(
+    "unwrapped body matches the original body",
+    body,
+    Store.unwrap_named(store, n1),
+  );
+};
+
+/* A Label is just a fresh mint mark; two Labels mint distinct hashes
+   even with no other distinguishing content. */
+let test_label_mints_distinct = () => {
+  let l1 = Label.fresh();
+  let l2 = Label.fresh();
+  if (Label.hash(l1) == Label.hash(l2)) {
+    Alcotest.fail("two Label.fresh produced the same hash");
   };
 };
 
@@ -918,6 +1002,31 @@ let () =
             "Type_of aspect dedups",
             `Quick,
             test_type_of_aspect_dedups,
+          ),
+        ],
+      ),
+      (
+        "minted-identity",
+        [
+          Alcotest.test_case(
+            "Mint.fresh produces distinct marks",
+            `Quick,
+            test_mint_fresh_distinct,
+          ),
+          Alcotest.test_case(
+            "Mint counter is reset-stable + within-run distinct",
+            `Quick,
+            test_mint_counter_stable,
+          ),
+          Alcotest.test_case(
+            "register_named_term mints; unwrap returns shared body",
+            `Quick,
+            test_register_named_term_mints,
+          ),
+          Alcotest.test_case(
+            "Label.fresh produces distinct hashes",
+            `Quick,
+            test_label_mints_distinct,
           ),
         ],
       ),

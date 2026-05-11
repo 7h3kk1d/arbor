@@ -76,8 +76,9 @@ let render_typecheck
             [ Vdom.Node.text "ill-typed" ];
         ]
 
-let render_has_holes ~(att : Attachment.t) (h : Hash.t) : Vdom.Node.t =
-  match Has_holes.peek_cache att h with
+let render_has_holes ~(store : Store.t) ~(att : Attachment.t) (h : Hash.t)
+    : Vdom.Node.t =
+  match Has_holes.peek_cache ~store att h with
   | None ->
       Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "aspect-row" ]
@@ -116,7 +117,7 @@ let render_eval ~(att : Attachment.t) ~(store : Store.t)
     ~(ns : Namespace.t)
     ~(inject : State.action -> unit Vdom.Effect.t) (h : Hash.t) :
     Vdom.Node.t =
-  let cached = Eval.peek_cache att h in
+  let cached = Eval.peek_cache ~store att h in
   let label =
     match cached with
     | None -> "(not cached)"
@@ -151,6 +152,6 @@ let render_aspects
     ~(filter : State.filter) (h : Hash.t) : Vdom.Node.t list =
   [
     render_typecheck ~att ~store ~filter ~inject h;
-    render_has_holes ~att h;
+    render_has_holes ~store ~att h;
     render_eval ~att ~store ~ns ~inject h;
   ]

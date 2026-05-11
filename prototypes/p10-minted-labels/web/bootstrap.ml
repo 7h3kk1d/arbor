@@ -18,19 +18,37 @@ let ingest_ty ~store ~ns src =
   | Error _ -> None
 
 let seed ~store ~att ~ns =
-  let bind name h = try Namespace.bind ns ~name h with _ -> () in
-  let opt_bind name = function Some h -> bind name h | None -> () in
-  (* Built-in primitives registered + name-bound through the substrate. *)
+  (* Every bootstrap binding is minted: wrap the substructure body
+     hash with a fresh Named_term / Named_type and bind to that. *)
+  let bind_term name h =
+    let bound = Store.register_named_term store h in
+    try Namespace.bind ns ~name bound with _ -> ()
+  in
+  let bind_type name h =
+    let bound = Store.register_named_type store h in
+    try Namespace.bind ns ~name bound with _ -> ()
+  in
+  let opt_bind_term name = function
+    | Some h -> bind_term name h
+    | None -> ()
+  in
+  let opt_bind_ty name = function
+    | Some h -> bind_type name h
+    | None -> ()
+  in
+  let opt_bind = opt_bind_term in
+  (* Built-in primitives registered + name-bound through the substrate.
+     install does its own mint-wrapping inside primitives.re. *)
   Primitives.install ~store ~att ~ns;
   (* alias.* — bind before any term that uses them as type annotations.
      IntEndo collides on the annotation in math.apply below, demonstrating
      that named-alias and structural form produce identical hashes. *)
-  opt_bind "alias.Predicate" (ingest_ty ~store ~ns "Int -> Bool");
-  opt_bind "alias.StringOp"  (ingest_ty ~store ~ns "String -> String");
-  opt_bind "alias.Compare"   (ingest_ty ~store ~ns "Int -> Int -> Bool");
-  opt_bind "alias.IntPair"   (ingest_ty ~store ~ns "Int * Int");
-  opt_bind "alias.IntEndo"   (ingest_ty ~store ~ns "Int -> Int");
-  opt_bind "alias.BinOp"     (ingest_ty ~store ~ns "Int -> Int -> Int");
+  opt_bind_ty "alias.Predicate" (ingest_ty ~store ~ns "Int -> Bool");
+  opt_bind_ty "alias.StringOp"  (ingest_ty ~store ~ns "String -> String");
+  opt_bind_ty "alias.Compare"   (ingest_ty ~store ~ns "Int -> Int -> Bool");
+  opt_bind_ty "alias.IntPair"   (ingest_ty ~store ~ns "Int * Int");
+  opt_bind_ty "alias.IntEndo"   (ingest_ty ~store ~ns "Int -> Int");
+  opt_bind_ty "alias.BinOp"     (ingest_ty ~store ~ns "Int -> Int -> Int");
   (* int.* surface terms — comparisons use int.lt / int.min / int.max primitives *)
   opt_bind "int.signum"
     (ingest ~store ~att ~ns

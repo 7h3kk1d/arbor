@@ -99,25 +99,20 @@ let rec resolve_ty =
     | Error(Namespace.Ambiguous(candidates)) =>
       Error(Ambiguous_name(name, candidates))
     | Ok(h) =>
-      switch (Store.lookup(store, h)) {
-      | None => Error(Missing_hash(name, h))
-      | Some(Definition.Type(ty)) => Ok(ty)
-      | Some(Definition.Term(_)) =>
-        Error(
-          Kind_mismatch({
-            name,
-            expected: Definition.Type_kind,
-            got: Definition.Term_kind,
-          }),
-        )
-      | Some(Definition.Label(_)) =>
-        Error(
-          Kind_mismatch({
-            name,
-            expected: Definition.Type_kind,
-            got: Definition.Label_kind,
-          }),
-        )
+      switch (Store.lookup_type(store, h)) {
+      | Some(ty) => Ok(ty)
+      | None =>
+        switch (Store.lookup(store, h)) {
+        | None => Error(Missing_hash(name, h))
+        | Some(def) =>
+          Error(
+            Kind_mismatch({
+              name,
+              expected: Definition.Type_kind,
+              got: Definition.kind(def),
+            }),
+          )
+        }
       }
     }
   };
@@ -140,29 +135,21 @@ let rec resolve_ctx =
       | Error(Namespace.Ambiguous(candidates)) =>
         Error(Ambiguous_name(name, candidates))
       | Ok(h) =>
-        switch (Store.lookup(store, h)) {
+        switch (Store.kind_of(store, h)) {
         | None => Error(Missing_hash(name, h))
-        | Some(Definition.Type(_)) =>
-          Error(
-            Kind_mismatch({
-              name,
-              expected: Definition.Term_kind,
-              got: Definition.Type_kind,
-            }),
-          )
-        | Some(Definition.Label(_)) =>
-          Error(
-            Kind_mismatch({
-              name,
-              expected: Definition.Term_kind,
-              got: Definition.Label_kind,
-            }),
-          )
-        | Some(Definition.Term(_)) =>
+        | Some(Definition.Term_kind) =>
           switch (Store.reconstruct(store, h)) {
           | None => Error(Missing_hash(name, h))
           | Some(ast) => Ok(ast)
           }
+        | Some(got) =>
+          Error(
+            Kind_mismatch({
+              name,
+              expected: Definition.Term_kind,
+              got,
+            }),
+          )
         }
       }
     }

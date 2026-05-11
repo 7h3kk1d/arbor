@@ -1,38 +1,72 @@
 /* Definition.t — what the Store holds.
 
-   p10 holds three sorts of definition in one hash-space, all under the
-   p10 language-tag-byte 'Q' (subspaces by leading bytes):
-   - `Term(Node.t)` — terms in the prototype's typed language;
-     hashes begin with the Node language tag 'Q'.
-   - `Type(Ty.t)`  — concrete types as first-class definitions;
-     hashes begin with 'U' from `Ty.hash`.
-   - `Label(Label.t)` — field / constructor / method identities;
-     hashes begin with 'Q' followed by the Label sort-tag 'L'.
+   p10 holds five sorts of entries in one hash-space (subspaces by
+   leading bytes inside the language-tag 'Q'):
 
-   Disambiguation between sorts is at the leaf encoding (the leading
-   one or two bytes), so the three share one Store table without
-   collision. The sum exists so the Store can dispatch, the Resolver
-   can kind-check named references, and the UI can render each
-   appropriately.
+   - `Term(Node.t)` — substructure terms. Internal AST nodes hashed
+     structurally (α-equivalence-by-canonicalization, content sharing,
+     no mint). Not directly namespace-bound. Hashes begin with 'Q'
+     followed by the Node body's tag byte.
+   - `Type(Ty.t)` — substructure types. Structural, no mint. Not
+     directly namespace-bound. Hashes begin with 'U' (Ty's tag).
+   - `Named_term(Mint.t, Hash.t)` — a user-named top-level term
+     binding. Wraps a substructure body hash with a fresh 16-byte
+     mint mark. Two `pi = 3.14` ingests share the same body hash but
+     mint distinct Named_term hashes. Hash bytes: 'Q' + 'M' + mint + body.
+   - `Named_type(Mint.t, Hash.t)` — same maneuver for types. Two
+     `type Foo = Int` ingests share `Int`'s substructure hash but
+     mint distinct Named_types. Hash bytes: 'Q' + 'N' + mint + body.
+   - `Label(Label.t)` — record/constructor/method field identity.
+     Just a mint mark, no body. Hash bytes: 'Q' + 'L' + mint.
 
-   Slice A: the `Label` arm is wired in; mint marks for Term and Type
-   are not yet baked into their canonical bytes — that's slice B. For
-   now, Term and Type hashes match Node.hash / Ty.hash, exactly as in
-   p9 modulo the changed language tag bytes. */
+   Namespace bindings point at Named_term, Named_type, and Label
+   hashes — never at substructure Term/Type hashes. References inside
+   stored bodies (Lam's body, App's children, etc.) point at
+   substructure Term/Type hashes, preserving structural sharing
+   regardless of the surrounding mint. */
 
 [@deriving (eq, show)]
 type t =
   | Term(Node.t)
   | Type(Ty.t)
+  | Named_term(Mint.t, Hash.t)
+  | Named_type(Mint.t, Hash.t)
   | Label(Label.t);
+
+let language_tag = 'Q';
+let tag_named_term = 'M';
+let tag_named_type = 'N';
+
+let hash_named_term = (mint: Mint.t, body: Hash.t): Hash.t => {
+  let buf = Buffer.create(2 + Mint.length + String.length(body));
+  Buffer.add_char(buf, language_tag);
+  Buffer.add_char(buf, tag_named_term);
+  Mint.encode(buf, mint);
+  Buffer.add_string(buf, body);
+  Hash.digest_buffer(buf);
+};
+
+let hash_named_type = (mint: Mint.t, body: Hash.t): Hash.t => {
+  let buf = Buffer.create(2 + Mint.length + String.length(body));
+  Buffer.add_char(buf, language_tag);
+  Buffer.add_char(buf, tag_named_type);
+  Mint.encode(buf, mint);
+  Buffer.add_string(buf, body);
+  Hash.digest_buffer(buf);
+};
 
 let hash = (def: t): Hash.t =>
   switch (def) {
   | Term(n) => Node.hash(n)
   | Type(ty) => Ty.hash(ty)
+  | Named_term(mint, body) => hash_named_term(mint, body)
+  | Named_type(mint, body) => hash_named_type(mint, body)
   | Label(label) => Label.hash(label)
   };
 
+/* User-facing kinds. Substructure Term and Type collapse into the same
+   user-facing Term_kind / Type_kind as their Named counterparts; the
+   substructure-vs-named distinction is internal to the Store. */
 [@deriving (eq, show)]
 type kind =
   | Term_kind
@@ -41,8 +75,10 @@ type kind =
 
 let kind = (def: t): kind =>
   switch (def) {
-  | Term(_) => Term_kind
-  | Type(_) => Type_kind
+  | Term(_)
+  | Named_term(_, _) => Term_kind
+  | Type(_)
+  | Named_type(_, _) => Type_kind
   | Label(_) => Label_kind
   };
 

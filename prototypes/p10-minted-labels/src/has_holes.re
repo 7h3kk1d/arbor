@@ -17,7 +17,7 @@ let descriptor: Attachment.descriptor = {
   languages: ["p10"],
 };
 
-let peek_cache = (att: Attachment.t, h: Hash.t): option(bool) =>
+let peek_cache_raw = (att: Attachment.t, h: Hash.t): option(bool) =>
   switch (
     Attachment.peek(att, ~target=h, ~aspect=aspect_id, ~procedure=procedure_id)
   ) {
@@ -25,8 +25,15 @@ let peek_cache = (att: Attachment.t, h: Hash.t): option(bool) =>
   | _ => None
   };
 
+/* Public peek_cache follows Named wrappers — the aspect is cached on
+   the substructure body, not on the minted wrapper. */
+let peek_cache = (~store: Store.t, att: Attachment.t, h: Hash.t): option(bool) => {
+  let h = Store.unwrap_named(store, h);
+  peek_cache_raw(att, h);
+};
+
 let rec compute = (~store: Store.t, ~att: Attachment.t, h: Hash.t): bool =>
-  switch (peek_cache(att, h)) {
+  switch (peek_cache_raw(att, h)) {
   | Some(b) => b
   | None =>
     let result =

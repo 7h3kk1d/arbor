@@ -41,7 +41,7 @@ let aspect_value_of_result =
 
 exception Dangling_hash(Hash.t);
 
-let peek_cache = (att: Attachment.t, h: Hash.t): option(result) =>
+let peek_cache_raw = (att: Attachment.t, h: Hash.t): option(result) =>
   switch (
     Attachment.peek(att, ~target=h, ~aspect=aspect_id, ~procedure=procedure_id)
   ) {
@@ -50,6 +50,13 @@ let peek_cache = (att: Attachment.t, h: Hash.t): option(result) =>
   | Some(Attachment.Eval_step_limit(h)) => Some(StepLimit(h))
   | _ => None
   };
+
+/* Public peek_cache follows Named wrappers — the aspect is cached on
+   the substructure body, not on the minted wrapper. */
+let peek_cache = (~store: Store.t, att: Attachment.t, h: Hash.t): option(result) => {
+  let h = Store.unwrap_named(store, h);
+  peek_cache_raw(att, h);
+};
 
 type budget = {mutable remaining: int};
 
@@ -243,7 +250,7 @@ let eval =
       h: Hash.t,
     )
     : result =>
-  switch (peek_cache(att, h)) {
+  switch (peek_cache_raw(att, h)) {
   | Some(r) => r
   | None =>
     switch (Store.reconstruct(store, h)) {

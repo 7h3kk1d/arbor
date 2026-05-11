@@ -65,14 +65,21 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
       match m.ty_feedback, m.author_ty_bind_as with
       | Ty_recovered { ingest = Ty_ingested { hash; _ }; _ }, name
         when not (String.is_empty (String.strip name)) -> (
+          (* Wrap with a fresh Named_type before binding. The minted
+             hash is what the namespace sees and what the detail view
+             opens. *)
+          let bound_hash =
+            P10_minted_labels_substrate.Store.register_named_type
+              Substrate.global.store hash
+          in
           try
             P10_minted_labels_substrate.Namespace.bind
-              Substrate.global.ns ~name hash;
+              Substrate.global.ns ~name bound_hash;
             bump
               {
                 m with
                 author_ty_bind_as = "";
-                view = Detail hash;
+                view = Detail bound_hash;
               }
           with
           | P10_minted_labels_substrate.Namespace.Name_already_bound _ -> (
@@ -81,7 +88,7 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
                   Substrate.global.ns name
               with
               | Some old ->
-                  { m with pending_rebind = Some (name, old, hash) }
+                  { m with pending_rebind = Some (name, old, bound_hash) }
               | None -> m)
           | _ -> m)
       | _ -> m)
@@ -89,14 +96,21 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
       match m.feedback, m.author_bind_as with
       | Recovered { ingest = Ingested { hash; _ }; _ }, name
         when not (String.is_empty (String.strip name)) -> (
+          (* Wrap the substructure body with a fresh Named_term so the
+             namespace binding is minted. Two `bind` actions for the
+             same source mint distinct Named_term hashes. *)
+          let bound_hash =
+            P10_minted_labels_substrate.Store.register_named_term
+              Substrate.global.store hash
+          in
           try
             P10_minted_labels_substrate.Namespace.bind
-              Substrate.global.ns ~name hash;
+              Substrate.global.ns ~name bound_hash;
             bump
               {
                 m with
                 author_bind_as = "";
-                view = Detail hash;
+                view = Detail bound_hash;
               }
           with
           | P10_minted_labels_substrate.Namespace.Name_already_bound _ -> (
@@ -106,7 +120,7 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
                   Substrate.global.ns name
               with
               | Some old ->
-                  { m with pending_rebind = Some (name, old, hash) }
+                  { m with pending_rebind = Some (name, old, bound_hash) }
               | None -> m)
           | _ -> m)
       | _ -> m)

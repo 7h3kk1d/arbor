@@ -366,9 +366,13 @@ let install_bindings =
       let ast = Primitive_registry.to_lam_ast(d);
       switch (Resolver.ingest_ast(~store, ~att, ast)) {
       | Ok({hash, _}) =>
-        try(Namespace.bind(ns, ~name, hash)) {
+        /* Every user-facing binding is minted in p10. The substructure
+           body lives at `hash`; we wrap it with a fresh Named_term
+           and bind the wrapper's hash to the name. */
+        let bound = Store.register_named_term(store, hash);
+        try(Namespace.bind(ns, ~name, bound)) {
         | _ => ()
-        }
+        };
       | Error(_) => ()
       };
     },
