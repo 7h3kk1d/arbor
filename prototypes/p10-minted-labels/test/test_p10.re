@@ -1132,6 +1132,127 @@ let test_list_ty_element_distinct = () => {
   };
 };
 
+/* ==================== Label sharing across record types ==================== */
+
+/* The labels `x` and `y` declared in one record type must be reused
+   by name-resolution when a second record type declares the same
+   names — doc 11's "intentional sharing on demand" behavior. */
+let test_labels_shared_across_record_types = () => {
+  let (store, _att, ns) = make_substrate();
+  let r_point =
+    Parse_recover.parse_ty("{ x : Int, y : Int }")
+    |> Resolver.ingest_ty(~namespace=ns, ~store);
+  let r_vector =
+    Parse_recover.parse_ty("{ x : Int, y : Int }")
+    |> Resolver.ingest_ty(~namespace=ns, ~store);
+  switch (r_point, r_vector) {
+  | (Ok({hash: h_point, _}), Ok({hash: h_vector, _})) =>
+    /* Both record types have the same fields and the same label
+       hashes, so canonicalized they hash identically. */
+    Alcotest.(check(string))(
+      "Point and Vector share record-type hash via shared labels",
+      h_point,
+      h_vector,
+    )
+  | _ => Alcotest.fail("record type ingest failed")
+  };
+  /* And the namespace has x and y bound to single label hashes. */
+  switch (Namespace.resolve(ns, "x"), Namespace.resolve(ns, "y")) {
+  | (Some(_), Some(_)) => ()
+  | _ => Alcotest.fail("x and y labels not bound after declarations")
+  };
+};
+
+/* When labels are minted by a record-type declaration, the label hash
+   participates in the Type's canonical bytes — so a record type
+   referencing a freshly-minted `x` hashes differently from one
+   referencing a different `x`. */
+let test_distinct_x_labels_yield_distinct_record_types = () => {
+  /* Two separate substrates: each mints its own fresh `x` and `y`. */
+  let (store_a, _att_a, ns_a) = make_substrate();
+  let (store_b, _att_b, ns_b) = make_substrate();
+  let r_a =
+    Parse_recover.parse_ty("{ x : Int, y : Int }")
+    |> Resolver.ingest_ty(~namespace=ns_a, ~store=store_a);
+  let r_b =
+    Parse_recover.parse_ty("{ x : Int, y : Int }")
+    |> Resolver.ingest_ty(~namespace=ns_b, ~store=store_b);
+  switch (r_a, r_b) {
+  | (Ok({hash: h_a, _}), Ok({hash: h_b, _})) =>
+    if (h_a == h_b) {
+      Alcotest.fail(
+        "two substrates with independently-minted x/y labels "
+        ++ "produced the same record-type hash",
+      );
+    }
+  | _ => Alcotest.fail("record type ingest failed")
+  };
+};
+
+/* ==================== List primitives ==================== */
+
+let make_substrate_with_prims_p10 = () => {
+  let (store, att, ns) = make_substrate();
+  Primitives.install(~store, ~att, ~ns);
+  (store, att, ns);
+};
+
+let test_list_range_prim = () => {
+  let (store, att, ns) = make_substrate_with_prims_p10();
+  let r = must_ingest(~ns, ~store, ~att, "list.range 4");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.List_lit(items)) =>
+    Alcotest.(check(int))(
+      "range 4 produces 4 items",
+      4,
+      List.length(items),
+    )
+  | _ => Alcotest.fail("expected List_lit from list.range 4")
+  };
+};
+
+let test_list_sum_prim = () => {
+  let (store, att, ns) = make_substrate_with_prims_p10();
+  let r = must_ingest(~ns, ~store, ~att, "list.sum [1, 2, 3, 4]");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(10)) => ()
+  | _ => Alcotest.fail("expected list.sum [1,2,3,4] = 10")
+  };
+};
+
+let test_list_product_prim = () => {
+  let (store, att, ns) = make_substrate_with_prims_p10();
+  let r = must_ingest(~ns, ~store, ~att, "list.product [2, 3, 4]");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(24)) => ()
+  | _ => Alcotest.fail("expected list.product [2,3,4] = 24")
+  };
+};
+
+let test_list_length_int_prim = () => {
+  let (store, att, ns) = make_substrate_with_prims_p10();
+  let r = must_ingest(~ns, ~store, ~att, "list.length_int [10, 20, 30, 40, 50]");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.Int_lit(5)) => ()
+  | _ => Alcotest.fail("expected length = 5")
+  };
+};
+
+let test_list_cons_int_prim = () => {
+  let (store, att, ns) = make_substrate_with_prims_p10();
+  let r = must_ingest(~ns, ~store, ~att, "list.cons_int 0 [1, 2, 3]");
+  let v = must_eval(~store, ~att, r.hash);
+  switch (Store.lookup_term(store, v)) {
+  | Some(Node.List_lit(items)) =>
+    Alcotest.(check(int))("cons prepends", 4, List.length(items))
+  | _ => Alcotest.fail("expected List_lit from cons")
+  };
+};
+
 /* ==================== Test registration ==================== */
 
 let () =
@@ -1408,6 +1529,51 @@ let () =
             "{ x : Int, y : Int } parses as Record type",
             `Quick,
             test_parse_record_type,
+          ),
+        ],
+      ),
+      (
+        "label-sharing",
+        [
+          Alcotest.test_case(
+            "x and y labels shared across Point + Vector",
+            `Quick,
+            test_labels_shared_across_record_types,
+          ),
+          Alcotest.test_case(
+            "independently-minted x/y produce distinct types",
+            `Quick,
+            test_distinct_x_labels_yield_distinct_record_types,
+          ),
+        ],
+      ),
+      (
+        "list-primitives",
+        [
+          Alcotest.test_case(
+            "list.range 4",
+            `Quick,
+            test_list_range_prim,
+          ),
+          Alcotest.test_case(
+            "list.sum [1,2,3,4] = 10",
+            `Quick,
+            test_list_sum_prim,
+          ),
+          Alcotest.test_case(
+            "list.product [2,3,4] = 24",
+            `Quick,
+            test_list_product_prim,
+          ),
+          Alcotest.test_case(
+            "list.length_int = 5",
+            `Quick,
+            test_list_length_int_prim,
+          ),
+          Alcotest.test_case(
+            "list.cons_int prepends",
+            `Quick,
+            test_list_cons_int_prim,
           ),
         ],
       ),

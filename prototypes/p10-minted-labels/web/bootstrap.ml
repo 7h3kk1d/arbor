@@ -114,6 +114,40 @@ let seed ~store ~att ~ns =
   (* vector.add — collides on suffix `add` to demo Ambiguous_name *)
   opt_bind "vector.add"
     (ingest ~store ~att ~ns "\\x: Int => \\y: Int => x + y mul 2");
+  (* Geom.* — record types demonstrating intentional label sharing.
+     Geom.Point declares labels x, y for the first time (mints them).
+     Geom.Vector reuses the same x, y because the resolver finds the
+     existing namespace bindings — label hashes are shared, and
+     functions like translate work on either with the same label
+     references in the body. *)
+  opt_bind_ty "Geom.Point"  (ingest_ty ~store ~ns "{ x : Int, y : Int }");
+  opt_bind_ty "Geom.Vector" (ingest_ty ~store ~ns "{ x : Int, y : Int }");
+  opt_bind "Geom.origin"
+    (ingest ~store ~att ~ns "{ x = 0, y = 0 }");
+  opt_bind "Geom.translate"
+    (ingest ~store ~att ~ns
+       "\\dx: Int => \\dy: Int => \\p: Geom.Point => { p with x = p.x + dx, y = p.y + dy }");
+  opt_bind "Geom.magnitude_sq"
+    (ingest ~store ~att ~ns
+       "\\p: Geom.Point => (p.x mul p.x) + (p.y mul p.y)");
+  (* Record types with different field shapes — labels here are
+     distinct from x/y. *)
+  opt_bind_ty "Music.Note"
+    (ingest_ty ~store ~ns "{ pitch : Int, duration : Int }");
+  opt_bind "Music.middle_c"
+    (ingest ~store ~att ~ns "{ pitch = 60, duration = 4 }");
+  (* List.* — wrappers over the list.* primitive registry entries.
+     Demonstrates list literals + list primitives end-to-end. *)
+  opt_bind "List.factorial"
+    (ingest ~store ~att ~ns
+       "\\n: Int => list.product (list.tail_int (list.range (n + 1)))");
+  opt_bind "List.sum_to"
+    (ingest ~store ~att ~ns "\\n: Int => list.sum (list.range (n + 1))");
+  opt_bind "List.first_or_zero"
+    (ingest ~store ~att ~ns "\\xs: List Int => list.head_int xs");
+  (* Tuple example — using Geom.Point projection. *)
+  opt_bind "pair.from_point"
+    (ingest ~store ~att ~ns "\\p: Geom.Point => (p.x, p.y)");
   (* draft.* stubs — intentionally holey, all show the has-holes badge *)
   opt_bind "draft.todo"        (ingest ~store ~att ~ns "\\x: Int => ?");
   opt_bind "draft.fixed_point" (ingest ~store ~att ~ns "\\f: IntEndo => ?");

@@ -344,6 +344,190 @@ let defaults: list((string, Primitive_registry.descriptor)) = [
         ),
     },
   ),
+  /* List operations. Monomorphic over element type — p10 doesn't yet
+     have parametric polymorphism, so each operation that depends on
+     the element shape gets a per-type version. The most useful general
+     ones (length, reverse) work uniformly because they only count or
+     reorder. */
+  (
+    "list.range",
+    {
+      Primitive_registry.id: "list:range:v1",
+      ty: Ty.Arrow(Ty.Int, Ty.List(Ty.Int)),
+      impl:
+        (
+          fun
+          | [Ast.Int_lit(n)] => {
+              let items =
+                if (n <= 0) {
+                  [];
+                } else {
+                  let rec build = (i, acc) =>
+                    if (i < 0) {
+                      acc;
+                    } else {
+                      build(i - 1, [Ast.Int_lit(i), ...acc]);
+                    };
+                  build(n - 1, []);
+                };
+              Some(Ast.List_lit(items));
+            }
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.length_int",
+    {
+      Primitive_registry.id: "list:length_int:v1",
+      ty: Ty.Arrow(Ty.List(Ty.Int), Ty.Int),
+      impl:
+        (
+          fun
+          | [Ast.List_lit(items)] =>
+            Some(Ast.Int_lit(List.length(items)))
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.length_string",
+    {
+      Primitive_registry.id: "list:length_string:v1",
+      ty: Ty.Arrow(Ty.List(Ty.String), Ty.Int),
+      impl:
+        (
+          fun
+          | [Ast.List_lit(items)] =>
+            Some(Ast.Int_lit(List.length(items)))
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.sum",
+    {
+      Primitive_registry.id: "list:sum:v1",
+      ty: Ty.Arrow(Ty.List(Ty.Int), Ty.Int),
+      impl: {
+        let rec sum_items = (acc, lst) =>
+          switch (lst) {
+          | [] => Some(acc)
+          | [Ast.Int_lit(n), ...rest] => sum_items(acc + n, rest)
+          | _ => None
+          };
+        (
+          fun
+          | [Ast.List_lit(items)] =>
+            sum_items(0, items) |> Option.map(n => Ast.Int_lit(n))
+          | _ => None
+        );
+      },
+    },
+  ),
+  (
+    "list.product",
+    {
+      Primitive_registry.id: "list:product:v1",
+      ty: Ty.Arrow(Ty.List(Ty.Int), Ty.Int),
+      impl: {
+        let rec prod_items = (acc, lst) =>
+          switch (lst) {
+          | [] => Some(acc)
+          | [Ast.Int_lit(n), ...rest] => prod_items(acc * n, rest)
+          | _ => None
+          };
+        (
+          fun
+          | [Ast.List_lit(items)] =>
+            prod_items(1, items) |> Option.map(n => Ast.Int_lit(n))
+          | _ => None
+        );
+      },
+    },
+  ),
+  (
+    "list.reverse_int",
+    {
+      Primitive_registry.id: "list:reverse_int:v1",
+      ty: Ty.Arrow(Ty.List(Ty.Int), Ty.List(Ty.Int)),
+      impl:
+        (
+          fun
+          | [Ast.List_lit(items)] =>
+            Some(Ast.List_lit(List.rev(items)))
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.head_int",
+    {
+      Primitive_registry.id: "list:head_int:v1",
+      ty: Ty.Arrow(Ty.List(Ty.Int), Ty.Int),
+      impl:
+        (
+          fun
+          | [Ast.List_lit([Ast.Int_lit(n), ..._])] =>
+            Some(Ast.Int_lit(n))
+          /* Empty list: return 0 as a permissive default.
+             A real language would use an Option type; p10
+             doesn't have sums yet. */
+          | [Ast.List_lit([])] => Some(Ast.Int_lit(0))
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.tail_int",
+    {
+      Primitive_registry.id: "list:tail_int:v1",
+      ty: Ty.Arrow(Ty.List(Ty.Int), Ty.List(Ty.Int)),
+      impl:
+        (
+          fun
+          | [Ast.List_lit([_, ...rest])] => Some(Ast.List_lit(rest))
+          | [Ast.List_lit([])] => Some(Ast.List_lit([]))
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.cons_int",
+    {
+      Primitive_registry.id: "list:cons_int:v1",
+      ty:
+        Ty.Arrow(
+          Ty.Int,
+          Ty.Arrow(Ty.List(Ty.Int), Ty.List(Ty.Int)),
+        ),
+      impl:
+        (
+          fun
+          | [Ast.Int_lit(n), Ast.List_lit(items)] =>
+            Some(Ast.List_lit([Ast.Int_lit(n), ...items]))
+          | _ => None
+        ),
+    },
+  ),
+  (
+    "list.concat_int",
+    {
+      Primitive_registry.id: "list:concat_int:v1",
+      ty:
+        Ty.Arrow(
+          Ty.List(Ty.Int),
+          Ty.Arrow(Ty.List(Ty.Int), Ty.List(Ty.Int)),
+        ),
+      impl:
+        (
+          fun
+          | [Ast.List_lit(a), Ast.List_lit(b)] =>
+            Some(Ast.List_lit(a @ b))
+          | _ => None
+        ),
+    },
+  ),
 ];
 
 /* Add every default descriptor to the registry. Idempotent — calling
