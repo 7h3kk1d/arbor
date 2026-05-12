@@ -280,7 +280,10 @@ let view
                 Vdom.Attr.create "autofocus" "true";
                 Vdom.Attr.placeholder
                   "e.g.  let inc = \\x: Int => x + 1 in inc 41";
-                Vdom.Attr.value state.author_buffer;
+                (* `value_prop` sets the DOM `.value` property — needed
+                   for textarea reactivity, the plain `value` attribute
+                   only seeds initial content. *)
+                Vdom.Attr.value_prop state.author_buffer;
                 Vdom.Attr.on_keydown (fun ev ->
                     let is_enter = ev##.keyCode = 13 in
                     let meta =
@@ -344,7 +347,7 @@ let view
                   [
                     Vdom.Attr.type_ "text";
                     Vdom.Attr.placeholder "bind term as name (e.g. math.foo)";
-                    Vdom.Attr.value state.author_bind_as;
+                    Vdom.Attr.value_prop state.author_bind_as;
                     Vdom.Attr.on_input (fun _ s ->
                         inject (State.Set_bind_as s));
                     Vdom.Attr.on_keydown (fun ev ->
@@ -373,7 +376,7 @@ let view
                 Vdom.Attr.create "autocapitalize" "off";
                 Vdom.Attr.create "autocomplete" "off";
                 Vdom.Attr.placeholder "e.g.  Int -> Int -> Int";
-                Vdom.Attr.value state.author_ty_buffer;
+                Vdom.Attr.value_prop state.author_ty_buffer;
                 Vdom.Attr.on_keydown (fun ev ->
                     let is_enter = ev##.keyCode = 13 in
                     let meta =
@@ -407,7 +410,7 @@ let view
                     Vdom.Attr.type_ "text";
                     Vdom.Attr.placeholder
                       "bind type as name (e.g. alias.Endo)";
-                    Vdom.Attr.value state.author_ty_bind_as;
+                    Vdom.Attr.value_prop state.author_ty_bind_as;
                     Vdom.Attr.on_input (fun _ s ->
                         inject (State.Set_ty_bind_as s));
                     Vdom.Attr.on_keydown (fun ev ->
