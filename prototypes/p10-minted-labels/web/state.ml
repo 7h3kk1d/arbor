@@ -164,4 +164,10 @@ type action =
   | Confirm_rebind
   | Cancel_rebind
   | Evaluate of Hash_m.t
+  (* Load a hash's pretty-printed source into the editor textarea.
+     Switches editor_mode to match the hash's sort (Term_mode for
+     terms / Named_term, Type_mode for types / Named_type), populates
+     the matching buffer, and refreshes feedback. Labels can't be
+     opened (no body to edit). *)
+  | Open_in_editor of Hash_m.t
 [@@deriving sexp]

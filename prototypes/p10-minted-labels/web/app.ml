@@ -163,6 +163,56 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
            ~step_limit:Substrate.global.step_limit h
           : P10_minted_labels_substrate.Eval.result);
       bump m
+  | Open_in_editor h -> (
+      let store = Substrate.global.store in
+      let ns = Substrate.global.ns in
+      match P10_minted_labels_substrate.Store.kind_of store h with
+      | Some P10_minted_labels_substrate.Definition.Term_kind ->
+          (* Pretty-print the term's body. print_named already follows
+             Named_term wrappers via Store.reconstruct, so it produces
+             the same source whether `h` is a minted wrapper or a
+             substructure body. *)
+          let src =
+            try
+              P10_minted_labels_substrate.Pretty.print_named
+                ~namespace:ns store h
+            with _ -> ""
+          in
+          let feedback =
+            Feedback.compute ~s:Substrate.global ~buffer:src
+          in
+          bump
+            {
+              m with
+              editor_mode = State.Term_mode;
+              author_buffer = src;
+              author_bind_as = "";
+              feedback;
+              view = State.Author;
+            }
+      | Some P10_minted_labels_substrate.Definition.Type_kind ->
+          let src =
+            try
+              P10_minted_labels_substrate.Pretty.print_named_ty
+                ~namespace:ns store h
+            with _ -> ""
+          in
+          let ty_feedback =
+            Feedback.compute_ty ~s:Substrate.global ~buffer:src
+          in
+          bump
+            {
+              m with
+              editor_mode = State.Type_mode;
+              author_ty_buffer = src;
+              author_ty_bind_as = "";
+              ty_feedback;
+              view = State.Author;
+            }
+      | Some P10_minted_labels_substrate.Definition.Label_kind ->
+          (* A label has no editable body — leave the state alone. *)
+          m
+      | None -> m)
 
 let render_rebind_dialog
     ~(state : State.t)

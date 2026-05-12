@@ -109,6 +109,26 @@ let render_for_hash
               ]
             [ Vdom.Node.text ("unbind " ^ n) ])
   in
+  (* "Open in editor" — populate the matching editor buffer with the
+     pretty-printed source of this definition so the user can modify
+     and re-ingest. Hidden for Labels (no body). *)
+  let open_button =
+    match kind with
+    | Some Definition.Label_kind | None -> []
+    | _ ->
+        [
+          Vdom.Node.button
+            ~attrs:
+              [
+                Vdom.Attr.classes [ "btn-mini"; "btn-open-editor" ];
+                Vdom.Attr.title
+                  "load this definition's source into the editor";
+                Vdom.Attr.on_click (fun _ ->
+                    inject (State.Open_in_editor h));
+              ]
+            [ Vdom.Node.text "open in editor" ];
+        ]
+  in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "detail-pane" ]
     [
@@ -120,7 +140,7 @@ let render_for_hash
         aspect_rows;
       Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "detail-actions" ]
-        unbind_buttons;
+        (open_button @ unbind_buttons);
     ]
 
 let view

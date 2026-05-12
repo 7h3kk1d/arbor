@@ -84,6 +84,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-mini { font-size: 11px; padding: 2px 8px; }
+.btn-open-editor {
+  background: #e3f0ff;
+  color: #1f4f87;
+  border-color: #b8d4ed;
+}
+.btn-open-editor:hover { background: #cbe2ff; }
 
 /* Chips */
 .chip {
