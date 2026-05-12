@@ -1132,6 +1132,65 @@ let test_list_ty_element_distinct = () => {
   };
 };
 
+/* ==================== Recovery for new partial forms ==================== */
+
+/* `[1, 2,` (no closing bracket) should recover into a parseable
+   form via Parse_recover. The exact shape isn't important — only
+   that the parser doesn't bail. */
+let test_recovery_truncated_list = () => {
+  let surface = Parse_recover.parse("[1, 2,");
+  switch (surface) {
+  | Surface_ast.Hole
+  | Surface_ast.List_lit(_) => ()
+  | _ =>
+    Alcotest.failf(
+      "expected Hole or List_lit for truncated `[1, 2,` — got %s",
+      Pretty.print_surface(surface),
+    )
+  };
+};
+
+/* `{ x = 1,` should recover. */
+let test_recovery_truncated_record = () => {
+  let surface = Parse_recover.parse("{ x = 1,");
+  switch (surface) {
+  | Surface_ast.Hole
+  | Surface_ast.Record_lit(_) => ()
+  | _ =>
+    Alcotest.failf(
+      "expected Hole or Record_lit for truncated `{ x = 1,` — got %s",
+      Pretty.print_surface(surface),
+    )
+  };
+};
+
+/* `p.` (trailing dot, no name) should recover. */
+let test_recovery_dangling_dot = () => {
+  let surface = Parse_recover.parse("p.");
+  /* The parser may produce either Hole or Var(p) followed by hole —
+     just check it parsed something. */
+  let _ = surface;
+  ();
+};
+
+/* QCheck: parsing remains total over arbitrary printable ASCII —
+   the recovery layer always returns a Surface_ast.t, even for the
+   new bracket/brace tokens. */
+let total_parse_new_punctuation =
+  QCheck.Test.make(
+    ~count=200,
+    ~name="parse total on strings sprinkled with new punctuation",
+    QCheck.string_printable,
+    src => {
+      try({
+        let _: Surface_ast.t = Parse_recover.parse(src);
+        true;
+      }) {
+      | _ => false
+      };
+    },
+  );
+
 /* ==================== Label sharing across record types ==================== */
 
 /* The labels `x` and `y` declared in one record type must be reused
@@ -1575,6 +1634,27 @@ let () =
             `Quick,
             test_list_cons_int_prim,
           ),
+        ],
+      ),
+      (
+        "recovery-new-forms",
+        [
+          Alcotest.test_case(
+            "truncated `[1, 2,` recovers",
+            `Quick,
+            test_recovery_truncated_list,
+          ),
+          Alcotest.test_case(
+            "truncated `{ x = 1,` recovers",
+            `Quick,
+            test_recovery_truncated_record,
+          ),
+          Alcotest.test_case(
+            "trailing `p.` recovers",
+            `Quick,
+            test_recovery_dangling_dot,
+          ),
+          QCheck_alcotest.to_alcotest(total_parse_new_punctuation),
         ],
       ),
     ],
