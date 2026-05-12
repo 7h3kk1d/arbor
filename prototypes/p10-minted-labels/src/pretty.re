@@ -85,12 +85,27 @@ let rec surface_ty_of =
         List.map(t => surface_ty_of(~namespace, ~top=false, t), ts),
       )
     | Ty.Record(fields) =>
-      /* For now, render label hashes as short-prefix strings; a
-         later slice will reverse-resolve them via the namespace. */
+      /* Reverse-resolve each label hash through the namespace. The
+         label leaf is the last dotted segment of whatever name is
+         bound — so `Geom.Point.x` and `Geom.Vector.x` both render
+         as `x` even though the namespace stores the full path. */
       Surface_ty.Record_decl(
         List.map(
-          ((h, t)) =>
-            (Hash.short(h), surface_ty_of(~namespace, ~top=false, t)),
+          ((h, t)) => {
+            let name =
+              switch (Namespace.names_of(namespace, h)) {
+              | [n, ..._] =>
+                /* Show the leaf segment for compactness — record
+                   fields read as `x: Int` rather than
+                   `Geom.Point.x: Int`. */
+                switch (List.rev(String.split_on_char('.', n))) {
+                | [leaf, ..._] => leaf
+                | [] => n
+                }
+              | [] => Hash.short(h)
+              };
+            (name, surface_ty_of(~namespace, ~top=false, t));
+          },
           fields,
         ),
       )
@@ -505,7 +520,25 @@ let print_surface = (s: Surface_ast.t): string => print_prec(~prec=0, s);
 
 let print_named =
     (~namespace: Namespace.t, store: Store.t, h: Hash.t): string =>
-  print_surface(surface_of_hash(~namespace, store, h));
+  switch (Store.lookup(store, h)) {
+  | Some(Definition.Label(l)) =>
+    /* Labels have no body — just a mint mark. Render with a `label`
+       prefix + short mark so the row body is informative rather
+       than blank. */
+    "label " ++ Mint.short(l.mint)
+  | Some(Definition.Named_type(_, _))
+  | Some(Definition.Type(_)) =>
+    /* Types render through the type pretty-printer, not the term
+       one. The browser's row body dispatches on kind, but if the
+       caller dispatches here, fall through to a type render rather
+       than producing `<missing>` from the term path. */
+    switch (Store.lookup_type(store, h)) {
+    | Some(ty) =>
+      Surface_ty.print(surface_ty_of(~namespace, ~top=true, ty))
+    | None => "<missing " ++ Hash.short(h) ++ ">"
+    }
+  | _ => print_surface(surface_of_hash(~namespace, store, h))
+  };
 
 let print_surface_ty = Surface_ty.print;
 
