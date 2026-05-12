@@ -21,10 +21,25 @@ let render_for_hash
     | None -> "?"
   in
   let names = Namespace.names_of ns h in
+  (* For labels, the "body" is just an opaque mint mark — we render a
+     short hex prefix of the mark so it's visually distinct from any
+     other definition. For records-and-types, fall back to the
+     pretty-printer. *)
   let body =
-    match kind with
-    | Some Definition.Type_kind -> Pretty.print_named_ty ~namespace:ns store h
-    | _ -> Pretty.print_named ~namespace:ns store h
+    match Store.lookup store h with
+    | Some (Definition.Label l) ->
+        Printf.sprintf "label mint:%s" (Mint.short l.mint)
+    | Some (Definition.Named_term (mint, body_h)) ->
+        Printf.sprintf "minted term [mint:%s] body:%s"
+          (Mint.short mint) (Hash.short body_h)
+    | Some (Definition.Named_type (mint, body_h)) ->
+        Printf.sprintf "minted type [mint:%s] body:%s"
+          (Mint.short mint) (Hash.short body_h)
+    | _ ->
+        (match kind with
+         | Some Definition.Type_kind ->
+             Pretty.print_named_ty ~namespace:ns store h
+         | _ -> Pretty.print_named ~namespace:ns store h)
   in
   let header =
     Vdom.Node.div
@@ -68,11 +83,15 @@ let render_for_hash
           [ Vdom.Node.text body ];
       ]
   in
-  (* Type definitions don't participate in typecheck/has-holes/eval
-     aspects today; aspect rows are only rendered for terms. *)
+  (* Type definitions and labels don't participate in typecheck /
+     has-holes / eval aspects today; aspect rows are only rendered
+     for terms. The aspect query path for terms automatically follows
+     Named_term wrappers via Store.unwrap_named, so minted top-level
+     bindings still see the aspects of their substructure body. *)
   let aspect_rows =
     match kind with
-    | Some Definition.Type_kind -> []
+    | Some Definition.Type_kind
+    | Some Definition.Label_kind -> []
     | _ ->
         Aspects_view.render_aspects ~inject ~att:Substrate.global.att
           ~store ~ns ~filter:state.filter h

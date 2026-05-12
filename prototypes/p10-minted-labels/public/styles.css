@@ -321,6 +321,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: #e3f0ff;
   color: #1f4f87;
 }
+.kind-badge-label {
+  background: #fff2d6;
+  color: #8a5a00;
+}
 .editor-textarea {
   width: 100%;
   min-height: 110px;

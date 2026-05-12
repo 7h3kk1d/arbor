@@ -194,6 +194,14 @@ let render_leaf_row
               Vdom.Attr.title "type definition";
             ]
           [ Vdom.Node.text "T" ]
+    | Some Definition.Label_kind ->
+        Vdom.Node.span
+          ~attrs:
+            [
+              Vdom.Attr.classes [ "kind-badge"; "kind-badge-label" ];
+              Vdom.Attr.title "label (record/constructor field identity)";
+            ]
+          [ Vdom.Node.text "L" ]
     | _ -> Vdom.Node.none
   in
   let alias_chips =
@@ -406,6 +414,14 @@ let view
                         Vdom.Attr.title "type definition";
                       ]
                     [ Vdom.Node.text "T" ]
+              | Some Definition.Label_kind ->
+                  Vdom.Node.span
+                    ~attrs:
+                      [
+                        Vdom.Attr.classes [ "kind-badge"; "kind-badge-label" ];
+                        Vdom.Attr.title "label";
+                      ]
+                    [ Vdom.Node.text "L" ]
               | _ -> Vdom.Node.none
             in
             Vdom.Node.div
