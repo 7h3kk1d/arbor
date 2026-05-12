@@ -109,6 +109,45 @@ let render_for_hash
               ]
             [ Vdom.Node.text ("unbind " ^ n) ])
   in
+  (* "Bind another name" row — works for any sort (term, type, label).
+     For labels this is the main rebind UX, since labels are only
+     auto-bound at the type-declaration site where they're minted.
+     For terms / types it lets the user add an alias. If the typed
+     name is already bound elsewhere, the rebind confirmation dialog
+     opens via the same path as the editor's bind action. *)
+  let bind_row =
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "detail-bind-row" ]
+      [
+        Vdom.Node.input
+          ~attrs:
+            [
+              Vdom.Attr.type_ "text";
+              Vdom.Attr.placeholder
+                (match kind with
+                 | Some Definition.Label_kind ->
+                     "bind label as name (e.g. coord.x)"
+                 | Some Definition.Type_kind ->
+                     "bind type as name (e.g. alias.Foo)"
+                 | _ -> "bind as name (e.g. math.foo)");
+              Vdom.Attr.value_prop state.detail_bind_buffer;
+              Vdom.Attr.on_input (fun _ s ->
+                  inject (State.Set_detail_bind_buffer s));
+              Vdom.Attr.on_keydown (fun ev ->
+                  if ev##.keyCode = 13 then inject (State.Detail_bind h)
+                  else Vdom.Effect.Ignore);
+            ]
+          ();
+        Vdom.Node.button
+          ~attrs:
+            [
+              Vdom.Attr.classes [ "btn-mini"; "btn-primary" ];
+              Vdom.Attr.on_click (fun _ ->
+                  inject (State.Detail_bind h));
+            ]
+          [ Vdom.Node.text "bind" ];
+      ]
+  in
   (* "Open in editor" — populate the matching editor buffer with the
      pretty-printed source of this definition so the user can modify
      and re-ingest. Hidden for Labels (no body). *)
@@ -138,6 +177,7 @@ let render_for_hash
       Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "detail-aspects" ]
         aspect_rows;
+      bind_row;
       Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "detail-actions" ]
         (open_button @ unbind_buttons);

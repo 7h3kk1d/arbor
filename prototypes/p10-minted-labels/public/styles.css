@@ -508,6 +508,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-radius: 3px;
   padding: 8px 10px;
 }
+.detail-bind-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.detail-bind-row input {
+  flex: 1;
+  font-size: 12px;
+  padding: 3px 6px;
+}
 .detail-actions {
   display: flex;
   gap: 6px;

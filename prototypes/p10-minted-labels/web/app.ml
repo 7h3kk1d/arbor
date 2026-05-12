@@ -213,6 +213,28 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) :
           (* A label has no editable body — leave the state alone. *)
           m
       | None -> m)
+  | Set_detail_bind_buffer s -> { m with detail_bind_buffer = s }
+  | Detail_bind h ->
+      let name = String.strip m.detail_bind_buffer in
+      if String.is_empty name then m
+      else begin
+        try
+          P10_minted_labels_substrate.Namespace.bind
+            Substrate.global.ns ~name h;
+          bump { m with detail_bind_buffer = "" }
+        with
+        | P10_minted_labels_substrate.Namespace.Name_already_bound _ -> (
+            (* Same rebind UX as the editor's bind action: surface the
+               conflict so the user can confirm. *)
+            match
+              P10_minted_labels_substrate.Namespace.resolve
+                Substrate.global.ns name
+            with
+            | Some old ->
+                { m with pending_rebind = Some (name, old, h) }
+            | None -> m)
+        | _ -> m
+      end
 
 let render_rebind_dialog
     ~(state : State.t)

@@ -122,6 +122,10 @@ type t = {
   feedback : ingest_result;
   ty_feedback : ty_ingest_result;
   pending_rebind : (string * Hash_m.t * Hash_m.t) option;
+  (* Input text for the detail-pane "bind another name" affordance.
+     One field is enough — the detail pane is single-hash, so the
+     same buffer serves whichever entry is open. Cleared on bind. *)
+  detail_bind_buffer : string;
 }
 [@@deriving sexp, equal]
 
@@ -141,6 +145,7 @@ let initial : t =
     feedback = Empty;
     ty_feedback = Ty_empty;
     pending_rebind = None;
+    detail_bind_buffer = "";
   }
 
 type action =
@@ -170,4 +175,10 @@ type action =
      the matching buffer, and refreshes feedback. Labels can't be
      opened (no body to edit). *)
   | Open_in_editor of Hash_m.t
+  | Set_detail_bind_buffer of string
+  (* Bind a fresh name to an existing hash from the detail pane —
+     used to give a label, term, or type an additional or new name.
+     If the name is already bound elsewhere, the same rebind dialog
+     as the editor's bind action opens for confirmation. *)
+  | Detail_bind of Hash_m.t
 [@@deriving sexp]
