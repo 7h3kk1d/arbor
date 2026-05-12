@@ -542,6 +542,14 @@ let print_named =
 
 let print_surface_ty = Surface_ty.print;
 
+/* Pretty-print a Ty.t with namespace-aware label and alias names —
+   `{ x : Int, y : Int }` instead of `{ #abc: Int, #def: Int }`,
+   and `Geom.Point` instead of `#abc12345` when a named-type alias
+   resolves. Use this from feedback panes that have a Ty.t in hand. */
+let print_ty_named =
+    (~namespace: Namespace.t, ty: Ty.t): string =>
+  Surface_ty.print(surface_ty_of(~namespace, ~top=true, ty));
+
 /* Render a stored type hash back to a name-aware surface form. Used
    by the detail pane and the browser body preview for type rows.
    Top is shown structurally so that viewing `alias.IntEndo` displays

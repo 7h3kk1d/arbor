@@ -102,6 +102,7 @@ let leaf_visible ~att ~store ~filter ~ns h ~name =
 (* ===== Aspect indicators ===== *)
 
 let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
+    ~(ns : Namespace.t)
     (h : Hash.t) : Vdom.Node.t list =
   let icons = ref [] in
   (match Typecheck.peek_cache ~store att h with
@@ -111,7 +112,9 @@ let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
            ~attrs:
              [
                Vdom.Attr.class_ "aspect-icon ty-icon";
-               Vdom.Attr.title (Printf.sprintf "type: %s" (Ty.print ty));
+               Vdom.Attr.title
+                 (Printf.sprintf "type: %s"
+                    (Pretty.print_ty_named ~namespace:ns ty));
              ]
            [ Vdom.Node.text ":t" ]
          :: !icons
@@ -123,7 +126,7 @@ let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
                Vdom.Attr.class_ "aspect-icon ty-icon ty-icon-holes";
                Vdom.Attr.title
                  (Printf.sprintf "type (best guess; contains holes): %s"
-                    (Ty.print ty));
+                    (Pretty.print_ty_named ~namespace:ns ty));
              ]
            [ Vdom.Node.text ":t" ]
          :: !icons
@@ -183,7 +186,7 @@ let render_leaf_row
     | State.Detail h' when Hash.equal h h' -> true
     | _ -> false
   in
-  let indicators = render_aspect_icons ~att ~store h in
+  let indicators = render_aspect_icons ~att ~store ~ns h in
   let kind_badge =
     match kind with
     | Some Definition.Type_kind ->
@@ -441,7 +444,7 @@ let view
                   [ Vdom.Node.text (Hash.short ~len:8 h) ];
                 Vdom.Node.span
                   ~attrs:[ Vdom.Attr.class_ "row-aspects" ]
-                  (render_aspect_icons ~att ~store h);
+                  (render_aspect_icons ~att ~store ~ns h);
                 Vdom.Node.span
                   ~attrs:[ Vdom.Attr.class_ "browser-leaf-body mono" ]
                   [ Vdom.Node.text body ];

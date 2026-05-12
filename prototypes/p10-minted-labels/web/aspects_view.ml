@@ -27,6 +27,7 @@ let type_chip
 let render_typecheck
     ~(att : Attachment.t)
     ~(store : Store.t)
+    ~(ns : Namespace.t)
     ~(filter : State.filter)
     ~(inject : State.action -> unit Vdom.Effect.t)
     (h : Hash.t) : Vdom.Node.t =
@@ -49,7 +50,8 @@ let render_typecheck
           Vdom.Node.span
             ~attrs:[ Vdom.Attr.class_ "aspect-label" ]
             [ Vdom.Node.text "type" ];
-          type_chip ~filter ~inject ~extra_class:[] (Ty.print ty);
+          type_chip ~filter ~inject ~extra_class:[]
+            (Pretty.print_ty_named ~namespace:ns ty);
         ]
   | Some (Typecheck.Well_typed_with_holes ty) ->
       Vdom.Node.div
@@ -59,7 +61,7 @@ let render_typecheck
             ~attrs:[ Vdom.Attr.class_ "aspect-label" ]
             [ Vdom.Node.text "type" ];
           type_chip ~filter ~inject ~extra_class:[ "type-chip-holes" ]
-            (Ty.print ty);
+            (Pretty.print_ty_named ~namespace:ns ty);
           Vdom.Node.span
             ~attrs:[ Vdom.Attr.class_ "aspect-note" ]
             [ Vdom.Node.text "(best guess; contains holes)" ];
@@ -151,7 +153,7 @@ let render_aspects
     ~(ns : Namespace.t)
     ~(filter : State.filter) (h : Hash.t) : Vdom.Node.t list =
   [
-    render_typecheck ~att ~store ~filter ~inject h;
+    render_typecheck ~att ~store ~ns ~filter ~inject h;
     render_has_holes ~store ~att h;
     render_eval ~att ~store ~ns ~inject h;
   ]
