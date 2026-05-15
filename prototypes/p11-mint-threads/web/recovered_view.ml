@@ -221,3 +221,57 @@ let view
             [ Vdom.Node.text "recovered AST"; badge ];
           render surface;
         ]
+
+(* Type-pane variant. The type grammar is simpler — no binders — so
+   we just stringify the recovered Surface_ty.t with `Surface_ty.print`
+   and tag the hole count. The point is to make recovery visible: if
+   the user types `[Music.Note]` (not legal type syntax in p11) the
+   parser inserts a Hole, the resolver defaults that to `Ty.Int`, and
+   without this panel the user has no signal that anything was lost. *)
+let view_ty
+    ~(state : State.t Bonsai.Value.t)
+    ~(inject : (State.action -> unit Vdom.Effect.t) Bonsai.Value.t) :
+    Vdom.Node.t Bonsai.Computation.t =
+  let _ = inject in
+  let%arr state = state in
+  match state.ty_feedback with
+  | State.Ty_empty ->
+      Vdom.Node.div
+        ~attrs:[ Vdom.Attr.class_ "recovered-ast empty" ]
+        [
+          Vdom.Node.div
+            ~attrs:[ Vdom.Attr.class_ "recovered-label" ]
+            [ Vdom.Node.text "recovered type" ];
+          Vdom.Node.div
+            ~attrs:[ Vdom.Attr.class_ "recovered-empty-hint" ]
+            [
+              Vdom.Node.text
+                "type a type — `Int`, `Int -> Bool`, `List Int`, \
+                 `{x: Int, y: Int}`, etc. Anything the parser can't \
+                 make sense of becomes a hole shown here.";
+            ];
+        ]
+  | State.Ty_recovered { surface; hole_count; _ } ->
+      let printed = Surface_ty.print surface in
+      let badge =
+        if hole_count = 0 then Vdom.Node.none
+        else
+          Vdom.Node.span
+            ~attrs:[ Vdom.Attr.class_ "hole-count" ]
+            [
+              Vdom.Node.text
+                (Printf.sprintf " (%d hole%s — defaults to Int)"
+                   hole_count
+                   (if hole_count = 1 then "" else "s"));
+            ]
+      in
+      Vdom.Node.div
+        ~attrs:[ Vdom.Attr.class_ "recovered-ast" ]
+        [
+          Vdom.Node.div
+            ~attrs:[ Vdom.Attr.class_ "recovered-label" ]
+            [ Vdom.Node.text "recovered type"; badge ];
+          Vdom.Node.div
+            ~attrs:[ Vdom.Attr.class_ "recovered-body mono" ]
+            [ Vdom.Node.text printed ];
+        ]

@@ -429,9 +429,11 @@ let view
     ~(inject : (State.action -> unit Vdom.Effect.t) Bonsai.Value.t) :
     Vdom.Node.t Bonsai.Computation.t =
   let%sub recovered = Recovered_view.view ~state ~inject in
+  let%sub recovered_ty = Recovered_view.view_ty ~state ~inject in
   let%arr state = state
   and inject = inject
-  and recovered = recovered in
+  and recovered = recovered
+  and recovered_ty = recovered_ty in
   let term_disabled =
     match state.feedback with
     | State.Recovered { ingest = Ingested _; _ } -> false
@@ -584,6 +586,7 @@ let view
                       ]);
               ]
             [];
+          recovered_ty;
           Vdom.Node.div
             ~attrs:[ Vdom.Attr.class_ "feedback-pane" ]
             [ render_ty_feedback ~inject state.ty_feedback ];
