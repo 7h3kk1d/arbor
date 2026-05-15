@@ -121,6 +121,36 @@ Two stances on how to model it:
 
 The first promotes a new identity into the substrate; the second keeps the substrate flat and treats leaf-coupling as an editing-layer affordance. Either could be wrong and we wouldn't yet know.
 
+### Update strategies
+
+When a name is rebound to a new hash, the no-silent-breakage property from §"Interaction with content addressing" means callers of the old hash are not automatically updated. `open-questions.md` §"Update strategies" lists three natural editor strategies — *pin* (never propagate), *follow* (always track latest), *explicit migration* (user-driven rewrite). The synthesis below is exploratory: it recasts those three as points in a 2-axis space, identifies the substrate primitives a real implementation would touch, and is recorded as a working leaning rather than a settled design. No prototype has exercised the cascade primitives yet.
+
+**Two axes, not three peer strategies.**
+
+- *Scope* — how far updates propagate. None, a chosen subset, or all reachable callers.
+- *User-in-loop* — whether the substrate cascades autonomously, or the user intervenes (to resolve breakage, to pick which call sites participate, or both).
+
+The three named strategies fall out as points in that space:
+
+- **Pin.** Scope: none. User-in-loop: no. Rebind the name; *orphan* the old hash — no name resolves to it, but caller content keeps it reachable. Pin reads naturally as the substrate's resting behavior, but it earns the "strategy" name because the user is making an active choice to decline propagation.
+- **Follow.** Scope: all reachable callers. User-in-loop: no. The substrate auto-cascades — for each direct caller of the old hash, substitute the new hash, re-canonicalize, re-typecheck, ingest, rebind the caller's name, recurse. Available cleanly only when a dry-run confirms the whole cascade type-checks end-to-end.
+- **Explicit migration.** Scope: a chosen subset. User-in-loop: yes. The editor surfaces the call-graph reachable from the old hash; the user toggles each site in or out, and resolves whatever breakage the cascade could not handle on its own.
+
+The actual UX is hybrid rather than binary: follow runs as far as it can, explicit picks up only the sites it could not. The signal that tells the user up front whether intervention will be required at all is itself a derivable aspect — `follow-clean(h_old, h_new): bool` — which can be cached, and which a type-preserving edit (same `Type_of` on both sides, pure substitution) short-circuits without running the cascade.
+
+**Substrate primitives this would touch.**
+
+- *Reverse-DAG query*: hash → direct-caller hashes. Implicit in structural sharing today; would become an explicit query.
+- *Atomic multi-rebind*: the cascade commits as a unit so partial states do not leak.
+- *`follow-clean` aspect*: per-(h_old, h_new) cached predicate over the dry-run cascade. Short-circuited by type-preserving edits.
+- *Binding history*: append-only per name, `list((hash, timestamp))`. Optional annotations (commit-message-shaped) layer as aspects on history entries — not built into the entry itself.
+
+**Orphan display depends on binding history.** Under pin, the old hash carries no current name. Rendering it as a bare hash is hostile; rendering it with its prior name plus a disambiguator (`Math.calc#abc`, `Math.calc(v3)`) is informative. That UX makes binding history load-bearing for the interface — not merely a debugging convenience — even though the substrate-level need for history remains modest.
+
+**Synonyms.** Two names binding the same hash are independent rows in the namespace; the substrate as currently designed has no built-in notion that they are "the same thing." Whether they should track together under rebind depends on whether the substrate carries identity *across edits*, not merely at a moment. The working leaning (recorded in `10-minted-identity.md` §"Marks that survive content edits") is that a mint mark preserved across edits supplies exactly that identity, and that the mint is best read as the user's *signal* that this term has identity worth preserving — intentional, not automatic. Under that reading, the substrate exposes the grouping (which definitions share mint `m`); the editor uses it or ignores it as appropriate, and "update all bindings of mint `m`" becomes a substrate primitive rather than an editor reconstruction.
+
+**Patch.** A unit of co-dependent edits — the "checked-out context" referenced under `open-questions.md` §"Editing context" — is a natural longer-term home for a *patch*: a set of `(old_hash, new_hash, name?)` triples plus per-pair strategy and any explicit transformations. Whether such a patch is itself content-addressed is left to a later prototype. For now it can sit as the editor's working set — promote it only when a real use forces the question.
+
 ## Non-goals (current phase)
 
 - Namespace branching, merging, diffing.

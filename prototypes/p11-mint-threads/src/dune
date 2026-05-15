@@ -1,0 +1,12 @@
+(library
+ (name p11_mint_threads_substrate)
+ (public_name p11_mint_threads.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml menhirLib))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser)
+ (flags --table))

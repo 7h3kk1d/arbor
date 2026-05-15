@@ -1,0 +1,29 @@
+(lang dune 3.17)
+
+(using menhir 3.0)
+
+(name p11_mint_threads)
+
+(generate_opam_files true)
+
+(package
+ (name p11_mint_threads)
+ (synopsis "Phase 11 prototype: mint threads, binding history, and update strategies")
+ (description
+  "Forks p10 to exercise three new substrate ideas: mint threads (an explicit edit-of-X gesture preserves a mint mark across content edits, producing a thread of versioned hashes), append-only binding history per namespace name (with orphan rendering as `name(vN)`), and update strategies as substrate operations (Pin / Follow / Explicit migrate) built on three primitives — reverse-DAG callers query, atomic multi-rebind, and a follow-clean derived aspect with a type-preserving short-circuit. Carries p10's mint-by-default substrate, label sort, records, tuples, lists, and Bonsai+jsoo three-pane UI; hash space is incompatible with p10 (language tag byte 'R').")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  menhirLib
+  ppx_deriving
+  (digestif (>= 1.1))
+  (js_of_ocaml (>= 5.6.0))
+  (js_of_ocaml-ppx (>= 5.6.0))
+  (bonsai (and (>= v0.17) (< v0.18)))
+  (virtual_dom (and (>= v0.17) (< v0.18)))
+  (core (and (>= v0.17) (< v0.18)))
+  (ppx_jane (and (>= v0.17) (< v0.18)))
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))
