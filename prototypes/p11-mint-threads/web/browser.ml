@@ -114,7 +114,7 @@ let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
                Vdom.Attr.class_ "aspect-icon ty-icon";
                Vdom.Attr.title
                  (Printf.sprintf "type: %s"
-                    (Pretty.print_ty_named ~namespace:ns ty));
+                    (Pretty.print_ty_named ~namespace:ns ~store ty));
              ]
            [ Vdom.Node.text ":t" ]
          :: !icons
@@ -126,7 +126,7 @@ let render_aspect_icons ~(att : Attachment.t) ~(store : Store.t)
                Vdom.Attr.class_ "aspect-icon ty-icon ty-icon-holes";
                Vdom.Attr.title
                  (Printf.sprintf "type (best guess; contains holes): %s"
-                    (Pretty.print_ty_named ~namespace:ns ty));
+                    (Pretty.print_ty_named ~namespace:ns ~store ty));
              ]
            [ Vdom.Node.text ":t" ]
          :: !icons

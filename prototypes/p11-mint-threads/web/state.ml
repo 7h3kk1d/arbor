@@ -156,7 +156,8 @@ let initial : t =
     version = 0;
     view = Author;
     nav_back = [];
-    expanded_paths = [ "math"; "string"; "logic"; "vector"; "draft"; "alias" ];
+    expanded_paths =
+      [ "math"; "string"; "logic"; "vector"; "draft"; "alias"; "Music" ];
     filter = initial_filter;
     editor_mode = Term_mode;
     author_buffer = "";

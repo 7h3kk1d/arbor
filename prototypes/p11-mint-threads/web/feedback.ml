@@ -5,11 +5,11 @@
 open! Core
 open P11_mint_threads_substrate
 
-let format_type_result ~(ns : Namespace.t) :
+let format_type_result ~(ns : Namespace.t) ~(store : Store.t) :
     Typecheck.check_result -> string = function
-  | Well_typed ty -> Pretty.print_ty_named ~namespace:ns ty
+  | Well_typed ty -> Pretty.print_ty_named ~namespace:ns ~store ty
   | Well_typed_with_holes ty ->
-      Pretty.print_ty_named ~namespace:ns ty
+      Pretty.print_ty_named ~namespace:ns ~store ty
       ^ "  (best guess; contains holes)"
   | Ill_typed _ -> "ill-typed"
 
@@ -29,7 +29,8 @@ let compute_ty ~(s : Substrate.t) ~(buffer : string) :
             {
               hash = r.hash;
               was_new = r.was_new;
-              ty_summary = Pretty.print_ty_named ~namespace:s.ns r.ty;
+              ty_summary =
+                Pretty.print_ty_named ~namespace:s.ns ~store:s.store r.ty;
               resolved;
             }
       | Error (Unbound_name n) -> State.Ty_resolve_unbound n
@@ -59,7 +60,8 @@ let compute ~(s : Substrate.t) ~(buffer : string) : State.ingest_result =
             {
               hash = r.hash;
               was_new = r.was_new;
-              type_summary = format_type_result ~ns:s.ns r.type_result;
+              type_summary =
+                format_type_result ~ns:s.ns ~store:s.store r.type_result;
               has_holes = r.has_holes;
               resolved;
             }

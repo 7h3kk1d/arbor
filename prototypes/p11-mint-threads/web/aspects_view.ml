@@ -51,7 +51,7 @@ let render_typecheck
             ~attrs:[ Vdom.Attr.class_ "aspect-label" ]
             [ Vdom.Node.text "type" ];
           type_chip ~filter ~inject ~extra_class:[]
-            (Pretty.print_ty_named ~namespace:ns ty);
+            (Pretty.print_ty_named ~namespace:ns ~store ty);
         ]
   | Some (Typecheck.Well_typed_with_holes ty) ->
       Vdom.Node.div
@@ -61,7 +61,7 @@ let render_typecheck
             ~attrs:[ Vdom.Attr.class_ "aspect-label" ]
             [ Vdom.Node.text "type" ];
           type_chip ~filter ~inject ~extra_class:[ "type-chip-holes" ]
-            (Pretty.print_ty_named ~namespace:ns ty);
+            (Pretty.print_ty_named ~namespace:ns ~store ty);
           Vdom.Node.span
             ~attrs:[ Vdom.Attr.class_ "aspect-note" ]
             [ Vdom.Node.text "(best guess; contains holes)" ];

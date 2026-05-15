@@ -55,6 +55,43 @@ let display_name = (namespace: Namespace.t, h: Hash.t): option(string) =>
     }
   };
 
+/* Look up a name for a *substructure* hash by also walking through
+   `Named_term`/`Named_type` wrappers that point at it.
+
+   Namespace bindings target the Named wrapper hash, not the
+   substructure body — and inlining at resolve time stores the
+   substructure directly in caller bodies. Without this step, the
+   pretty-printer would expand every namespace-bound name back to
+   its full body inline. */
+let name_for_body =
+    (~namespace: Namespace.t, ~store: Store.t, h: Hash.t): option(string) =>
+  switch (Namespace.names_of(namespace, h)) {
+  | [n, ..._] => Some(n)
+  | [] =>
+    let candidates = Store.callers_of(store, h);
+    let rec find = lst =>
+      switch (lst) {
+      | [] => None
+      | [c, ...rest] =>
+        let matches =
+          switch (Store.lookup(store, c)) {
+          | Some(Definition.Named_term(_, body))
+          | Some(Definition.Named_type(_, body)) =>
+            body == h
+          | _ => false
+          };
+        if (matches) {
+          switch (Namespace.names_of(namespace, c)) {
+          | [n, ..._] => Some(n)
+          | [] => find(rest)
+          };
+        } else {
+          find(rest);
+        };
+      };
+    find(candidates);
+  };
+
 /* Render a stored Ty.t as Surface_ty.t, collapsing subtrees whose
    `Ty.hash` has a namespace binding to `Surface_ty.Named(name)`.
    Mirrors the term-side leaf-collapse rule: a name takes precedence
@@ -68,35 +105,35 @@ let display_name = (namespace: Namespace.t, h: Hash.t): option(string) =>
    either `alias.IntEndoPair` (uninformative) or
    `Int * Int -> Int * Int` (loses the alias structure). */
 let rec surface_ty_of =
-        (~namespace: Namespace.t, ~top: bool=false, ty: Ty.t)
+        (~namespace: Namespace.t, ~store: Store.t, ~top: bool=false, ty: Ty.t)
         : Surface_ty.t => {
   let h = Ty.hash(ty);
-  let names =
+  let named =
     if (top) {
-      [];
+      None;
     } else {
-      Namespace.names_of(namespace, h);
+      name_for_body(~namespace, ~store, h);
     };
-  switch (names) {
-  | [name, ..._] => Surface_ty.Named(name)
-  | [] =>
+  switch (named) {
+  | Some(name) => Surface_ty.Named(name)
+  | None =>
     switch (ty) {
     | Ty.Int => Surface_ty.Int
     | Ty.Bool => Surface_ty.Bool
     | Ty.String => Surface_ty.String
     | Ty.Arrow(a, b) =>
       Surface_ty.Arrow(
-        surface_ty_of(~namespace, ~top=false, a),
-        surface_ty_of(~namespace, ~top=false, b),
+        surface_ty_of(~namespace, ~store, ~top=false, a),
+        surface_ty_of(~namespace, ~store, ~top=false, b),
       )
     | Ty.Product(a, b) =>
       Surface_ty.Product(
-        surface_ty_of(~namespace, ~top=false, a),
-        surface_ty_of(~namespace, ~top=false, b),
+        surface_ty_of(~namespace, ~store, ~top=false, a),
+        surface_ty_of(~namespace, ~store, ~top=false, b),
       )
     | Ty.Tuple(ts) =>
       Surface_ty.Tuple(
-        List.map(t => surface_ty_of(~namespace, ~top=false, t), ts),
+        List.map(t => surface_ty_of(~namespace, ~store, ~top=false, t), ts),
       )
     | Ty.Record(fields) =>
       /* Reverse-resolve each label hash through the namespace. The
@@ -118,19 +155,19 @@ let rec surface_ty_of =
                 }
               | [] => Hash.short(h)
               };
-            (name, surface_ty_of(~namespace, ~top=false, t));
+            (name, surface_ty_of(~namespace, ~store, ~top=false, t));
           },
           fields,
         ),
       )
     | Ty.List(t) =>
-      Surface_ty.List(surface_ty_of(~namespace, ~top=false, t))
+      Surface_ty.List(surface_ty_of(~namespace, ~store, ~top=false, t))
     | Ty.Named(h) =>
-      /* Best-effort: if the namespace has a name for this type hash,
-         use it; otherwise fall back to a short-hash placeholder. */
-      switch (Namespace.names_of(namespace, h)) {
-      | [name, ..._] => Surface_ty.Named(name)
-      | [] => Surface_ty.Named(Hash.short(h))
+      /* Best-effort: if a name resolves for this type hash (directly
+         or via a Named_type wrapper), use it. */
+      switch (name_for_body(~namespace, ~store, h)) {
+      | Some(name) => Surface_ty.Named(name)
+      | None => Surface_ty.Named(Hash.short(h))
       }
     }
   };
@@ -147,11 +184,12 @@ let rec surface_of_hash_ctx =
           h: Hash.t,
         )
         : Surface_ast.t => {
-  let collapse =
-    !top
-    && {
-      switch (Namespace.names_of(namespace, h), Store.lookup_term(store, h)) {
-      | ([_, ..._], Some(node)) =>
+  let collapse_name =
+    if (top) {
+      None;
+    } else {
+      switch (name_for_body(~namespace, ~store, h), Store.lookup_term(store, h)) {
+      | (Some(name), Some(node)) =>
         switch (node) {
         /* Don't collapse Var, the simple literals, or Hole — their
            context-dependent meaning (or hash-equal-everywhere status for
@@ -160,15 +198,16 @@ let rec surface_of_hash_ctx =
         | Node.Int_lit(_)
         | Node.Bool_lit(_)
         | Node.String_lit(_)
-        | Node.Hole => false
-        | _ => is_closed_hash(store, h)
+        | Node.Hole => None
+        | _ => if (is_closed_hash(store, h)) Some(name) else None
         }
-      | _ => false
+      | _ => None
       };
     };
-  if (collapse) {
-    Surface_ast.Var(List.hd(Namespace.names_of(namespace, h)));
-  } else {
+  switch (collapse_name) {
+  | Some(name) => Surface_ast.Var(name)
+  | None =>
+    /* existing fall-through */
     switch (Store.lookup_term(store, h)) {
     | None => Surface_ast.Var("<missing " ++ Hash.short(h) ++ ">")
     | Some(Node.Var(k)) =>
@@ -185,7 +224,7 @@ let rec surface_of_hash_ctx =
       let x = fresh_name(~in_scope);
       let surface_ty =
         switch (Store.lookup_type(store, ty_hash)) {
-        | Some(ty) => surface_ty_of(~namespace, ty)
+        | Some(ty) => surface_ty_of(~namespace, ~store, ty)
         | None => Surface_ty.Hole
         };
       let body =
@@ -548,7 +587,7 @@ let print_named =
        than producing `<missing>` from the term path. */
     switch (Store.lookup_type(store, h)) {
     | Some(ty) =>
-      Surface_ty.print(surface_ty_of(~namespace, ~top=true, ty))
+      Surface_ty.print(surface_ty_of(~namespace, ~store, ~top=true, ty))
     | None => "<missing " ++ Hash.short(h) ++ ">"
     }
   | _ => print_surface(surface_of_hash(~namespace, store, h))
@@ -559,10 +598,17 @@ let print_surface_ty = Surface_ty.print;
 /* Pretty-print a Ty.t with namespace-aware label and alias names —
    `{ x : Int, y : Int }` instead of `{ #abc: Int, #def: Int }`,
    and `Geom.Point` instead of `#abc12345` when a named-type alias
-   resolves. Use this from feedback panes that have a Ty.t in hand. */
+   resolves. Use this from feedback panes that have a Ty.t in hand.
+
+   `~top=false` here — when the Ty.t is *the type of a term* (the
+   common case for this entry point), collapsing the outermost layer
+   to its alias is exactly what we want: `f : Music.Song -> Music.Song`
+   should also render its applied result type as `Music.Song`, not
+   `List Music.Note`. The `~top=true` posture belongs to `print_named_ty`
+   below, which renders a *type definition*'s own body. */
 let print_ty_named =
-    (~namespace: Namespace.t, ty: Ty.t): string =>
-  Surface_ty.print(surface_ty_of(~namespace, ~top=true, ty));
+    (~namespace: Namespace.t, ~store: Store.t, ty: Ty.t): string =>
+  Surface_ty.print(surface_ty_of(~namespace, ~store, ~top=false, ty));
 
 /* Render a stored type hash back to a name-aware surface form. Used
    by the detail pane and the browser body preview for type rows.
@@ -571,6 +617,6 @@ let print_ty_named =
 let print_named_ty =
     (~namespace: Namespace.t, store: Store.t, h: Hash.t): string =>
   switch (Store.lookup_type(store, h)) {
-  | Some(ty) => Surface_ty.print(surface_ty_of(~namespace, ~top=true, ty))
+  | Some(ty) => Surface_ty.print(surface_ty_of(~namespace, ~store, ~top=true, ty))
   | None => "<missing " ++ Hash.short(h) ++ ">"
   };
