@@ -192,6 +192,29 @@ let render_for_hash
         ]
     | _ -> []
   in
+  (* Music play button: shown when the term's cached type matches
+     Music.types.Note or Music.types.Song. Evaluation happens on
+     click; tones go through the browser's Web Audio API. *)
+  let play_button =
+    match
+      Music_player.kind_of_hash ~store ~ns ~att:Substrate.global.att h
+    with
+    | None -> []
+    | Some _ ->
+        [
+          Vdom.Node.button
+            ~attrs:
+              [
+                Vdom.Attr.classes [ "btn-mini"; "btn-play" ];
+                Vdom.Attr.title "play this note/song via Web Audio";
+                Vdom.Attr.on_click (fun _ ->
+                    Music_player.play ~store ~ns
+                      ~att:Substrate.global.att h;
+                    Vdom.Effect.Ignore);
+              ]
+            [ Vdom.Node.text "▶ play" ];
+        ]
+  in
   (* p11: mint thread, binding history, callers. Each is hidden when
      empty so single-version terms don't get noise. *)
   let chip_for_hash other_h =
@@ -280,7 +303,7 @@ let render_for_hash
         bind_row;
         Vdom.Node.div
           ~attrs:[ Vdom.Attr.class_ "detail-actions" ]
-          (edit_button @ open_button @ unbind_buttons);
+          (play_button @ edit_button @ open_button @ unbind_buttons);
       ])
 
 let view

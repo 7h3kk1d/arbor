@@ -650,3 +650,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   color: #ffffff !important;
   border-color: var(--accent) !important;
 }
+
+.btn-play {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.btn-play:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
