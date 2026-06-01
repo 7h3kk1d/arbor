@@ -1,7 +1,7 @@
 # Overview
 
 **Status:** Draft. Personal design exploration, intended to graduate into a research prospectus.
-**Project name:** **arbor** — Latin for *tree*, after the content-addressed DAG of definitions and the trees its aspect stores (namespaces, type derivations, translation lineages) grow over it. The working directory remains `lc-content-addressed` for now.
+**Project name:** **arbor** — Latin for *tree*, after the content-addressed DAG of definitions and the trees its aspect stores (namespaces, type derivations, translation lineages) grow over it. The working directory was renamed to `arbor` on 2026-06-01.
 
 ## Vision
 

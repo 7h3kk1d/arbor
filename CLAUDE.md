@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-`lc-content-addressed` is a design exploration for a content-addressed, multi-language computational substrate working through Pierce's *Types and Programming Languages* (TAPL), inspired by Unison and intended as a long-term substrate for Hazel's computational-commons vision.
+`arbor` is a design exploration for a content-addressed, multi-language computational substrate working through Pierce's *Types and Programming Languages* (TAPL), inspired by Unison and intended as a long-term substrate for Hazel's computational-commons vision.
 
 Substrate design lives in `docs/design/` and endures across prototypes. Nine disposable prototypes have been scaffolded so far, each in OCaml/Reason with dune + Menhir + digestif (BLAKE2B) + alcotest/qcheck:
 

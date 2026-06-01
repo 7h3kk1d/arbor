@@ -7,7 +7,7 @@ Running list. Items graduate to `decisions.md` when resolved, or into specific d
 ## Strategic
 
 - **Composition model for languages.** Fixed ladder, feature lattice, shared core IR, or hybrid. Deliberately deferred; see `01-language-model.md`.
-- ~~**Project name.**~~ Resolved 2026-04-23: **arbor** (see `decisions.md`). Working directory remains `lc-content-addressed`.
+- ~~**Project name.**~~ Resolved 2026-04-23: **arbor** (see `decisions.md`). Working directory renamed to `arbor` on 2026-06-01.
 - **Research framing.** What's the thesis this becomes a prospectus *for*? Translation as first-class, content-addressed semantics, something else?
 
 ## Tech stack
