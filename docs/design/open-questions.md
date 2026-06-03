@@ -89,6 +89,19 @@ Sharpened in `11-label-sort.md`. Substrate direction is settled in several place
 - **Recursive modules.** Modules whose fields reference other definitions in the same module force the substrate to canonicalize mutual reference. Intersects the existing "Mutual recursion canonicalization" item under "Content addressing"; will get resolved there once a language forces the issue.
 - **Type-language shape that consumes shared labels.** Whether early prototypes get away with structural subtyping over fixed label sets, or need explicit row variables from the start.
 
+## Type abstraction
+
+Sharpened in `12-type-abstraction.md`. Substrate leanings are settled in several places (abstract-type identity = `opaque ++ mint ++ witness`; witness-in-hash forced by soundness; mint for distinctness; signature = binder over a `11` label-record; sealing in the type system; functor application applicative by default; projection inlines to a direct reference for fine-grained dependency; private = signature omission). What's open:
+
+- **Module ↔ namespace relationship.** Module-aware namespace with inlined projection (current lean) vs. reify-on-demand vs. first-class path-dependent access into namespaces. The display/round-trip contract and the gesture distinguishing "use this module's member" from a plain named reference are open.
+- **Open vs. closed existential scope.** Path-dependent `m.t` by hash (lean) vs. OCaml-style unpack-into-binding vs. open existentials (Montagu–Rémy / avoidance problem). Not settled.
+- **Signature/translucency encoding.** Node shape for per-component opaque/manifest signatures; how value-component types reference type-component labels by hash in a self-referential record.
+- **First-class signature matching.** Coercion (restricted-module, new hash) vs. a subtyping judgment; whether depth/variance is ever needed. Inherits the row-variable question from "Label sort."
+- **Functor application identity.** Applicative-by-default contract: editor-authored `F(X)` (mints) vs. computed `F(X)` (content-addressed), plus the explicit-unit generative escape hatch. Pin when a prototype forces it.
+- **Same-witness-type invariant drift.** The criterion-6 boundary — changes preserving the witness type but altering its invariant are uncaught (general semantic drift, not abstraction-specific).
+- **Editing / checkout UX.** What makes multi-version abstract modules legible to a user who never sees hashes. For a later interface prototype; relates to the "Editing context" item under "Interfaces."
+- **Recursive modules.** Inherited from "Label sort"; intersects "Mutual recursion canonicalization" under "Content addressing."
+
 ## Roadmap
 
 Feeds from `09-roadmap.md`.
