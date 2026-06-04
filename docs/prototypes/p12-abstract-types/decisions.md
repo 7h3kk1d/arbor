@@ -103,10 +103,20 @@ pair-counter note.
 
 ---
 
-### 2026-06-04 — Interface: REPL/CLI first (pending confirmation)
+### 2026-06-04 — Interface: REPL first, then a Bonsai web app
 
-**Leaning.** Build the substrate + editing-context core as a tested library,
-then a REPL that exposes the context state machine (create-type / open / bind /
-list-impl-set / inspect / show-open-set). A Bonsai web UI is the alternative but
-reintroduces the shed stack. To be confirmed with the user before any
-interface code is written.
+**Decision.** Built the substrate + editing-context core as a tested library,
+then a REPL exposing the context state machine, then a Bonsai + js_of_ocaml web
+interface. Both interfaces are kept.
+
+**Web — browser-driven editing context.** The open/close toggle for an abstract
+type lives on the type in the namespace browser (not a persistent context bar,
+not a modal implement-mode); the editor shows a read-only indicator of the
+current open set. Chosen for keeping the gesture anchored to the type being
+worked on. Binding surfaces a live Normal/Sealed badge (minimal sealing made
+visible); the detail pane renders an abstract type's derived implementation set.
+
+**Consequence — substrate wrapped.** To let the web layer `open Core` without
+`Base.Hash` shadowing the substrate's `Hash`, the `src/` library dropped
+`(wrapped false)`; it is now the wrapped module `P12_substrate`, and the REPL and
+tests `open P12_substrate`. No substrate code changed.

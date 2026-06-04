@@ -18,6 +18,12 @@
   menhirLib
   ppx_deriving
   (digestif (>= 1.1))
+  (js_of_ocaml (>= 5.6.0))
+  (js_of_ocaml-ppx (>= 5.6.0))
+  (bonsai (and (>= v0.17) (< v0.18)))
+  (virtual_dom (and (>= v0.17) (< v0.18)))
+  (core (and (>= v0.17) (< v0.18)))
+  (ppx_jane (and (>= v0.17) (< v0.18)))
   (alcotest :with-test)
   (qcheck :with-test)
   (qcheck-alcotest :with-test)))

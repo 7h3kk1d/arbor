@@ -1,6 +1,8 @@
 /* p12 substrate tests: primitive layer (Hash, Mint) + the design/12 Counter
    worked example built through the editing context. */
 
+open P12_substrate;
+
 /* ---- primitives ---- */
 
 let test_hash_determinism = () => {

@@ -6,6 +6,8 @@
    default context opens nothing — that is where consumers are written and
    abstract types stay opaque. */
 
+open P12_substrate;
+
 let st = Store.create();
 let ns = Namespace.create();
 let mint_src = Mint.make_source();

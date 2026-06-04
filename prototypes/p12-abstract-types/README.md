@@ -10,10 +10,11 @@ Design and scope: `docs/prototypes/p12-abstract-types/` (`00-scope.md`,
 
 ## Status
 
-Scaffolding. Substrate + editing-context core is built and tested first;
-interface (REPL-leaning) decided before any interface code lands.
+Complete end-to-end: content-addressed substrate, surface language, CBV
+evaluator, a REPL, and a Bonsai + js_of_ocaml web interface. `dune build` clean;
+`dune runtest` green (5 tests).
 
-Built so far (substrate core — green, 4 tests incl. the full Counter worked example):
+Substrate core (the `src/` library, `P12_substrate`):
 
 - `src/hash.re` — BLAKE2B content hashes (carried from p11).
 - `src/mint.re` — deterministic minted marks (counter-sourced, reproducible).
@@ -37,11 +38,27 @@ Surface + interface layer (built — REPL drives the editing-context model by ha
 - `eval.re` — CBV evaluator; abstraction erased at runtime (a `Seal` is transparent, abstract values reduce to their representation).
 - `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type + value.
 
+Web interface (`web/`, Bonsai + js_of_ocaml; entry `webmain/main.ml`): three panes —
+namespace browser (left), editor + editing-context indicator (center), detail (right).
+The editing context is **browser-driven**: each abstract type carries an "open for edit"
+/ "close" toggle in the namespace tree, and the editor shows the current open set. Binding
+a term shows a live **Normal / SEALED** badge (minimal sealing made visible); the detail
+pane shows an abstract type's derived implementation set. Bootstraps the Counter example
+on load. Substrate is the same `.re` library, untouched.
+
 Run the REPL:
 
 ```sh
 eval $(opam env --switch=. --set-switch)
 dune exec ./bin/repl.exe      # :help for the worked Counter example
+```
+
+Run the web app:
+
+```sh
+eval $(opam env --switch=. --set-switch)
+scripts/build-web.sh          # builds public/p12.js (~26 MB)
+open public/index.html        # no server; state resets on reload
 ```
 
 Decided against (see `docs/prototypes/p12-abstract-types/decisions.md`):
@@ -61,4 +78,6 @@ dune build && dune runtest
 
 `_opam` symlinks to `../p7-web-interface/_opam/_opam`. Tech stack: OCaml ≥ 5.2,
 Reason, dune ≥ 3.17, Menhir 3.0, ppx_deriving, digestif (BLAKE2B), alcotest /
-qcheck for tests. No Bonsai / js_of_ocaml / Core (deliberately shed).
+qcheck for the substrate; Bonsai / Virtual_dom / Core / js_of_ocaml (v0.17) for
+the web layer only. The `src/` substrate library is wrapped (`P12_substrate`);
+the REPL and tests `open P12_substrate`.

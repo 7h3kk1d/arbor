@@ -11,6 +11,12 @@ depends: [
   "menhirLib"
   "ppx_deriving"
   "digestif" {>= "1.1"}
+  "js_of_ocaml" {>= "5.6.0"}
+  "js_of_ocaml-ppx" {>= "5.6.0"}
+  "bonsai" {>= "v0.17" & < "v0.18"}
+  "virtual_dom" {>= "v0.17" & < "v0.18"}
+  "core" {>= "v0.17" & < "v0.18"}
+  "ppx_jane" {>= "v0.17" & < "v0.18"}
   "alcotest" {with-test}
   "qcheck" {with-test}
   "qcheck-alcotest" {with-test}

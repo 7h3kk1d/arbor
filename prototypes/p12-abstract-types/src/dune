@@ -1,7 +1,6 @@
 (library
  (name p12_substrate)
  (public_name p12_abstract_types.substrate)
- (wrapped false)
  (preprocess
   (pps ppx_deriving.std))
  (libraries digestif.ocaml))

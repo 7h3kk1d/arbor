@@ -93,9 +93,12 @@ T ::= Int | Bool | T -> T | T * T | <name>    -- <name> resolves to a concrete o
 - `mul` keyword (because `*` is the product-type constructor), as in p9.
 - **No surface `open`/`seal` keyword** — sealing is implicit, driven by the editing context. That is the whole point.
 
-## Interface — leaning REPL/CLI (decision pending; see `decisions.md`)
+## Interface — REPL **and** Bonsai web (both built)
 
-The editing-context mechanic is a state machine, exercised most directly by a REPL: commands for create-type, open `<type>`, bind, list the implementation set, inspect a hash, and show the current context's open set. Lightest from-scratch path. A Bonsai web UI (visual opening contexts) is the alternative but reintroduces the stack p12 is trying to shed. The substrate + editing-context core is interface-independent and is built and tested first regardless.
+The substrate + editing-context core is interface-independent and was built and tested first. Two interfaces drive it:
+
+- **REPL** (`bin/repl.re`): `:abstract`/`:open`/`:close`/`:let`/`:ctx`/`:impl`/`:show`/`:ls` + bare-expr eval. The lightest way to exercise the context state machine.
+- **Bonsai + js_of_ocaml web app** (`web/`, entry `webmain/main.ml`): three panes — namespace browser, editor + editing-context indicator, detail. The editing context is **browser-driven** (per the 2026-06-04 design choice): each abstract type carries an open/close toggle in the namespace tree; the editor shows the open set; binding shows a live Normal/Sealed badge; detail shows an abstract type's derived implementation set. Bootstraps the Counter example on load.
 
 ## In scope
 
