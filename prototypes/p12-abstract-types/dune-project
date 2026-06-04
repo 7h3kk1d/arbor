@@ -1,0 +1,23 @@
+(lang dune 3.17)
+
+(using menhir 3.0)
+
+(name p12_abstract_types)
+
+(generate_opam_files true)
+
+(package
+ (name p12_abstract_types)
+ (synopsis "Phase 12 prototype: abstract types via editor-enforced opacity")
+ (description
+  "First prototype to exercise type abstraction (the design/12 region), taking the unbundled path: abstract types in isolation, no module record, no functors. Opacity is enforced in the editing layer via an editing context that 'opens' abstract types, not at ingest. The substrate carries opaque type definitions (Opaque{mint, witness}), thin sealed-operation nodes (Seal{opens, ty, impl}), and an opacity-parameterized type checker. Built from scratch (no Bonsai/jsoo/core, no records/mint-threads from p10/p11); REPL-oriented. Consumers pin to hashes; no migration machinery.")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  menhirLib
+  ppx_deriving
+  (digestif (>= 1.1))
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))

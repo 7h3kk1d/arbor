@@ -81,6 +81,49 @@ Two consequences pin the safety:
 
 This is ML generativity recast in content-addressed terms, and it is why witness-in-hash (soundness) and opacity (safety) never collide: they are exercised at different moments, by different parties — the witness is unfolded once, locally, at sealing; opacity is the standing rule everywhere else.
 
+## Unbundled abstract types and the opacity trilemma
+
+*Design exploration, 2026-06-04. This section isolates abstract types from the module/functor machinery above — one abstract type and its operations, no functor, no first-class module value. Functors and first-class modules stay out of scope here; the dependency-model and subtyping sections below cover those.*
+
+Considered in isolation, the `Module{}` record is unnecessary. The abstraction is carried entirely by three independent pieces, with naming done separately:
+
+- **One `Type` node** `opaque(mint, witness)` — the mint for distinctness, the witness in the hash for soundness, exactly as above.
+- **Independent per-operation sealed-wrapper nodes** `open #A in E : T` — each its own definition, where `E` is the raw implementation (typed over the witness) and `T` is the external type (over `#A`). `open` is the local, controlled unfold: inside it the checker treats `#A ≡ witness`, and the ascription `: T` re-seals at the boundary. This *is* the `Seal{ ty, impl }` node of the worked example, with the unfold made explicit rather than implied by a constructor.
+- **A separate name → hash table** with no bearing on type identity.
+
+| hash | sort | content | external `Type_of` |
+|------|------|---------|--------------------|
+| `#t` | Type | `opaque(mint:m1, witness:#Int)` | (is a type; displays `IntCounter.t`) |
+| `#raw` | Term | `\. $0 + 1` | `Int → Int` (raw body, freely shared) |
+| `#empty` | Term | `open #t in 0 : #t` | `#t` |
+| `#inc` | Term | `open #t in #raw : #t → #t` | `#t → #t` |
+| `#get` | Term | `open #t in (\. $0) : #t → #Int` | `#t → #Int` |
+| `#use` | Term | `#get (#inc (#inc #empty))` | `#Int` — composes sealed ops, never unfolds |
+
+```
+IntCounter.t → #t   IntCounter.empty → #empty   IntCounter.inc → #inc   IntCounter.get → #get
+Math.inc → #raw     -- the raw Int→Int body, named and shared independently of the abstraction
+```
+
+A consumer composes the sealed ops and never unfolds; `#use` type-checks entirely over `#t`. Fine-grained dependency (criterion 4) holds with no record — `#use` depends on `#t`, `#inc`, `#get`, `#empty` and nothing else. The internal/external split survives unbundling: `#raw` is `Int → Int`, shared with every increment-on-`Int` and nameable as `Math.inc`; `#inc` is the distinct sealed wrapper of type `t → t`.
+
+**The catch is enforcement, and it is a genuine trilemma.** For a freely-authorable `open #A in E : T` node, at most two of these hold at once:
+
+1. **Flat & unbundled** — any author can submit a sealed op as its own independently-stored node.
+2. **Pure-content revalidation** — ingest re-derives well-typedness from reachable bytes alone, no out-of-store secret.
+3. **Enforced opacity** — a party cannot fabricate an unsanctioned op: `open #A in (0 - 5) : #A` mints a bogus abstract value; `open #A in (\. $0) : #A → witness` reads the representation back out.
+
+The obstruction is structural. In a content-addressed store everything is reachable, so any in-store gate is public and forgeable; and the type cannot list its own sanctioned ops (`#A` would have to contain the op hashes that contain `#A` — a hash cycle), so the capability must flow op→type and live *outside* the bytes. Genuine correct-by-construction (form alone forbids forgery) is unavailable: the legitimate `open #A in 0 : #A` and a forged `open #A in (0 - 5) : #A` are equally witness-substitutable, and elimination cannot be made free or the representation leaks.
+
+This trilemma also names the latent tension in §"Opacity is a typing discipline": the worked example treats sealed exports as independent nodes consumers depend on directly (`#B → #I`), yet that section calls them "not independently-ingestable" for forgery-safety. A node cannot be both. That is positions (1) and (3) held together while keeping (2) — which the trilemma forbids. The bundled design earns ingest-forgery-safety only by giving up (1): making the *structure* the trust-and-ingest unit, with seals genuine fields rather than standalone dependable hashes.
+
+**Lean (2026-06-04): editor-enforced opacity, for a cooperative threat model.** Keep (1) and (2) — flat, unbundled, pure-content nodes — and locate opacity in the editing layer rather than at ingest:
+
+- The editor only *offers* the `open #A` affordance while the author is working inside `#A`'s implementation set — a UI grouping derived by scanning the store, **not** a stored bundle and **not** the namespace hierarchy.
+- A derived aspect can mark each `open #A` node as sanctioned, surfacing unsanctioned opens as warnings ("no silent breakage") rather than blocking ingest.
+
+This defends against honest mistakes, not a party who hand-writes bytes — accepted, because the near-term commons is cooperative. **Deferred alternative:** to recover ingest-level / adversarial-safe enforcement *without* bundling, make the mint a keypair — its public half in `#A`'s hash (the distinctness mint doing double duty), its secret half an out-of-store capability, each op carrying a deterministic signature as an attestation aspect that ingest verifies. Cryptographic safety is explicitly not pursued now; it is recorded as the long-term path. See open-questions §"Type abstraction."
+
 ## The dependency model and its criteria
 
 A hard requirement drives much of the encoding: **changing one field of a module must not force consumers that did not depend on that field to upgrade** — including for modules with abstract types. First-class use of a module is the accepted exception (depend on the whole, upgrade on any change).
