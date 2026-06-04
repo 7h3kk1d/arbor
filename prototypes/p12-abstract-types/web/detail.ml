@@ -81,12 +81,30 @@ let view ~(state : State.t Bonsai.Value.t)
                       [ Vdom.Node.text ("sealed — opens " ^ String.concat ~sep:", " (List.map opens ~f:label_of)) ]
                 | _ -> Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-note" ] [ Vdom.Node.text "ordinary term" ]
               in
+              let source_block label src =
+                Vdom.Node.div
+                  ~attrs:[ Vdom.Attr.class_ "detail-source" ]
+                  [
+                    Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-note" ] [ Vdom.Node.text label ];
+                    Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "source" ] [ Vdom.Node.text src ];
+                  ]
+              in
+              let source_row =
+                match node with
+                | Node.Seal { impl; _ } -> (
+                    match Store.find s.store impl with
+                    | Some (Definition.Term inode) ->
+                        source_block "implementation (over the witness):"
+                          (Pretty.term ~ns:s.ns ~st:s.store inode)
+                    | _ -> Vdom.Node.none)
+                | _ -> source_block "definition:" (Pretty.term ~ns:s.ns ~st:s.store node)
+              in
               let eval_row =
                 match Eval.eval_top s.store (Node.Ref h) with
                 | Ok v -> Vdom.Node.div [ Vdom.Node.text ("eval: " ^ Eval.to_string v) ]
                 | Error _ -> Vdom.Node.none
               in
-              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (": " ^ ty) ]; kind_row; eval_row ]
+              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (": " ^ ty) ]; kind_row; source_row; eval_row ]
         in
         [ header; Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-body" ] rows ]
   in

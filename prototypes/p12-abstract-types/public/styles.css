@@ -182,6 +182,18 @@ body {
 .detail-empty { color: var(--dim); }
 .detail-header { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
 .detail-note { color: var(--dim); font-style: italic; margin: 0.3rem 0; }
+.detail-source { margin: 0.4rem 0; }
+.source {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  margin-top: 0.2rem;
+  color: var(--fg);
+}
 .detail-body { display: flex; flex-direction: column; gap: 0.3rem; }
 .impl-list { display: flex; flex-direction: column; gap: 0.2rem; }
 .impl-row {

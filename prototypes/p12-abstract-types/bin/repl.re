@@ -200,6 +200,16 @@ let cmd_show = name => {
         | _ => " [normal]"
         };
       Printf.printf("%s : %s%s  %s\n", name, t, extra, Hash.short(h));
+      let src =
+        switch (node) {
+        | Node.Seal({impl, _}) =>
+          switch (Store.find(st, impl)) {
+          | Some(Definition.Term(inode)) => "  impl = " ++ Pretty.term(~ns, ~st, inode)
+          | _ => ""
+          }
+        | _ => "  = " ++ Pretty.term(~ns, ~st, node)
+        };
+      print_endline(src);
     | None => err("dangling: " ++ name)
     }
   };
