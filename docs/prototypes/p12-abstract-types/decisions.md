@@ -85,6 +85,24 @@ Music stdlib). "We can just do pinning."
 
 ---
 
+### 2026-06-04 — Dies-with-hash; no edit-of / mint-reuse
+
+**Decision.** A representation change is a fresh `:abstract` (fresh mint) rebound
+to the same name. No edit-of gesture, no mint carried forward. Reverses the
+earlier in-scope "minimal edit-of" plan.
+
+**Why.** The mint plays two separable roles: distinctness (wants a fresh mark)
+and lineage thread (the survives-edits axis). Abstract-type **soundness depends on
+neither** — it rides witness-in-hash, so a representation change yields a distinct
+type whatever the mark, and old/new values cannot mix (a test asserts a v1 value
+is rejected by a v2 op). Within a single checkout, lineage is already carried by
+the namespace binding. Mark-survival is load-bearing only across checkouts/branches
+(collaboration phase), so it is deferred. See `docs/design/10-minted-identity.md`
+§"Marks that survive content edits" and `docs/design/12-type-abstraction.md`
+pair-counter note.
+
+---
+
 ### 2026-06-04 — Interface: REPL/CLI first (pending confirmation)
 
 **Leaning.** Build the substrate + editing-context core as a tested library,

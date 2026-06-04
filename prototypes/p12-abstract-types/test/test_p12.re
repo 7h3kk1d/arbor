@@ -186,6 +186,64 @@ let test_counter = () => {
   assert_int("get (incr (incr empty)) = 2", 2, app(get_h, two));
 };
 
+/* Representation change with a FRESH mint (no edit-of / mint-reuse). Soundness
+   rides witness-in-hash, not the mark: a value of the old representation cannot
+   feed an op of the new representation. */
+let test_rep_change_soundness = () => {
+  let st = Store.create();
+  let int_h = Store.int_type(st);
+  let ms = Mint.make_source();
+
+  /* Counter v1 over Int */
+  let m1 = Mint.fresh(ms);
+  let c1 = Store.ingest_type(st, Tnode.Opaque({mint: m1, witness: int_h}));
+  let ctx1 = Editing_context.make();
+  Editing_context.open_type(ctx1, c1);
+  let (empty1, _) =
+    unwrap(Editing_context.commit(st, ctx1, ~term=Node.Lit(0), ~ann=c1));
+
+  /* Counter v2: representation now Int * Int, fresh mint — a distinct type */
+  let pair_h = Store.ingest_type(st, Tnode.Product(int_h, int_h));
+  let m2 = Mint.fresh(ms);
+  let c2 = Store.ingest_type(st, Tnode.Opaque({mint: m2, witness: pair_h}));
+  Alcotest.(check(bool))(
+    "representation change yields a distinct type",
+    false,
+    Hash.equal(c1, c2),
+  );
+
+  let ctx2 = Editing_context.make();
+  Editing_context.open_type(ctx2, c2);
+  let arrow_c2c2 = Store.ingest_type(st, Tnode.Arrow(c2, c2));
+  /* incr2 : c2 -> c2 = \x. (fst x + 1, snd x) */
+  let incr2_body =
+    Node.Pair(
+      Node.Prim(Node.Add, [Node.Fst(Node.Var(0)), Node.Lit(1)]),
+      Node.Snd(Node.Var(0)),
+    );
+  let (incr2, incr2_k) =
+    unwrap(Editing_context.commit(st, ctx2, ~term=Node.Lam(c2, incr2_body), ~ann=arrow_c2c2));
+  let (empty2, _) =
+    unwrap(Editing_context.commit(st, ctx2, ~term=Node.Pair(Node.Lit(0), Node.Lit(0)), ~ann=c2));
+  Alcotest.(check(bool))("incr2 over the new rep is sealed", true, is_sealed(incr2_k));
+
+  let env = Store.build_env(st);
+  /* soundness: a v1 value must NOT type-check against a v2 op */
+  switch (Typecheck.synth_top(env, [], Node.App(Node.Ref(incr2), Node.Ref(empty1)))) {
+  | Error(_) =>
+    Alcotest.(check(bool))("old-rep value rejected by new-rep op", true, true)
+  | Ok(_) =>
+    Alcotest.fail("UNSOUND: a v1 Counter value type-checked against a v2 op")
+  };
+  /* and the new op works on a new-rep value */
+  switch (Eval.eval_top(st, Node.App(Node.Ref(incr2), Node.Ref(empty2)))) {
+  | Ok(Eval.VPair(Eval.VInt(1), Eval.VInt(0))) =>
+    Alcotest.(check(bool))("incr2 empty2 = (1, 0)", true, true)
+  | Ok(v) => Alcotest.fail("unexpected value: " ++ Eval.to_string(v))
+  | Error(m) => Alcotest.fail("stuck: " ++ m)
+  };
+};
+
 let () =
   Alcotest.run(
     "p12",
@@ -200,7 +258,14 @@ let () =
       ),
       (
         "abstract-types",
-        [Alcotest.test_case("counter worked example", `Quick, test_counter)],
+        [
+          Alcotest.test_case("counter worked example", `Quick, test_counter),
+          Alcotest.test_case(
+            "representation change is sound (fresh mint)",
+            `Quick,
+            test_rep_change_soundness,
+          ),
+        ],
       ),
     ],
   );

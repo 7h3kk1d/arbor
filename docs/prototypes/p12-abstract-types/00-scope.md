@@ -35,7 +35,7 @@ The **implementation set** of an abstract type is **derived, not stored**: every
 ### Definitions and types
 - `Definition.t = Term(Node.t) | Type(Tnode.t)`. First-class content-addressed types (the p9+ "hashing types" line). Disambiguated by leading byte.
 - `Tnode.t = Int | Bool | Product(Hash, Hash) | Arrow(Hash, Hash) | Opaque{ mint: Mint.t; witness: Hash }`. Compound types reference component types **by hash** (sharing + type aliasing via the namespace). Stable tag bytes.
-- **Mint.** A fresh 16-byte mark drawn when an abstract type is created (per `10`), placed *inside* the `Opaque` hash. Re-creating "the same" abstract type mints fresh (generative). A minimal **edit-of** gesture carries the mint forward across a witness change so the `12` *pair-counter* lineage works; the full mint-thread machinery (p11) is out of scope.
+- **Mint.** A fresh 16-byte mark drawn when an abstract type is created (per `10`), placed *inside* the `Opaque` hash. Re-creating "the same" abstract type mints fresh (generative). **Dies-with-hash:** a representation change is a fresh authoring (new mint), rebound to the same name — no edit-of / mint-reuse. Soundness rides witness-in-hash, distinctness wants a fresh mark, and within-checkout lineage is carried by the namespace; mint-persistence (the `12` *pair-counter* / p11 mint-thread reading) is load-bearing only across checkouts and is deferred to the collaboration phase. See `decisions.md` (2026-06-04).
 
 ### Nodes (`Node.t`, term sort)
 `Var(idx)`, `Lit(int)`, `Bool(bool)`, `Lam(ty_hash, body)`, `App(f, x)`, `Let(rhs, body)`, `Pair(a, b)`, `Fst(p)`, `Snd(p)`, `If(c, t, e)`, primitive ops (`+ - mul ==`), `Ref(Hash)`, and the new **`Seal{ opens: Hash list; ty: Hash; impl: Hash }`**.
@@ -102,8 +102,8 @@ The editing-context mechanic is a state machine, exercised most directly by a RE
 - Opaque type defs (mint + witness-in-hash); `Seal` nodes; opacity-parameterized checker; minimal-sealing commit rule; raw-body normalization for sharing.
 - Editing-context state machine: default vs. opening contexts; create-type and open-existing gestures; implicit sealing.
 - Derived implementation-set query; `Ref`-by-hash dependency; pinning only.
-- Minimal **edit-of** preserving an abstract type's mint across a witness change (the `12` pair-counter lineage).
-- Test suite: opaque-hash distinctness (Counter ≠ Celsius over the same witness); witness-in-hash (representation change moves the hash); seal ingest type rule; minimal-sealing classification; opaque composition (consumer type-checks at `open={}`, cannot unfold); implementation-set derivation; criterion-4 (editing one op leaves a consumer byte-identical); raw-body sharing.
+- Representation change via fresh authoring (dies-with-hash; no edit-of), with the soundness boundary it implies (old-rep value rejected by new-rep op).
+- Test suite: opaque-hash distinctness (Counter ≠ Celsius over the same witness); witness-in-hash (representation change moves the hash); seal ingest type rule; minimal-sealing classification; opaque composition (consumer type-checks at `open={}`, cannot unfold); implementation-set derivation; criterion-4 (editing one op leaves a consumer byte-identical); raw-body sharing; evaluation (abstraction erased); representation-change soundness (fresh mint, old value rejected by new op).
 
 ## Out of scope
 

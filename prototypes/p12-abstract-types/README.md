@@ -44,9 +44,12 @@ eval $(opam env --switch=. --set-switch)
 dune exec ./bin/repl.exe      # :help for the worked Counter example
 ```
 
-Remaining:
+Decided against (see `docs/prototypes/p12-abstract-types/decisions.md`):
 
-- edit-of (mint carry-forward across a witness change — the pair-counter lineage).
+- edit-of / mint carry-forward across a representation change. Dies-with-hash instead: soundness rides witness-in-hash, distinctness wants a fresh mark, within-checkout lineage is the namespace; mint-persistence deferred to the collaboration phase. The soundness boundary it implies (old-rep value rejected by new-rep op) is tested.
+
+Remaining (optional):
+
 - longest-suffix name resolution (deferred from p9).
 
 ## Build
