@@ -112,14 +112,29 @@ let view ~(state : State.t Bonsai.Value.t)
           [ Vdom.Node.text "bind" ];
       ]
   in
-  let eval_section =
-    section "evaluate"
+  let scratch_section =
+    section "scratch — typecheck & evaluate live (no binding)"
       [
-        text_input ~placeholder:"expr (e.g. Counter.get (bump2 Counter.empty))"
-          ~value:state.eval_expr ~on_input:(fun s -> inject (State.Set_eval_expr s));
-        Vdom.Node.button
-          ~attrs:[ Vdom.Attr.class_ "btn-secondary"; Vdom.Attr.on_click (fun _ -> inject State.Eval) ]
-          [ Vdom.Node.text "eval" ];
+        Vdom.Node.textarea
+          ~attrs:
+            [
+              Vdom.Attr.class_ "scratch-area";
+              Vdom.Attr.create "spellcheck" "false";
+              Vdom.Attr.create "autocomplete" "off";
+              Vdom.Attr.create "autocapitalize" "off";
+              Vdom.Attr.placeholder {|e.g. Counter.get (bump2 Counter.empty)|};
+              Vdom.Attr.value_prop state.eval_expr;
+              Vdom.Attr.on_input (fun _ s ->
+                  let fb =
+                    Ops.eval ~s:Substrate.global ~open_set:state.open_set ~expr:s
+                  in
+                  Vdom.Effect.Many
+                    [ inject (State.Set_eval_expr s); inject (State.Set_scratch_fb fb) ]);
+            ]
+          [];
+        Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "scratch-feedback" ]
+          [ render_feedback state.scratch_fb ];
       ]
   in
   Vdom.Node.div
@@ -127,8 +142,8 @@ let view ~(state : State.t Bonsai.Value.t)
     [
       Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "editor" ];
       open_indicator state.open_set;
+      scratch_section;
       type_section;
       define_section;
-      eval_section;
       Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-pane" ] [ render_feedback state.feedback ];
     ]

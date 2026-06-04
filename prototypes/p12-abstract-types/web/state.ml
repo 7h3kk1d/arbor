@@ -28,8 +28,9 @@ type t = {
   ty_name : string;
   ty_body : string;
   ty_abstract : bool;
-  eval_expr : string;
-  feedback : feedback;
+  eval_expr : string;  (* the live scratch buffer *)
+  scratch_fb : feedback;  (* live typecheck + eval of the scratch buffer; no binding *)
+  feedback : feedback;  (* result of the last define / create-type *)
 }
 [@@deriving sexp, equal]
 
@@ -45,6 +46,7 @@ let initial : t =
     ty_body = "Int";
     ty_abstract = true;
     eval_expr = "";
+    scratch_fb = Empty;
     feedback = Empty;
   }
 
@@ -58,7 +60,7 @@ type action =
   | Set_ty_body of string
   | Toggle_ty_abstract
   | Set_eval_expr of string
+  | Set_scratch_fb of feedback
   | Define
   | Create_type
-  | Eval
 [@@deriving sexp]

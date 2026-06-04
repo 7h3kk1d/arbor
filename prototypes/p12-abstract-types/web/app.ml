@@ -29,6 +29,7 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
   | State.Set_ty_body v -> { m with ty_body = v }
   | State.Toggle_ty_abstract -> { m with ty_abstract = not m.ty_abstract }
   | State.Set_eval_expr v -> { m with eval_expr = v }
+  | State.Set_scratch_fb fb -> { m with scratch_fb = fb }
   | State.Define ->
       let fb =
         Ops.define ~s ~open_set:m.open_set ~name:m.def_name ~ty:m.def_ty ~expr:m.def_expr
@@ -42,9 +43,6 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
         | _ -> m.open_set
       in
       bump { m with feedback = fb; open_set }
-  | State.Eval ->
-      let fb = Ops.eval ~s ~open_set:m.open_set ~expr:m.eval_expr in
-      bump { m with feedback = fb }
 
 let component : Vdom.Node.t Bonsai.Computation.t =
   let%sub state_and_inject =

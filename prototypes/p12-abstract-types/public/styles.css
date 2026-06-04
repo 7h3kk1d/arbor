@@ -146,6 +146,21 @@ body {
 }
 .btn-secondary { background: transparent; color: var(--accent); }
 
+.scratch-area {
+  width: 100%;
+  min-height: 3.5rem;
+  resize: vertical;
+  padding: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+.scratch-area:focus { outline: none; border-color: var(--accent); }
+.scratch-feedback { margin-top: 0.45rem; min-height: 1.4rem; }
+
 .feedback-pane { margin-top: 0.5rem; min-height: 2rem; }
 .feedback-empty { color: var(--dim); }
 .feedback-info { color: var(--open); }
