@@ -26,14 +26,28 @@ Built so far (substrate core — green, 4 tests incl. the full Counter worked ex
 
 `test/test_p12.re` proves: Counter≠Celsius (mint distinctness), witness-in-hash (rep change moves the type), minimal sealing (empty/incr/get sealed, `bump2` ordinary), correct external types, raw-body sharing (incr's impl == `Math.inc`), opacity (a default-context consumer cannot touch the representation), bogus-seal rejection at ingest, derived implementation set, and criterion-4 (editing `decr` leaves `bump2` byte-identical).
 
+Surface + interface layer (built — REPL drives the editing-context model by hand):
+
+- `surface.re` / `surface_ty.re` — surface ASTs (names; no holes).
+- `lexer.mll` / `parser.mly` — trimmed p9 language, fail-fast (Menhir monolithic); no `open`/`seal` keyword.
+- `parse.re` — fail-fast wrappers returning `result`.
+- `namespace.re` — separate `name → hash` table (exact match; reverse index for display).
+- `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn); surface types → registered hashes.
+- `pretty.re` — name-aware type rendering (`Counter.t`, `Counter.t -> Int`); never shows a witness.
+- `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type.
+
+Run the REPL:
+
+```sh
+eval $(opam env --switch=. --set-switch)
+dune exec ./bin/repl.exe      # :help for the worked Counter example
+```
+
 Remaining:
 
-- `surface.re` / `lexer.mll` / `parser.mly` — trimmed p9 language; no `open`/`seal` keyword.
-- `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn).
-- `namespace.re` — separate `name → hash` table.
-- `pretty.re` — name-aware rendering (`Counter.t`, `Counter.incr`); never show witness outside an opening context.
+- evaluator (reduce sealed ops / `Ref` / primitives) so `bump2 Counter.empty` computes, not just type-checks.
 - edit-of (mint carry-forward across a witness change — the pair-counter lineage).
-- interface (REPL) — pending confirmation.
+- longest-suffix name resolution (deferred from p9).
 
 ## Build
 
