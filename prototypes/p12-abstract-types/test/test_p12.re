@@ -49,6 +49,12 @@ let is_sealed = (k: Editing_context.kind) =>
   | `Normal => false
   };
 
+let tyof_in = (st, h) =>
+  switch (Store.type_of(st, h)) {
+  | Some(t) => t
+  | None => Alcotest.fail("no Type_of")
+  };
+
 /* ---- the Counter worked example ---- */
 
 let test_counter = () => {
@@ -246,6 +252,54 @@ let test_rep_change_soundness = () => {
   };
 };
 
+/* An operation that opens *two* abstract types at once (Celsius -> Kelvin): it
+   is sealed, lists both in its `opens`, appears in both implementation sets, and
+   evaluates with abstraction erased. */
+let test_multi_abstract = () => {
+  let st = Store.create();
+  let int_h = Store.int_type(st);
+  let ms = Mint.make_source();
+  let c = Store.ingest_type(st, Tnode.Opaque({mint: Mint.fresh(ms), witness: int_h}));
+  let k = Store.ingest_type(st, Tnode.Opaque({mint: Mint.fresh(ms), witness: int_h}));
+  Alcotest.(check(bool))("Celsius != Kelvin (distinct mints)", false, Hash.equal(c, k));
+
+  let arrow = (a, b) => Store.ingest_type(st, Tnode.Arrow(a, b));
+  let ctx = Editing_context.make();
+  Editing_context.open_type(ctx, c);
+  Editing_context.open_type(ctx, k);
+
+  /* c_to_k : Celsius.t -> Kelvin.t = \x. x + 273 */
+  let (c2k, kind) =
+    unwrap(
+      Editing_context.commit(
+        st,
+        ctx,
+        ~term=Node.Lam(c, Node.Prim(Node.Add, [Node.Var(0), Node.Lit(273)])),
+        ~ann=arrow(c, k),
+      ),
+    );
+  Alcotest.(check(bool))("cross-type op is sealed", true, is_sealed(kind));
+  Alcotest.(check(bool))("external type is Celsius -> Kelvin", true, Hash.equal(tyof_in(st, c2k), arrow(c, k)));
+
+  switch (Store.find(st, c2k)) {
+  | Some(Definition.Term(Node.Seal({opens, _}))) =>
+    Alcotest.(check(bool))("seal opens Celsius", true, List.mem(c, opens));
+    Alcotest.(check(bool))("seal opens Kelvin", true, List.mem(k, opens));
+  | _ => Alcotest.fail("c_to_k is not a seal")
+  };
+
+  Alcotest.(check(bool))("c_to_k in Celsius impl set", true, List.mem(c2k, Store.impl_set(st, c)));
+  Alcotest.(check(bool))("c_to_k in Kelvin impl set", true, List.mem(c2k, Store.impl_set(st, k)));
+
+  /* 0c converts to 273k; the value erases to the underlying Int */
+  let (zero_c, _) = unwrap(Editing_context.commit(st, ctx, ~term=Node.Lit(0), ~ann=c));
+  switch (Eval.eval_top(st, Node.App(Node.Ref(c2k), Node.Ref(zero_c)))) {
+  | Ok(Eval.VInt(273)) => Alcotest.(check(bool))("c_to_k 0c = 273", true, true)
+  | Ok(v) => Alcotest.fail("unexpected value: " ++ Eval.to_string(v))
+  | Error(m) => Alcotest.fail("stuck: " ++ m)
+  };
+};
+
 let () =
   Alcotest.run(
     "p12",
@@ -266,6 +320,11 @@ let () =
             "representation change is sound (fresh mint)",
             `Quick,
             test_rep_change_soundness,
+          ),
+          Alcotest.test_case(
+            "operation over multiple abstract types",
+            `Quick,
+            test_multi_abstract,
           ),
         ],
       ),
