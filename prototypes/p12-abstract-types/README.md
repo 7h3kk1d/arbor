@@ -13,23 +13,27 @@ Design and scope: `docs/prototypes/p12-abstract-types/` (`00-scope.md`,
 Scaffolding. Substrate + editing-context core is built and tested first;
 interface (REPL-leaning) decided before any interface code lands.
 
-Built so far:
+Built so far (substrate core — green, 4 tests incl. the full Counter worked example):
 
 - `src/hash.re` — BLAKE2B content hashes (carried from p11).
 - `src/mint.re` — deterministic minted marks (counter-sourced, reproducible).
+- `src/tnode.re` — `Int | Bool | Product | Arrow | Opaque{mint, witness}`; content encoding (sort byte `T`).
+- `src/node.re` — term nodes incl. `Ref(Hash)` and `Seal{opens, ty, impl}`; de Bruijn; encoding (sort byte `P`).
+- `src/definition.re` — `Term(Node.t) | Type(Tnode.t)`; leading-byte disambiguation.
+- `src/typecheck.re` — opacity-parameterized checker (`whnf`/`equal_ty` unfold open opaques); `Seal` ingest rule; witness-`normalize`.
+- `src/store.re` — content-addressed ingest; `Type_of` cache; derived `impl_set` scan; no ingest-level opacity.
+- `src/editing_context.re` — open set; `open_type`; minimal-sealing `commit` (ordinary term vs. seal).
 
-Planned module order (substrate first, interface last):
+`test/test_p12.re` proves: Counter≠Celsius (mint distinctness), witness-in-hash (rep change moves the type), minimal sealing (empty/incr/get sealed, `bump2` ordinary), correct external types, raw-body sharing (incr's impl == `Math.inc`), opacity (a default-context consumer cannot touch the representation), bogus-seal rejection at ingest, derived implementation set, and criterion-4 (editing `decr` leaves `bump2` byte-identical).
 
-1. `tnode.re` — `Int | Bool | Product | Arrow | Opaque{mint, witness}`; content encoding.
-2. `node.re` — term nodes incl. `Ref(Hash)` and `Seal{opens, ty, impl}`; de Bruijn; content encoding.
-3. `definition.re` — `Term(Node.t) | Type(Tnode.t)`; leading-byte disambiguation.
-4. `store.re` — content-addressed ingest/reconstruct; `Type_of` aspect; implementation-set scan.
-5. `surface.re` / `lexer.mll` / `parser.mly` — trimmed p9 language; no `open`/`seal` keyword.
-6. `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn).
-7. `typecheck.re` — opacity-parameterized bidirectional checker; minimal-sealing classification.
-8. `namespace.re` — separate `name → hash` table.
-9. `editing_context.re` — open set; create-type / open-existing gestures; implicit-seal commit.
-10. interface (REPL) — pending confirmation.
+Remaining:
+
+- `surface.re` / `lexer.mll` / `parser.mly` — trimmed p9 language; no `open`/`seal` keyword.
+- `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn).
+- `namespace.re` — separate `name → hash` table.
+- `pretty.re` — name-aware rendering (`Counter.t`, `Counter.incr`); never show witness outside an opening context.
+- edit-of (mint carry-forward across a witness change — the pair-counter lineage).
+- interface (REPL) — pending confirmation.
 
 ## Build
 
