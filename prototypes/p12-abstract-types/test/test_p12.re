@@ -300,6 +300,31 @@ let test_multi_abstract = () => {
   };
 };
 
+/* The `test` aspect: a marker store, plus the boolean evaluation that backs
+   pass/fail. */
+let test_aspect = () => {
+  let att = Attachment.create();
+  let h = Hash.digest_string("x");
+  let g = Hash.digest_string("y");
+  Alcotest.(check(bool))("not marked initially", false, Attachment.has(att, ~aspect="test", h));
+  Attachment.mark(att, ~aspect="test", h);
+  Alcotest.(check(bool))("marked", true, Attachment.has(att, ~aspect="test", h));
+  Alcotest.(check(bool))("other not marked", false, Attachment.has(att, ~aspect="test", g));
+  Alcotest.(check(int))("one in marked set", 1, List.length(Attachment.marked(att, ~aspect="test")));
+  Attachment.unmark(att, ~aspect="test", h);
+  Alcotest.(check(bool))("unmarked", false, Attachment.has(att, ~aspect="test", h));
+
+  /* a test passes iff it evaluates to true */
+  let st = Store.create();
+  let passes = node =>
+    switch (Eval.eval_top(st, node)) {
+    | Ok(Eval.VBool(b)) => b
+    | _ => Alcotest.fail("expected a boolean")
+    };
+  Alcotest.(check(bool))("2 == 2 passes", true, passes(Node.Prim(Node.Eq, [Node.Lit(2), Node.Lit(2)])));
+  Alcotest.(check(bool))("2 == 3 fails", false, passes(Node.Prim(Node.Eq, [Node.Lit(2), Node.Lit(3)])));
+};
+
 let () =
   Alcotest.run(
     "p12",
@@ -328,5 +353,6 @@ let () =
           ),
         ],
       ),
+      ("aspects", [Alcotest.test_case("test aspect + pass/fail", `Quick, test_aspect)]),
     ],
   );

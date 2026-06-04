@@ -30,6 +30,7 @@ type t = {
   ty_abstract : bool;
   eval_expr : string;  (* the live scratch buffer *)
   scratch_fb : feedback;  (* live typecheck + eval of the scratch buffer; no binding *)
+  test_filter : string;  (* namespace filter for the tests panel *)
   feedback : feedback;  (* result of the last define / create-type *)
 }
 [@@deriving sexp, equal]
@@ -47,6 +48,7 @@ let initial : t =
     ty_abstract = true;
     eval_expr = "";
     scratch_fb = Empty;
+    test_filter = "";
     feedback = Empty;
   }
 
@@ -61,6 +63,8 @@ type action =
   | Toggle_ty_abstract
   | Set_eval_expr of string
   | Set_scratch_fb of feedback
+  | Set_test_filter of string
+  | Toggle_test of string
   | Define
   | Create_type
 [@@deriving sexp]

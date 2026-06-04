@@ -71,6 +71,14 @@ let create_type ~(s : Substrate.t) ~(name : string) ~(body : string)
                      (Pretty.ty ~ns:s.ns ~st:s.store witness)),
                 None )))
 
+(* A test's status: derived live by evaluating it (no caching). *)
+let test_status (s : Substrate.t) (h : Hash.t) : [ `Pass | `Fail | `Error of string ] =
+  match Eval.eval_top s.store (Node.Ref h) with
+  | Ok (Eval.VBool true) -> `Pass
+  | Ok (Eval.VBool false) -> `Fail
+  | Ok _ -> `Error "not a boolean"
+  | Error m -> `Error m
+
 (* Evaluate a bare expression under the current open set; show type + value. *)
 let eval ~(s : Substrate.t) ~(open_set : string list) ~(expr : string) :
     State.feedback =

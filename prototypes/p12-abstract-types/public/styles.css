@@ -97,6 +97,33 @@ body {
 .btn-mini:hover { color: var(--fg); border-color: var(--accent); }
 .btn-open-on { color: var(--open); border-color: var(--open); }
 
+/* tests panel */
+.tests-section {
+  margin-bottom: 1rem;
+  padding-bottom: 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+.test-filter {
+  width: 100%;
+  padding: 0.3rem 0.45rem;
+  margin-bottom: 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.tests-summary { color: var(--dim); font-size: 0.8rem; margin-bottom: 0.4rem; }
+.tests-summary.all-pass { color: var(--open); }
+.test-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.3rem; border-radius: 6px; }
+.test-row:hover { background: var(--panel-2); }
+.test-errmsg { color: var(--dim); font-size: 0.75rem; }
+.test-pass { color: var(--open); border-color: var(--open); }
+.test-fail { color: var(--err); border-color: var(--err); }
+.test-err { color: var(--sealed); border-color: var(--sealed); }
+.detail-test { margin: 0.45rem 0; display: flex; align-items: center; gap: 0.3rem; }
+
 /* editor */
 .open-indicator {
   display: flex;

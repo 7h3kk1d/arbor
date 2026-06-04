@@ -5,6 +5,7 @@
 open! Core
 open! Bonsai_web
 open Bonsai.Let_syntax
+open P12_substrate
 
 module Action = struct
   type t = State.action [@@deriving sexp_of]
@@ -30,6 +31,12 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
   | State.Toggle_ty_abstract -> { m with ty_abstract = not m.ty_abstract }
   | State.Set_eval_expr v -> { m with eval_expr = v }
   | State.Set_scratch_fb fb -> { m with scratch_fb = fb }
+  | State.Set_test_filter v -> { m with test_filter = v }
+  | State.Toggle_test h ->
+      let att = Substrate.global.att in
+      if Attachment.has att ~aspect:"test" h then Attachment.unmark att ~aspect:"test" h
+      else Attachment.mark att ~aspect:"test" h;
+      bump m
   | State.Define ->
       let fb =
         Ops.define ~s ~open_set:m.open_set ~name:m.def_name ~ty:m.def_ty ~expr:m.def_expr

@@ -104,7 +104,38 @@ let view ~(state : State.t Bonsai.Value.t)
                 | Ok v -> Vdom.Node.div [ Vdom.Node.text ("eval: " ^ Eval.to_string v) ]
                 | Error _ -> Vdom.Node.none
               in
-              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (": " ^ ty) ]; kind_row; source_row; eval_row ]
+              (* a Bool-typed term may be marked as a test *)
+              let is_bool =
+                match Store.type_of s.store h with
+                | Some t -> Hash.equal t (Store.bool_type s.store)
+                | None -> false
+              in
+              let test_row =
+                if not is_bool then Vdom.Node.none
+                else
+                  let is_test = Attachment.has s.att ~aspect:"test" h in
+                  let status =
+                    if not is_test then Vdom.Node.none
+                    else
+                      match Ops.test_status s h with
+                      | `Pass -> Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "test-pass" ] [ Vdom.Node.text " PASS" ]
+                      | `Fail -> Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "test-fail" ] [ Vdom.Node.text " FAIL" ]
+                      | `Error m -> Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "test-err" ] [ Vdom.Node.text (" ERR: " ^ m) ]
+                  in
+                  Vdom.Node.div
+                    ~attrs:[ Vdom.Attr.class_ "detail-test" ]
+                    [
+                      Vdom.Node.button
+                        ~attrs:
+                          [
+                            Vdom.Attr.classes [ "btn-mini"; (if is_test then "btn-open-on" else "") ];
+                            Vdom.Attr.on_click (fun _ -> inject (State.Toggle_test h));
+                          ]
+                        [ Vdom.Node.text (if is_test then "unmark test" else "mark as test") ];
+                      status;
+                    ]
+              in
+              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (": " ^ ty) ]; kind_row; source_row; test_row; eval_row ]
         in
         [ header; Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-body" ] rows ]
   in

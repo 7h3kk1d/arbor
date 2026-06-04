@@ -8,6 +8,7 @@ open P12_substrate
 type t = {
   store : Store.t;
   ns : Namespace.t;
+  att : Attachment.t;
   mint_src : Mint.source;
 }
 
@@ -16,7 +17,7 @@ type t = {
    but distinct by mint — whose conversions open BOTH abstract types at once; and
    Range (over a Product witness). Consumers (bump2, readout, Temp.round_trip)
    compose sealed ops at the abstract level and stay ordinary terms. *)
-let seed ~store ~ns ~mint_src =
+let seed ~store ~ns ~att ~mint_src =
   let int_h = Store.int_type store in
   let bool_h = Store.bool_type store in
   let arrow a b = Store.ingest_type store (Tnode.Arrow (a, b)) in
@@ -93,13 +94,32 @@ let seed ~store ~ns ~mint_src =
   ignore
     (bind "Range.width" [ range ]
        (Node.Lam (range, Node.Prim (Node.Sub, [ Node.Snd (var 0); Node.Fst (var 0) ])))
-       (arrow range int_h))
+       (arrow range int_h));
+  (* ---- tests: boolean expressions, marked with the `test` aspect ---- *)
+  let r name =
+    match Namespace.resolve ns name with Some h -> Node.Ref h | None -> lit 0
+  in
+  let eqn a b = Node.Prim (Node.Eq, [ a; b ]) in
+  let test name term =
+    match bind name [] term bool_h with
+    | Some h -> Attachment.mark att ~aspect:"test" h
+    | None -> ()
+  in
+  test "Counter.test_empty" (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 0));
+  test "Counter.test_bump2"
+    (eqn (app (r "Counter.get") (app (r "bump2") (r "Counter.empty"))) (lit 2));
+  test "Counter.test_oops" (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 1));
+  test "Temp.test_c_to_k"
+    (eqn (app (r "Kelvin.value") (app (r "Temp.c_to_k") (r "Celsius.freezing"))) (lit 273));
+  test "Range.test_width"
+    (eqn (app (r "Range.width") (app (app (r "Range.make") (lit 2)) (lit 5))) (lit 3))
 
 let create () =
   let store = Store.create () in
   let ns = Namespace.create () in
+  let att = Attachment.create () in
   let mint_src = Mint.make_source () in
-  seed ~store ~ns ~mint_src;
-  { store; ns; mint_src }
+  seed ~store ~ns ~att ~mint_src;
+  { store; ns; att; mint_src }
 
 let global : t = create ()
