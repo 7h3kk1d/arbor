@@ -34,7 +34,8 @@ Surface + interface layer (built — REPL drives the editing-context model by ha
 - `namespace.re` — separate `name → hash` table (exact match; reverse index for display).
 - `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn); surface types → registered hashes.
 - `pretty.re` — name-aware type rendering (`Counter.t`, `Counter.t -> Int`); never shows a witness.
-- `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type.
+- `eval.re` — CBV evaluator; abstraction erased at runtime (a `Seal` is transparent, abstract values reduce to their representation).
+- `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type + value.
 
 Run the REPL:
 
@@ -45,7 +46,6 @@ dune exec ./bin/repl.exe      # :help for the worked Counter example
 
 Remaining:
 
-- evaluator (reduce sealed ops / `Ref` / primitives) so `bump2 Counter.empty` computes, not just type-checks.
 - edit-of (mint carry-forward across a witness change — the pair-counter lineage).
 - longest-suffix name resolution (deferred from p9).
 

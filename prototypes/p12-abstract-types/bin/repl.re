@@ -213,7 +213,11 @@ let cmd_expr = line =>
       let env = Store.build_env(st);
       switch (Typecheck.synth_top(env, Editing_context.opens(ctx^), node)) {
       | Error(e) => err("type error: " ++ e)
-      | Ok(t) => Printf.printf(": %s\n", pty(t))
+      | Ok(t) =>
+        switch (Eval.eval_top(st, node)) {
+        | Ok(v) => Printf.printf(": %s = %s\n", pty(t), Eval.to_string(v))
+        | Error(m) => Printf.printf(": %s  (stuck: %s)\n", pty(t), m)
+        }
       }
     }
   };

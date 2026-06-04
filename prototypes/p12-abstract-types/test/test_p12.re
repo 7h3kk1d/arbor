@@ -170,6 +170,20 @@ let test_counter = () => {
     true,
     Hash.equal(bump2_h, bump2_again),
   );
+
+  /* evaluation: abstraction is erased — abstract values reduce to their rep */
+  let assert_int = (msg, expected, node) =>
+    switch (Eval.eval_top(st, node)) {
+    | Ok(Eval.VInt(n)) => Alcotest.(check(int))(msg, expected, n)
+    | Ok(_) => Alcotest.fail(msg ++ ": not an int")
+    | Error(m) => Alcotest.fail(msg ++ ": stuck: " ++ m)
+    };
+  let app = (f, x) => Node.App(Node.Ref(f), x);
+  assert_int("incr empty = 1", 1, app(incr_h, Node.Ref(empty_h)));
+  assert_int("bump2 empty = 2", 2, app(bump2_h, Node.Ref(empty_h)));
+  /* get (incr (incr empty)) = 2 — sealed ops compose and erase to Int */
+  let two = app(incr_h, app(incr_h, Node.Ref(empty_h)));
+  assert_int("get (incr (incr empty)) = 2", 2, app(get_h, two));
 };
 
 let () =
