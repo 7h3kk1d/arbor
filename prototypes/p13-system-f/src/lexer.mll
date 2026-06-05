@@ -24,12 +24,16 @@ rule token = parse
   | "fst"           { FST }
   | "snd"           { SND }
   | "mul"           { MUL_KW }
+  | "forall"        { FORALL }
   | "Int"           { TY_INT }
   | "Bool"          { TY_BOOL }
   (* operators / punctuation *)
   | "=="            { EQEQ }
   | "->"            { ARROW }
+  | "/\\"           { TYLAM }       (* type abstraction:  /\t. e *)
   | '\\'            { BACKSLASH }
+  | '['             { LBRACK }      (* type application:  e [T] *)
+  | ']'             { RBRACK }
   | '.'             { DOT }
   | '('             { LPAREN }
   | ')'             { RPAREN }

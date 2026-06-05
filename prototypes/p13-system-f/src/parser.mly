@@ -4,10 +4,10 @@
   let prim op args = Surface.Prim (op, args)
 %}
 
-%token LET IN IF THEN ELSE FST SND MUL_KW
+%token LET IN IF THEN ELSE FST SND MUL_KW FORALL
 %token TY_INT TY_BOOL
-%token EQEQ ARROW
-%token BACKSLASH DOT LPAREN RPAREN COMMA COLON EQ
+%token EQEQ ARROW TYLAM
+%token BACKSLASH DOT LPAREN RPAREN COMMA COLON EQ LBRACK RBRACK
 %token PLUS MINUS STAR
 %token <string> IDENT
 %token <int> INT_LIT
@@ -29,6 +29,7 @@ expr:
   | LET; x = IDENT; EQ; rhs = expr; IN; body = expr { mk_let x rhs body }
   | IF; c = expr; THEN; t = expr; ELSE; e = expr    { Surface.If (c, t, e) }
   | BACKSLASH; x = IDENT; COLON; t = ty; DOT; body = expr { mk_lam x t body }
+  | TYLAM; x = IDENT; DOT; body = expr { Surface.TyLam (x, body) }
   | e = eq_expr { e }
 
 eq_expr:
@@ -46,6 +47,7 @@ mul_expr:
 
 app_expr:
   | f = app_expr; a = atom { Surface.App (f, a) }
+  | f = app_expr; LBRACK; t = ty; RBRACK { Surface.TyApp (f, t) }
   | FST; a = atom          { Surface.Fst a }
   | SND; a = atom          { Surface.Snd a }
   | a = atom               { a }
@@ -58,6 +60,7 @@ atom:
   | LPAREN; a = expr; COMMA; b = expr; RPAREN  { Surface.Pair (a, b) }
 
 ty:
+  | FORALL; x = IDENT; DOT; t = ty { Surface_ty.Forall (x, t) }
   | t = ty_arrow { t }
 
 ty_arrow:

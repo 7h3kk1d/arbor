@@ -7,4 +7,5 @@ type t =
   | Bool
   | Arrow(t, t)
   | Product(t, t)
-  | Named(string);
+  | Named(string) /* resolves to a bound type variable or a namespace type */
+  | Forall(string, t);

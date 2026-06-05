@@ -21,10 +21,15 @@ Design and scope: `docs/prototypes/p13-system-f/` (`00-scope.md`,
 
 ## Status
 
-Forked from p12 (verbatim, renamed) and building green; System-F additions in
-progress. Everything p12 had — content-addressed substrate, opaque types +
-seals, surface language, CBV evaluator, REPL, Bonsai web interface, tests
-aspect — carries over.
+System-F works end-to-end. Substrate (`TVar`/`Forall`, `TyLam`/`TyApp`,
+type substitution, type-erased eval) and surface syntax (`/\t. e`, `e [T]`,
+`forall t. T`) are in; the `step` functor above type-checks, renders, and
+evaluates in the REPL, and the web scratch/define inputs accept the same syntax.
+`dune build` clean; `dune runtest` green (9 tests, incl. one polymorphic `step`
+applied to two different representations). Everything p12 had carries over.
+
+Not yet done: existentials / first-class modules (the `∃` form) and a dedicated
+web affordance for polymorphism (it currently rides the existing text inputs).
 
 Substrate core (the `src/` library, `P13_substrate`):
 

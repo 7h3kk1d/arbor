@@ -17,27 +17,38 @@ let rec lookup_ctx = (ctx: list(string), name: string): option(int) =>
     }
   };
 
+/* `tvs` is the type-variable context (innermost first), pushed by `forall`/`/\`.
+   A `Named` whose name is bound there resolves to a de Bruijn `TVar`; otherwise
+   it is a namespace type. */
 let rec resolve_ty =
-        (~ns: Namespace.t, ~st: Store.t, s: Surface_ty.t): result(Hash.t, string) =>
+        (~ns: Namespace.t, ~st: Store.t, ~tvs: list(string)=[], s: Surface_ty.t)
+        : result(Hash.t, string) =>
   switch (s) {
   | Surface_ty.Int => Ok(Store.int_type(st))
   | Surface_ty.Bool => Ok(Store.bool_type(st))
   | Surface_ty.Arrow(a, b) =>
-    let* ah = resolve_ty(~ns, ~st, a);
-    let* bh = resolve_ty(~ns, ~st, b);
+    let* ah = resolve_ty(~ns, ~st, ~tvs, a);
+    let* bh = resolve_ty(~ns, ~st, ~tvs, b);
     Ok(Store.ingest_type(st, Tnode.Arrow(ah, bh)));
   | Surface_ty.Product(a, b) =>
-    let* ah = resolve_ty(~ns, ~st, a);
-    let* bh = resolve_ty(~ns, ~st, b);
+    let* ah = resolve_ty(~ns, ~st, ~tvs, a);
+    let* bh = resolve_ty(~ns, ~st, ~tvs, b);
     Ok(Store.ingest_type(st, Tnode.Product(ah, bh)));
+  | Surface_ty.Forall(name, body) =>
+    let* bh = resolve_ty(~ns, ~st, ~tvs=[name, ...tvs], body);
+    Ok(Store.ingest_type(st, Tnode.Forall(bh)));
   | Surface_ty.Named(name) =>
-    switch (Namespace.resolve(ns, name)) {
-    | None => Error("unbound type name: " ++ name)
-    | Some(h) =>
-      switch (Store.find(st, h)) {
-      | Some(Definition.Type(_)) => Ok(h)
-      | Some(Definition.Term(_)) => Error("'" ++ name ++ "' is a term, not a type")
-      | None => Error("dangling type binding: " ++ name)
+    switch (lookup_ctx(tvs, name)) {
+    | Some(i) => Ok(Store.ingest_type(st, Tnode.TVar(i)))
+    | None =>
+      switch (Namespace.resolve(ns, name)) {
+      | None => Error("unbound type name: " ++ name)
+      | Some(h) =>
+        switch (Store.find(st, h)) {
+        | Some(Definition.Type(_)) => Ok(h)
+        | Some(Definition.Term(_)) => Error("'" ++ name ++ "' is a term, not a type")
+        | None => Error("dangling type binding: " ++ name)
+        }
       }
     }
   };
@@ -51,7 +62,13 @@ let op_to_node = (op: Surface.prim_op): Node.prim_op =>
   };
 
 let rec resolve =
-        (~ctx: list(string), ~ns: Namespace.t, ~st: Store.t, e: Surface.t)
+        (
+          ~ctx: list(string),
+          ~tvs: list(string)=[],
+          ~ns: Namespace.t,
+          ~st: Store.t,
+          e: Surface.t,
+        )
         : result(Node.t, string) =>
   switch (e) {
   | Surface.Var(name) =>
@@ -71,43 +88,50 @@ let rec resolve =
   | Surface.Lit(n) => Ok(Node.Lit(n))
   | Surface.Bool(b) => Ok(Node.BoolLit(b))
   | Surface.Lam(x, sty, body) =>
-    let* ann = resolve_ty(~ns, ~st, sty);
-    let* b = resolve(~ctx=[x, ...ctx], ~ns, ~st, body);
+    let* ann = resolve_ty(~ns, ~st, ~tvs, sty);
+    let* b = resolve(~ctx=[x, ...ctx], ~tvs, ~ns, ~st, body);
     Ok(Node.Lam(ann, b));
   | Surface.App(f, a) =>
-    let* f' = resolve(~ctx, ~ns, ~st, f);
-    let* a' = resolve(~ctx, ~ns, ~st, a);
+    let* f' = resolve(~ctx, ~tvs, ~ns, ~st, f);
+    let* a' = resolve(~ctx, ~tvs, ~ns, ~st, a);
     Ok(Node.App(f', a'));
   | Surface.Let(x, rhs, body) =>
-    let* r = resolve(~ctx, ~ns, ~st, rhs);
-    let* b = resolve(~ctx=[x, ...ctx], ~ns, ~st, body);
+    let* r = resolve(~ctx, ~tvs, ~ns, ~st, rhs);
+    let* b = resolve(~ctx=[x, ...ctx], ~tvs, ~ns, ~st, body);
     Ok(Node.Let(r, b));
   | Surface.If(c, t, e) =>
-    let* c' = resolve(~ctx, ~ns, ~st, c);
-    let* t' = resolve(~ctx, ~ns, ~st, t);
-    let* e' = resolve(~ctx, ~ns, ~st, e);
+    let* c' = resolve(~ctx, ~tvs, ~ns, ~st, c);
+    let* t' = resolve(~ctx, ~tvs, ~ns, ~st, t);
+    let* e' = resolve(~ctx, ~tvs, ~ns, ~st, e);
     Ok(Node.If(c', t', e'));
   | Surface.Pair(a, b) =>
-    let* a' = resolve(~ctx, ~ns, ~st, a);
-    let* b' = resolve(~ctx, ~ns, ~st, b);
+    let* a' = resolve(~ctx, ~tvs, ~ns, ~st, a);
+    let* b' = resolve(~ctx, ~tvs, ~ns, ~st, b);
     Ok(Node.Pair(a', b'));
   | Surface.Fst(p) =>
-    let* p' = resolve(~ctx, ~ns, ~st, p);
+    let* p' = resolve(~ctx, ~tvs, ~ns, ~st, p);
     Ok(Node.Fst(p'));
   | Surface.Snd(p) =>
-    let* p' = resolve(~ctx, ~ns, ~st, p);
+    let* p' = resolve(~ctx, ~tvs, ~ns, ~st, p);
     Ok(Node.Snd(p'));
   | Surface.Prim(op, args) =>
-    let* args' = resolve_args(~ctx, ~ns, ~st, args);
+    let* args' = resolve_args(~ctx, ~tvs, ~ns, ~st, args);
     Ok(Node.Prim(op_to_node(op), args'));
+  | Surface.TyLam(name, body) =>
+    let* b = resolve(~ctx, ~tvs=[name, ...tvs], ~ns, ~st, body);
+    Ok(Node.TyLam(b));
+  | Surface.TyApp(e, sty) =>
+    let* e' = resolve(~ctx, ~tvs, ~ns, ~st, e);
+    let* th = resolve_ty(~ns, ~st, ~tvs, sty);
+    Ok(Node.TyApp(e', th));
   }
 
 and resolve_args =
-    (~ctx, ~ns, ~st, args: list(Surface.t)): result(list(Node.t), string) =>
+    (~ctx, ~tvs, ~ns, ~st, args: list(Surface.t)): result(list(Node.t), string) =>
   switch (args) {
   | [] => Ok([])
   | [a, ...rest] =>
-    let* a' = resolve(~ctx, ~ns, ~st, a);
-    let* rest' = resolve_args(~ctx, ~ns, ~st, rest);
+    let* a' = resolve(~ctx, ~tvs, ~ns, ~st, a);
+    let* rest' = resolve_args(~ctx, ~tvs, ~ns, ~st, rest);
     Ok([a', ...rest']);
   };

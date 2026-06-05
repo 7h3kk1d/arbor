@@ -19,4 +19,6 @@ type t =
   | Pair(t, t)
   | Fst(t)
   | Snd(t)
-  | Prim(prim_op, list(t));
+  | Prim(prim_op, list(t))
+  | TyLam(string, t) /* /\t. e */
+  | TyApp(t, Surface_ty.t); /* e [T] */
