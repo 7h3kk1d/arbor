@@ -22,16 +22,36 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
         else h :: m.open_set
       in
       { m with open_set }
+  | State.Toggle_collapse path ->
+      let collapsed =
+        if List.mem m.collapsed path ~equal:String.equal then
+          List.filter m.collapsed ~f:(fun x -> not (String.equal x path))
+        else path :: m.collapsed
+      in
+      { m with collapsed }
   | State.Select h -> { m with selected = Some h }
-  | State.Set_def_name v -> { m with def_name = v }
-  | State.Set_def_ty v -> { m with def_ty = v }
-  | State.Set_def_expr v -> { m with def_expr = v }
   | State.Set_ty_name v -> { m with ty_name = v }
   | State.Set_ty_body v -> { m with ty_body = v }
   | State.Toggle_ty_abstract -> { m with ty_abstract = not m.ty_abstract }
-  | State.Set_eval_expr v -> { m with eval_expr = v }
-  | State.Set_scratch_fb fb -> { m with scratch_fb = fb }
-  | State.Set_test_filter v -> { m with test_filter = v }
+  | State.Set_work_expr v -> { m with work_expr = v }
+  | State.Set_work_fb fb -> { m with work_fb = fb }
+  | State.Set_work_name v -> { m with work_name = v }
+  | State.Set_work_ty v -> { m with work_ty = v }
+  | State.Set_work_fields v -> { m with work_fields = v }
+  | State.Set_sel_open_name v -> { m with sel_open_name = v }
+  | State.Open_existential ->
+      let fb =
+        Ops.open_existential ~s ~name:m.work_name ~fields:m.work_fields ~expr:m.work_expr
+      in
+      bump { m with feedback = fb }
+  | State.Open_selected ->
+      let fb =
+        match m.selected with
+        | None -> State.Err "no definition selected"
+        | Some h ->
+            Ops.open_existential_node ~s ~name:m.sel_open_name ~fields:"" ~node:(Node.Ref h)
+      in
+      bump { m with feedback = fb }
   | State.Toggle_test h ->
       let att = Substrate.global.att in
       if Attachment.has att ~aspect:"test" h then Attachment.unmark att ~aspect:"test" h
@@ -39,7 +59,7 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
       bump m
   | State.Define ->
       let fb =
-        Ops.define ~s ~open_set:m.open_set ~name:m.def_name ~ty:m.def_ty ~expr:m.def_expr
+        Ops.define ~s ~open_set:m.open_set ~name:m.work_name ~ty:m.work_ty ~expr:m.work_expr
       in
       bump { m with feedback = fb }
   | State.Create_type ->

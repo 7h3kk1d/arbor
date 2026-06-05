@@ -138,7 +138,34 @@ let view ~(state : State.t Bonsai.Value.t)
                       status;
                     ]
               in
-              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (": " ^ ty) ]; kind_row; source_row; test_row; eval_row ]
+              (* an existential package can be opened into the namespace from here *)
+              let open_row =
+                if not (Ops.is_existential_term s h) then Vdom.Node.none
+                else
+                  Vdom.Node.div
+                    ~attrs:[ Vdom.Attr.class_ "detail-open" ]
+                    [
+                      Vdom.Node.div
+                        ~attrs:[ Vdom.Attr.class_ "detail-note" ]
+                        [ Vdom.Node.text "existential package — open its hidden type into the namespace:" ];
+                      Vdom.Node.input
+                        ~attrs:
+                          [
+                            Vdom.Attr.type_ "text";
+                            Vdom.Attr.class_ "detail-open-name";
+                            Vdom.Attr.placeholder "module name (e.g. Box)";
+                            Vdom.Attr.value_prop state.sel_open_name;
+                            Vdom.Attr.create "autocomplete" "off";
+                            Vdom.Attr.on_input (fun _ v -> inject (State.Set_sel_open_name v));
+                          ]
+                        ();
+                      Vdom.Node.button
+                        ~attrs:
+                          [ Vdom.Attr.class_ "btn-mini"; Vdom.Attr.on_click (fun _ -> inject State.Open_selected) ]
+                        [ Vdom.Node.text "open" ];
+                    ]
+              in
+              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (": " ^ ty) ]; kind_row; source_row; open_row; test_row; eval_row ]
         in
         [ header; Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-body" ] rows ]
   in

@@ -98,22 +98,11 @@ let view ~(state : State.t Bonsai.Value.t)
           [ Vdom.Node.text "create" ];
       ]
   in
-  let define_section =
-    section "define a term"
-      [
-        text_input ~placeholder:"name (e.g. Counter.incr)" ~value:state.def_name
-          ~on_input:(fun s -> inject (State.Set_def_name s));
-        text_input ~placeholder:"type (e.g. Counter.t -> Counter.t)" ~value:state.def_ty
-          ~on_input:(fun s -> inject (State.Set_def_ty s));
-        text_input ~placeholder:{|expr (e.g. \x: Counter.t. x + 1)|} ~value:state.def_expr
-          ~on_input:(fun s -> inject (State.Set_def_expr s));
-        Vdom.Node.button
-          ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Define) ]
-          [ Vdom.Node.text "bind" ];
-      ]
-  in
-  let scratch_section =
-    section "scratch — typecheck & evaluate live (no binding)"
+  (* The merged work area: type an expression, see its type + value live, then
+     bind it (annotation optional — synthesized if blank) or, when it's an
+     existential package, open it as a module. *)
+  let work_section =
+    section "work — typecheck & evaluate live, then bind or open"
       [
         Vdom.Node.textarea
           ~attrs:
@@ -122,19 +111,35 @@ let view ~(state : State.t Bonsai.Value.t)
               Vdom.Attr.create "spellcheck" "false";
               Vdom.Attr.create "autocomplete" "off";
               Vdom.Attr.create "autocapitalize" "off";
-              Vdom.Attr.placeholder {|e.g. Counter.get (bump2 Counter.empty)|};
-              Vdom.Attr.value_prop state.eval_expr;
+              Vdom.Attr.placeholder {|expr (e.g. Counter.get (bump2 Counter.empty), or mkCounter true)|};
+              Vdom.Attr.value_prop state.work_expr;
               Vdom.Attr.on_input (fun _ s ->
-                  let fb =
-                    Ops.eval ~s:Substrate.global ~open_set:state.open_set ~expr:s
-                  in
+                  let fb = Ops.eval ~s:Substrate.global ~open_set:state.open_set ~expr:s in
                   Vdom.Effect.Many
-                    [ inject (State.Set_eval_expr s); inject (State.Set_scratch_fb fb) ]);
+                    [ inject (State.Set_work_expr s); inject (State.Set_work_fb fb) ]);
             ]
           [];
         Vdom.Node.div
           ~attrs:[ Vdom.Attr.class_ "scratch-feedback" ]
-          [ render_feedback state.scratch_fb ];
+          [ render_feedback state.work_fb ];
+        text_input ~placeholder:"name (e.g. Counter.incr, or a module name to open as)"
+          ~value:state.work_name ~on_input:(fun s -> inject (State.Set_work_name s));
+        text_input ~placeholder:"type (optional — synthesized if blank)" ~value:state.work_ty
+          ~on_input:(fun s -> inject (State.Set_work_ty s));
+        text_input
+          ~placeholder:"fields for open (optional; e.g. empty, incr, get)"
+          ~value:state.work_fields ~on_input:(fun s -> inject (State.Set_work_fields s));
+        Vdom.Node.div
+          ~attrs:[ Vdom.Attr.class_ "btn-row" ]
+          [
+            Vdom.Node.button
+              ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Define) ]
+              [ Vdom.Node.text "bind" ];
+            Vdom.Node.button
+              ~attrs:
+                [ Vdom.Attr.class_ "btn-secondary"; Vdom.Attr.on_click (fun _ -> inject State.Open_existential) ]
+              [ Vdom.Node.text "open as module" ];
+          ];
       ]
   in
   Vdom.Node.div
@@ -142,8 +147,7 @@ let view ~(state : State.t Bonsai.Value.t)
     [
       Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "editor" ];
       open_indicator state.open_set;
-      scratch_section;
+      work_section;
       type_section;
-      define_section;
       Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-pane" ] [ render_feedback state.feedback ];
     ]

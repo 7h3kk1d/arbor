@@ -10,118 +10,158 @@ open P15_substrate
 let badge cls txt =
   Vdom.Node.span ~attrs:[ Vdom.Attr.classes [ "badge"; cls ] ] [ Vdom.Node.text txt ]
 
-let row ~(inject : State.action -> unit Vdom.Effect.t) ~(open_set : string list)
-    ~(selected : string option) (name : string) (h : Hash.t) : Vdom.Node.t =
-  let s = Substrate.global in
-  let is_open = List.mem open_set h ~equal:String.equal in
-  let kind_badge, toggle =
-    match Store.find s.store h with
-    | Some (Definition.Type (Tnode.Opaque _)) ->
-        ( badge "badge-abstract" "abstract",
-          [
-            Vdom.Node.button
-              ~attrs:
-                [
-                  Vdom.Attr.classes
-                    [ "btn-mini"; (if is_open then "btn-open-on" else "") ];
-                  Vdom.Attr.on_click (fun _ -> inject (State.Toggle_open h));
-                ]
-              [ Vdom.Node.text (if is_open then "close" else "open for edit") ];
-          ] )
-    | Some (Definition.Type _) -> (badge "badge-type" "type", [])
-    | Some (Definition.Term (Node.Seal _)) -> (badge "badge-sealed" "sealed", [])
-    | Some (Definition.Term _) -> (badge "badge-term" "term", [])
-    | None -> (badge "badge-term" "?", [])
-  in
-  let selected_cls =
-    match selected with Some sel when String.equal sel h -> "row-selected" | _ -> ""
-  in
-  Vdom.Node.div
-    ~attrs:
-      [
-        Vdom.Attr.classes
-          [ "browser-row"; selected_cls; (if is_open then "row-open" else "") ];
-      ]
-    ([
-       Vdom.Node.span
-         ~attrs:
-           [
-             Vdom.Attr.classes [ "browser-name"; "clickable" ];
-             Vdom.Attr.on_click (fun _ -> inject (State.Select h));
-           ]
-         [ Vdom.Node.text name ];
-       kind_badge;
-       Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "mono hash" ] [ Vdom.Node.text (Hash.short h) ];
-     ]
-    @ toggle)
-
 let test_badge status =
   let cls, txt =
     match status with
-    | `Pass -> ("test-pass", "PASS")
-    | `Fail -> ("test-fail", "FAIL")
-    | `Error _ -> ("test-err", "ERR")
+    | `Pass -> ("test-pass", "pass")
+    | `Fail -> ("test-fail", "fail")
+    | `Error _ -> ("test-err", "err")
   in
   Vdom.Node.span ~attrs:[ Vdom.Attr.classes [ "badge"; cls ] ] [ Vdom.Node.text txt ]
 
-(* The tests panel: every hash carrying the `test` aspect, with its live
-   pass/fail, a namespace filter, and a summary. *)
-let tests_section ~(inject : State.action -> unit Vdom.Effect.t) ~(state : State.t) :
-    Vdom.Node.t =
+(* the trailing controls of a bound row: a kind badge — or, for a term carrying
+   the `test` aspect, its live pass/fail badge — then the short hash, and (for an
+   abstract type) the editing-context toggle. Compact so the row never wraps. *)
+let binding_controls ~(inject : State.action -> unit Vdom.Effect.t)
+    ~(open_set : string list) (h : Hash.t) : Vdom.Node.t list =
   let s = Substrate.global in
-  let name_of h = match Namespace.name_of s.ns h with Some n -> n | None -> Hash.short h in
-  let flt = String.strip state.test_filter in
-  let matches h =
-    String.is_empty flt
-    || List.exists (Namespace.names_of s.ns h) ~f:(fun n ->
-           String.is_substring n ~substring:flt)
+  let is_open = List.mem open_set h ~equal:String.equal in
+  let is_test =
+    match Store.find s.store h with
+    | Some (Definition.Term _) -> Attachment.has s.att ~aspect:"test" h
+    | _ -> false
   in
-  let tests =
-    Attachment.marked s.att ~aspect:"test"
-    |> List.filter ~f:matches
-    |> List.sort ~compare:(fun a b -> String.compare (name_of a) (name_of b))
-  in
-  let results = List.map tests ~f:(fun h -> (h, Ops.test_status s h)) in
-  let pass = List.count results ~f:(fun (_, r) -> match r with `Pass -> true | _ -> false) in
-  let total = List.length results in
-  let summary_cls = if total > 0 && pass = total then "tests-summary all-pass" else "tests-summary" in
-  let rows =
-    if total = 0 then
-      [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-empty" ] [ Vdom.Node.text "(no tests match)" ] ]
+  let kind_badge, toggle =
+    if is_test then (test_badge (Ops.test_status s h), [])
     else
-      List.map results ~f:(fun (h, status) ->
-          Vdom.Node.div
+      match Store.find s.store h with
+      | Some (Definition.Type (Tnode.Opaque _)) ->
+          ( badge "badge-abstract" "abstract",
+            [
+              Vdom.Node.button
+                ~attrs:
+                  [
+                    Vdom.Attr.classes [ "btn-edit"; (if is_open then "btn-open-on" else "") ];
+                    Vdom.Attr.on_click (fun _ -> inject (State.Toggle_open h));
+                  ]
+                [ Vdom.Node.text (if is_open then "editing" else "edit") ];
+            ] )
+      | Some (Definition.Type _) -> (badge "badge-type" "type", [])
+      | Some (Definition.Term (Node.Seal _)) -> (badge "badge-sealed" "sealed", [])
+      | Some (Definition.Term _) -> (badge "badge-term" "term", [])
+      | None -> (badge "badge-term" "?", [])
+  in
+  [
+    kind_badge;
+    Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "mono hash" ] [ Vdom.Node.text (Hash.short h) ];
+  ]
+  @ toggle
+
+let row_classes ~(open_set : string list) ~(selected : string option) (h : Hash.t) =
+  let sel = match selected with Some s when String.equal s h -> "row-selected" | _ -> "" in
+  let opn = if List.mem open_set h ~equal:String.equal then "row-open" else "" in
+  [ "browser-row"; sel; opn ]
+
+(* A leaf binding (no children): the last path segment + its controls. *)
+let leaf_row ~(inject : State.action -> unit Vdom.Effect.t) ~(state : State.t)
+    ~(seg : string) (h : Hash.t) : Vdom.Node.t =
+  Vdom.Node.div
+    ~attrs:[ Vdom.Attr.classes (row_classes ~open_set:state.open_set ~selected:state.selected h) ]
+    (Vdom.Node.span
+       ~attrs:
+         [
+           Vdom.Attr.classes [ "browser-name"; "clickable" ];
+           Vdom.Attr.on_click (fun _ -> inject (State.Select h));
+         ]
+       [ Vdom.Node.text seg ]
+    :: binding_controls ~inject ~open_set:state.open_set h)
+
+(* A section header: a collapse triangle + the segment. If the section path is
+   itself a binding (e.g. an opened module Box that also has Box.t/Box.empty),
+   the header doubles as that binding's row. *)
+let section_header ~(inject : State.action -> unit Vdom.Effect.t) ~(state : State.t)
+    ~(seg : string) ~(path : string) ~(collapsed : bool) ~(direct : Hash.t option) :
+    Vdom.Node.t =
+  let triangle =
+    Vdom.Node.span
+      ~attrs:
+        [
+          Vdom.Attr.classes [ "tree-triangle"; "clickable" ];
+          Vdom.Attr.on_click (fun _ -> inject (State.Toggle_collapse path));
+        ]
+      [ Vdom.Node.text (if collapsed then "\xe2\x96\xb6" else "\xe2\x96\xbc") ]
+  in
+  let name_node, controls, hl =
+    match direct with
+    | Some h ->
+        ( Vdom.Node.span
             ~attrs:
               [
-                Vdom.Attr.classes [ "test-row"; "clickable" ];
+                Vdom.Attr.classes [ "browser-name"; "clickable" ];
                 Vdom.Attr.on_click (fun _ -> inject (State.Select h));
               ]
-            [
-              test_badge status;
-              Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "browser-name" ] [ Vdom.Node.text (name_of h) ];
-              (match status with
-               | `Error m -> Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "test-errmsg" ] [ Vdom.Node.text m ]
-               | _ -> Vdom.Node.none);
-            ])
+            [ Vdom.Node.text seg ],
+          binding_controls ~inject ~open_set:state.open_set h,
+          row_classes ~open_set:state.open_set ~selected:state.selected h )
+    | None ->
+        ( Vdom.Node.span
+            ~attrs:
+              [
+                Vdom.Attr.classes [ "browser-name"; "clickable"; "tree-section" ];
+                Vdom.Attr.on_click (fun _ -> inject (State.Toggle_collapse path));
+              ]
+            [ Vdom.Node.text seg ],
+          [],
+          [ "browser-row" ] )
   in
-  Vdom.Node.div
-    ~attrs:[ Vdom.Attr.class_ "tests-section" ]
-    ([
-       Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "tests" ];
-       Vdom.Node.input
-         ~attrs:
-           [
-             Vdom.Attr.type_ "text";
-             Vdom.Attr.class_ "test-filter";
-             Vdom.Attr.placeholder "filter by namespace (e.g. Counter.)";
-             Vdom.Attr.value_prop state.test_filter;
-             Vdom.Attr.create "autocomplete" "off";
-             Vdom.Attr.on_input (fun _ v -> inject (State.Set_test_filter v));
-           ]
-         ();
-       Vdom.Node.div ~attrs:[ Vdom.Attr.class_ summary_cls ] [ Vdom.Node.text (Printf.sprintf "%d / %d passing" pass total) ];
-     ]
-    @ rows)
+  Vdom.Node.div ~attrs:[ Vdom.Attr.classes ("tree-header" :: hl) ] (triangle :: name_node :: controls)
+
+(* Render a level of the tree from entries given as (remaining_segments, hash).
+   Entries are pre-sorted by full name so same-first-segment rows are adjacent. *)
+let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : State.t)
+    ~(prefix : string) (entries : (string list * Hash.t) list) : Vdom.Node.t list =
+  List.group entries ~break:(fun (a, _) (b, _) ->
+      not (String.equal (List.hd_exn a) (List.hd_exn b)))
+  |> List.concat_map ~f:(fun group ->
+         let seg = match group with (s :: _, _) :: _ -> s | _ -> "?" in
+         let path = if String.is_empty prefix then seg else prefix ^ "." ^ seg in
+         let direct =
+           List.find_map group ~f:(fun (segs, h) ->
+               match segs with [ _ ] -> Some h | _ -> None)
+         in
+         let children =
+           List.filter_map group ~f:(fun (segs, h) ->
+               match segs with _ :: (_ :: _ as rest) -> Some (rest, h) | _ -> None)
+         in
+         if List.is_empty children then
+           match direct with Some h -> [ leaf_row ~inject ~state ~seg h ] | None -> []
+         else
+           let collapsed = List.mem state.collapsed path ~equal:String.equal in
+           let header = section_header ~inject ~state ~seg ~path ~collapsed ~direct in
+           if collapsed then [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "tree-node" ] [ header ] ]
+           else
+             [
+               Vdom.Node.div
+                 ~attrs:[ Vdom.Attr.class_ "tree-node" ]
+                 [
+                   header;
+                   Vdom.Node.div
+                     ~attrs:[ Vdom.Attr.class_ "tree-children" ]
+                     (render_nodes ~inject ~state ~prefix:path children);
+                 ];
+             ])
+
+(* Footer pinned to the bottom: live pass/total across every binding carrying the
+   `test` aspect. Tests themselves live inline in the tree (each shows its
+   pass/fail badge); this is just the running tally. *)
+let tests_summary () : Vdom.Node.t =
+  let s = Substrate.global in
+  let results = List.map (Attachment.marked s.att ~aspect:"test") ~f:(fun h -> Ops.test_status s h) in
+  let pass = List.count results ~f:(function `Pass -> true | _ -> false) in
+  let total = List.length results in
+  let cls = if total > 0 && pass = total then "tests-summary all-pass" else "tests-summary" in
+  Vdom.Node.div ~attrs:[ Vdom.Attr.class_ cls ]
+    [ Vdom.Node.text (Printf.sprintf "tests: %d / %d passing" pass total) ]
 
 let view ~(state : State.t Bonsai.Value.t)
     ~(inject : (State.action -> unit Vdom.Effect.t) Bonsai.Value.t) :
@@ -129,10 +169,13 @@ let view ~(state : State.t Bonsai.Value.t)
   let%arr state = state and inject = inject in
   let s = Substrate.global in
   let _ = state.version in
-  let entries = Namespace.entries s.ns in
+  let entries =
+    Namespace.entries s.ns
+    |> List.sort ~compare:(fun (a, _) (b, _) -> String.compare a b)
+    |> List.map ~f:(fun (name, h) -> (String.split name ~on:'.', h))
+  in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "browser-pane" ]
-    (tests_section ~inject ~state
-    :: Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "namespace" ]
-    :: List.map entries ~f:(fun (name, h) ->
-           row ~inject ~open_set:state.open_set ~selected:state.selected name h))
+    ((Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "namespace" ]
+     :: render_nodes ~inject ~state ~prefix:"" entries)
+    @ [ tests_summary () ])
