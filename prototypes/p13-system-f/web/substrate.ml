@@ -38,6 +38,24 @@ let seed ~store ~ns ~att ~mint_src =
   let var n = Node.Var n in
   let lit n = Node.Lit n in
   let app f x = Node.App (f, x) in
+  (* parse + resolve + commit a definition from surface strings — used for the
+     System-F functor below, where building nodes by hand is unwieldy *)
+  let define_str name opens ty_s expr_s =
+    match Parse.parse_ty ty_s, Parse.parse_expr expr_s with
+    | Ok sty, Ok se -> (
+        match
+          Resolver.resolve_ty ~ns ~st:store sty,
+          Resolver.resolve ~ctx:[] ~ns ~st:store se
+        with
+        | Ok ann, Ok node ->
+            let ctx = Editing_context.make () in
+            List.iter (fun o -> Editing_context.open_type ctx o) opens;
+            (match Editing_context.commit store ctx ~term:node ~ann with
+             | Ok (h, _) -> (try Namespace.rebind ns ~name h with _ -> ()); Some h
+             | Error _ -> None)
+        | _ -> None)
+    | _ -> None
+  in
   (* ---- Counter, over Int ---- *)
   let counter = abstract "Counter.t" int_h in
   ignore (bind "Counter.empty" [ counter ] (lit 0) counter);
@@ -120,7 +138,28 @@ let seed ~store ~ns ~att ~mint_src =
      Counter.t (and seal accordingly). *)
   test "Counter.Tests.Internal.empty_is_zero" [ counter ] (eqn (r "Counter.empty") (lit 0));
   test "Counter.Tests.Internal.incr_is_one" [ counter ]
-    (eqn (app (r "Counter.incr") (r "Counter.empty")) (lit 1))
+    (eqn (app (r "Counter.incr") (r "Counter.empty")) (lit 1));
+  (* ---- a second counter over a Product representation ---- *)
+  let tally = abstract "Tally.t" (prod int_h int_h) in
+  ignore (define_str "Tally.start" [ tally ] "Tally.t" "(0, 0)");
+  ignore (define_str "Tally.incr" [ tally ] "Tally.t -> Tally.t" "\\x: Tally.t. (fst x + 1, snd x)");
+  ignore (define_str "Tally.decr" [ tally ] "Tally.t -> Tally.t" "\\x: Tally.t. (fst x - 1, snd x)");
+  ignore (define_str "Tally.get" [ tally ] "Tally.t -> Int" "\\x: Tally.t. fst x");
+  (* ---- the functor: one polymorphic `step`, applied to either counter ---- *)
+  ignore
+    (define_str "step" []
+       "forall t. (t -> t) * (t -> t) -> t -> Bool -> t"
+       "/\\t. \\ops: (t -> t) * (t -> t). \\x: t. \\b: Bool. if b then (fst ops) x else (snd ops) x");
+  (* functor tests — the SAME step applied to two different representations *)
+  let test_str name expr_s =
+    match define_str name [] "Bool" expr_s with
+    | Some h -> Attachment.mark att ~aspect:"test" h
+    | None -> ()
+  in
+  test_str "Functor.Tests.step_up_counter"
+    "Counter.get (step [Counter.t] (Counter.incr, Counter.decr) Counter.empty true) == 1";
+  test_str "Functor.Tests.step_down_tally"
+    "Tally.get (step [Tally.t] (Tally.incr, Tally.decr) Tally.start false) == 0 - 1"
 
 let create () =
   let store = Store.create () in
