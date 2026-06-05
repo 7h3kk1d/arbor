@@ -1,0 +1,5 @@
+(test
+ (name test_p15)
+ (libraries p15_substrate alcotest qcheck qcheck-alcotest)
+ (preprocess
+  (pps ppx_deriving.std)))

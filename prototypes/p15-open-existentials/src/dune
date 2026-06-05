@@ -1,0 +1,11 @@
+(library
+ (name p15_substrate)
+ (public_name p15_open_existentials.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))
