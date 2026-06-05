@@ -224,6 +224,28 @@ let seed ~store ~ns ~att ~mint_src =
   open_existential "Temp" [ "cel"; "kel" ] [ "fromC"; "toK"; "toC"; "readC" ] "mkScale 273";
   test_str "Existential.Tests.temp_round_trip"
     "Temp.readC (Temp.toC (Temp.toK (Temp.fromC 100))) == 100";
+  (* a slightly more realistic two-abstract-type functor: a calendar where a
+     `date` and a `span` (duration) are distinct types — so adding two dates, or
+     measuring a date as a duration, is a type error. mkCalendar's Int is the
+     epoch: the day-number of the origin. Try it live: type `mkCalendar 0`. *)
+  let cal_out =
+    "exists date. exists span. date * ((Int -> span) * ((date -> span -> date) * ((date -> date -> span) * (span -> Int))))"
+  in
+  let cal_inner =
+    "exists span. Int * ((Int -> span) * ((Int -> span -> Int) * ((Int -> Int -> span) * (span -> Int))))"
+  in
+  let cal_val =
+    {|(base, (\n: Int. n, (\d: Int. \s: Int. d + s, (\a: Int. \b: Int. b - a, \s: Int. s))))|}
+  in
+  ignore
+    (define_str "mkCalendar" []
+       (Printf.sprintf "Int -> %s" cal_out)
+       (Printf.sprintf {|\base: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} cal_val
+          cal_inner cal_out));
+  open_existential "Cal" [ "date"; "span" ]
+    [ "origin"; "after"; "shift"; "between"; "lengthOf" ] "mkCalendar 0";
+  test_str "Existential.Tests.calendar"
+    "Cal.lengthOf (Cal.between Cal.origin (Cal.shift Cal.origin (Cal.after 30))) == 30";
   (* ---- p15: lists, with [| ... |] literal syntax ---- *)
   ignore (define_str "demo.nums" [] "List Int" "[| 1, 2, 3 |]");
   test_str "Lists.Tests.sum" "fold demo.nums 0 (\\x: Int. \\acc: Int. x + acc) == 6";

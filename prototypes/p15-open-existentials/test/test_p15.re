@@ -638,6 +638,53 @@ let test_n_ary_open = () => {
   };
 };
 
+/* A realistic two-abstract-type module: a calendar where `date` and `span`
+   (duration) are distinct. The round-trip works, but the type system rejects
+   shifting a date by a date — the whole point of keeping them distinct. */
+let test_calendar = () => {
+  let st = Store.create();
+  let ns = Namespace.create();
+  let ms = Mint.make_source();
+  let res = s =>
+    switch (Parse.parse_expr(s)) {
+    | Ok(e) => unwrap(Resolver.resolve(~ctx=[], ~ns, ~st, e))
+    | Error(m) => Alcotest.fail("parse: " ++ m)
+    };
+  let out = "exists date. exists span. date * ((Int -> span) * ((date -> span -> date) * ((date -> date -> span) * (span -> Int))))";
+  let inner = "exists span. Int * ((Int -> span) * ((Int -> span -> Int) * ((Int -> Int -> span) * (span -> Int))))";
+  let value = "(base, (\\n: Int. n, (\\d: Int. \\s: Int. d + s, (\\a: Int. \\b: Int. b - a, \\s: Int. s))))";
+  let body = "\\base: Int. pack [Int] (pack [Int] (" ++ value ++ ") as " ++ inner ++ ") as " ++ out;
+  let pkg = Node.App(res(body), Node.Lit(0));
+  switch (Open_existential.open_package(st, ms, pkg)) {
+  | Error(m) => Alcotest.fail("open: " ++ m)
+  | Ok({Open_existential.type_hashes, module_hash: _, field_hashes}) =>
+    Alcotest.(check(int))("date and span are two distinct types", 2, List.length(type_hashes));
+    switch (field_hashes) {
+    | [origin, after, shift, between, lengthOf] =>
+      let r = h => Node.Ref(h);
+      let app = (f, x) => Node.App(f, x);
+      /* lengthOf (between origin (shift origin (after 30))) = 30 */
+      let d30 = app(app(r(shift), r(origin)), app(r(after), Node.Lit(30)));
+      let len = app(r(lengthOf), app(app(r(between), r(origin)), d30));
+      let h = unwrap(Store.ingest_term(st, len));
+      switch (Eval.eval_top(st, Node.Ref(h))) {
+      | Ok(Eval.VInt(30)) =>
+        Alcotest.(check(bool))("span from origin to origin+30 days = 30", true, true)
+      | Ok(v) => Alcotest.fail("unexpected: " ++ Eval.to_string(v))
+      | Error(m) => Alcotest.fail("stuck: " ++ m)
+      };
+      /* shifting a date BY A DATE (not a span) must be ill-typed */
+      let bad = app(app(r(shift), r(origin)), r(origin));
+      Alcotest.(check(bool))(
+        "shift date-by-date is rejected (date != span)",
+        true,
+        is_error(Store.ingest_term(st, bad)),
+      );
+    | _ => Alcotest.fail("expected five fields")
+    };
+  };
+};
+
 let () =
   Alcotest.run(
     "p15",
@@ -705,6 +752,11 @@ let () =
             "n-ary open: a module with two abstract types",
             `Quick,
             test_n_ary_open,
+          ),
+          Alcotest.test_case(
+            "calendar: distinct date/span types reject illegal ops",
+            `Quick,
+            test_calendar,
           ),
         ],
       ),
