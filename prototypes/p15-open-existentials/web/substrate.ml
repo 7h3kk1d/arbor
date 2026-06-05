@@ -209,15 +209,19 @@ let seed ~store ~ns ~att ~mint_src =
   in
   open_existential "Box" [] [ "empty"; "incr"; "get" ] "mkCounter true";
   test_str "Existential.Tests.opened_box" "Box.get (Box.incr (Box.incr Box.empty)) == 2";
-  (* a functor-shaped package hiding TWO abstract types (celsius + kelvin),
-     opened in one gesture into Temp.cel / Temp.kel + the conversions *)
-  let temp_ty = "exists c. exists k. (Int -> c) * ((c -> k) * ((k -> c) * (c -> Int)))" in
-  let temp_inner = "exists k. (Int -> Int) * ((Int -> k) * ((k -> Int) * (Int -> Int)))" in
-  let temp_val = {|(\x: Int. x, (\x: Int. x + 273, (\x: Int. x - 273, \x: Int. x)))|} in
+  (* a FUNCTOR (Int offset -> module) hiding TWO abstract types — a celsius `c`
+     and a kelvin `k`, with conversions that differ by the offset. Apply and open
+     in one gesture into Temp.cel / Temp.kel + the conversions. Try it live: type
+     `mkScale 273` (or any offset) in the editor and open the result. *)
+  let scale_out = "exists c. exists k. (Int -> c) * ((c -> k) * ((k -> c) * (c -> Int)))" in
+  let scale_inner = "exists k. (Int -> Int) * ((Int -> k) * ((k -> Int) * (Int -> Int)))" in
+  let scale_body = {|(\x: Int. x, (\x: Int. x + off, (\x: Int. x - off, \x: Int. x)))|} in
   ignore
-    (define_str "temperature" [] temp_ty
-       (Printf.sprintf "pack [Int] (pack [Int] (%s) as %s) as %s" temp_val temp_inner temp_ty));
-  open_existential "Temp" [ "cel"; "kel" ] [ "fromC"; "toK"; "toC"; "readC" ] "temperature";
+    (define_str "mkScale" []
+       (Printf.sprintf "Int -> %s" scale_out)
+       (Printf.sprintf {|\off: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} scale_body
+          scale_inner scale_out));
+  open_existential "Temp" [ "cel"; "kel" ] [ "fromC"; "toK"; "toC"; "readC" ] "mkScale 273";
   test_str "Existential.Tests.temp_round_trip"
     "Temp.readC (Temp.toC (Temp.toK (Temp.fromC 100))) == 100";
   (* ---- p15: lists, with [| ... |] literal syntax ---- *)
