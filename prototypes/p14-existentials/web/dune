@@ -1,0 +1,11 @@
+(library
+ (name p14_web)
+ (libraries
+  p14_existentials.substrate
+  bonsai
+  bonsai.web
+  virtual_dom
+  core
+  js_of_ocaml)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai js_of_ocaml-ppx)))
