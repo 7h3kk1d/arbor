@@ -119,10 +119,18 @@ This trilemma also names the latent tension in §"Opacity is a typing discipline
 
 **Lean (2026-06-04): editor-enforced opacity, for a cooperative threat model.** Keep (1) and (2) — flat, unbundled, pure-content nodes — and locate opacity in the editing layer rather than at ingest:
 
-- The editor only *offers* the `open #A` affordance while the author is working inside `#A`'s implementation set — a UI grouping derived by scanning the store, **not** a stored bundle and **not** the namespace hierarchy.
+- The editor only *offers* the `open #A` affordance while the author is working inside `#A`'s unsealing set (see the finding below) — a UI grouping derived by scanning the store, **not** a stored bundle and **not** the namespace hierarchy.
 - A derived aspect can mark each `open #A` node as sanctioned, surfacing unsanctioned opens as warnings ("no silent breakage") rather than blocking ingest.
 
 This defends against honest mistakes, not a party who hand-writes bytes — accepted, because the near-term commons is cooperative. **Deferred alternative:** to recover ingest-level / adversarial-safe enforcement *without* bundling, make the mint a keypair — its public half in `#A`'s hash (the distinctness mint doing double duty), its secret half an out-of-store capability, each op carrying a deterministic signature as an attestation aspect that ingest verifies. Cryptographic safety is explicitly not pursued now; it is recorded as the long-term path. See open-questions §"Type abstraction."
+
+### The unsealing set is broader than the operations (p12 finding, 2026-06-05)
+
+The natural derived query for an abstract type is **the set of definitions that unseal it** — every `open #A` / `Seal` node whose `opens` includes `#A`, found by scanning. p12 first called this the type's *implementation set* and equated it with the operations; that held only because the early examples had nothing else opening the type. Adding **internal tests** — boolean definitions that observe the representation, e.g. `Counter.incr Counter.empty == 1`, authored with `#A` open — broke the equation: they unseal `#A` (so they belong to the set) but are not operations.
+
+The sharper point is that **the substrate draws no distinction at all.** An internal test is *structurally identical* to an operation — a `Seal` over the opened `#A`, stored / type-checked / evaluated by exactly the same machinery; its "test-ness" is only an `11`-style Attachment aspect tag plus interface-level evaluation of the boolean. So "operation" is not a substrate category: at best it is "an unsealing definition that isn't tagged a test," a heuristic. The honest notion is the **unsealing set** (p12 renames the query accordingly); an editor *presents* that set and may **categorize** it by aspect (test vs not) or by namespace, but the substrate itself only knows "unseals `#A`." This is also the natural place to read off *what is permitted to observe the representation* — an auditable question whose honest answer includes the tests, so they should not be filtered out. A principled operation-vs-internal split would require an explicit **export** marker — the deferred `public`/`private` story below; until that exists, the unsealing population is flat.
+
+A smaller mechanical consequence: an internal definition that both *calls* a sealed op and *unseals its result* (the test above) cannot be normalized to a witness-only body — its abstractness comes from the called op's return type, not from an annotation to rewrite. So a seal's implementation must be allowed to type-check under the seal's own `opens` (it is internal to the seal, and may see through what the seal opens). That is the resolution of the "mixed impl" question and the mechanism that makes internal definitions expressible at all.
 
 ## The dependency model and its criteria
 

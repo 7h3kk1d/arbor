@@ -20,7 +20,7 @@ Three substrate pieces plus one editor concept:
 3. **Opacity-parameterized type checker** — `check`/`synth` take an **open set** of abstract-type hashes. An `Opaque{witness}` unfolds to its witness iff its hash is in the open set; otherwise it is rigid (equal only to itself). The default open set is empty → full opacity.
 4. **Editing context** (the editor concept) — ephemeral editor state carrying an open set. Authoring inside a context that opens `#A` lets you write representation-touching terms with `#A` *implicitly* treated as its witness; on commit they become `Seal` nodes. Two gestures create opening contexts; the default context opens nothing.
 
-The **implementation set** of an abstract type is **derived, not stored**: every `Seal` that opens `#A`, found by scanning. There is no module record bundling them, and the grouping is not the namespace hierarchy.
+The **unsealing set** of an abstract type (its `Store.unsealers`) is **derived, not stored**: every `Seal` that opens `#A`, found by scanning. There is no module record bundling them, and the grouping is not the namespace hierarchy. It is deliberately *broader than the type's operations* — it also catches any internal definition authored against the representation (e.g. internal tests); the substrate draws no operation-vs-test distinction. See `docs/design/12-type-abstraction.md` §"The unsealing set is broader than the operations."
 
 ## Questions this prototype should answer
 
@@ -98,15 +98,15 @@ T ::= Int | Bool | T -> T | T * T | <name>    -- <name> resolves to a concrete o
 The substrate + editing-context core is interface-independent and was built and tested first. Two interfaces drive it:
 
 - **REPL** (`bin/repl.re`): `:abstract`/`:open`/`:close`/`:let`/`:ctx`/`:impl`/`:show`/`:ls` + bare-expr eval. The lightest way to exercise the context state machine.
-- **Bonsai + js_of_ocaml web app** (`web/`, entry `webmain/main.ml`): three panes — namespace browser, editor + editing-context indicator, detail. The editing context is **browser-driven** (per the 2026-06-04 design choice): each abstract type carries an open/close toggle in the namespace tree; the editor shows the open set; binding shows a live Normal/Sealed badge; detail shows an abstract type's derived implementation set. Bootstraps the Counter example on load.
+- **Bonsai + js_of_ocaml web app** (`web/`, entry `webmain/main.ml`): three panes — namespace browser, editor + editing-context indicator, detail. The editing context is **browser-driven** (per the 2026-06-04 design choice): each abstract type carries an open/close toggle in the namespace tree; the editor shows the open set; binding shows a live Normal/Sealed badge; detail shows an abstract type's derived unsealing set. Bootstraps the Counter example on load.
 
 ## In scope
 
 - Opaque type defs (mint + witness-in-hash); `Seal` nodes; opacity-parameterized checker; minimal-sealing commit rule; raw-body normalization for sharing.
 - Editing-context state machine: default vs. opening contexts; create-type and open-existing gestures; implicit sealing.
-- Derived implementation-set query; `Ref`-by-hash dependency; pinning only.
+- Derived unsealing-set query (`Store.unsealers`); `Ref`-by-hash dependency; pinning only.
 - Representation change via fresh authoring (dies-with-hash; no edit-of), with the soundness boundary it implies (old-rep value rejected by new-rep op).
-- Test suite: opaque-hash distinctness (Counter ≠ Celsius over the same witness); witness-in-hash (representation change moves the hash); seal ingest type rule; minimal-sealing classification; opaque composition (consumer type-checks at `open={}`, cannot unfold); implementation-set derivation; criterion-4 (editing one op leaves a consumer byte-identical); raw-body sharing; evaluation (abstraction erased); representation-change soundness (fresh mint, old value rejected by new op).
+- Test suite: opaque-hash distinctness (Counter ≠ Celsius over the same witness); witness-in-hash (representation change moves the hash); seal ingest type rule; minimal-sealing classification; opaque composition (consumer type-checks at `open={}`, cannot unfold); unsealing-set derivation; criterion-4 (editing one op leaves a consumer byte-identical); raw-body sharing; evaluation (abstraction erased); representation-change soundness (fresh mint, old value rejected by new op).
 
 ## Out of scope
 
