@@ -94,3 +94,16 @@ Every `Tnode`/`Node` match site must add the new constructors (encode, whnf/equa
 - The extracted type is a minted `Abstract` constant (no witness, never unfolds) — generative per open.
 - Interface stays a positional `Product`; records deferred.
 - `Fold` is the list eliminator (no general recursion).
+
+## n-ary open — a module hiding several abstract types (added 2026-06-05)
+
+A module with *two* abstract types is two existential quantifiers: `exists c. exists k. T` (a "functor returning a module with two abstract types" — e.g. a temperature module hiding both `celsius` and `kelvin`, with conversions between them). The substrate already represents this by nesting; **no substrate change** was needed.
+
+`open` was generalized to peel *every* leading `exists`, minting one fresh `Abstract` per level. The key observation: the unary `Open` node composes — `Open{Open{pkg, m1}, m2}` type-checks to `T[c:=m1][k:=m2]` — so n-ary open is iteration over the existing node, not a new construct. `src/open_existential.re` houses:
+
+- `inspect(node) : option((arity, field_type_hashes))` — counts leading `exists` and flattens the right-nested operations product into its leaf types (with the bound vars left as `TVar`s), for driving a form. None if not an existential.
+- `open_package(node) : opened` — mints the abstracts (outer-first), nests the `Open` nodes, and projects the operations product positionally; returns `{type_hashes, module_hash, field_hashes}`, name-free (the interface layer names them).
+
+Naming: the REPL gesture is `:open <e> as N [t1, t2] providing f1, f2, …` (the `[…]` names the abstract types positionally; absent → defaults to the tyvar names `t`, `u`, `s`, …). The web populates **one input per abstract type and one per operation field, derived from the structure** (each field labeled with its type) rather than a comma-separated string — `inspect`'s shape rides on the live `Typed` feedback.
+
+Field count comes from flattening the *right-nested* operations product, matching how positional projection works. Limitation (shared with the positional-Product choice): a field whose value is itself a pair is over-split into two fields — the records/labels follow-on (p16?) is the real fix.

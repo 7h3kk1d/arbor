@@ -235,6 +235,36 @@ body {
 .btn-secondary { background: transparent; color: var(--accent); }
 .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
+/* dynamic "open as module" form: one row per abstract type / operation */
+.open-block {
+  border: 1px dashed var(--abstract);
+  border-radius: 6px;
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.open-field-row { display: flex; align-items: center; gap: 0.5rem; }
+.open-field-row input[type=text] { flex: 1 1 auto; width: auto; min-width: 4rem; }
+.open-field-kind {
+  flex-shrink: 0;
+  width: 2.4rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+}
+.open-field-type {
+  flex-shrink: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+
 .detail-open {
   margin: 0.5rem 0;
   padding: 0.5rem;

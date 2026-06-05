@@ -86,69 +86,55 @@ let create_type ~(s : Substrate.t) ~(name : string) ~(body : string)
                      (Pretty.ty ~ns:s.ns ~st:s.store witness)),
                 None )))
 
-(* Generative open of an existential package [node]: mints a fresh abstract type
-   bound to N.t, binds N to the package value, and (optionally) binds each
-   positional field by name. Mirrors the REPL gesture; each open is generative (a
-   distinct Abstract mint), so re-opening makes an incompatible type. *)
-let open_existential_node ~(s : Substrate.t) ~(name : string) ~(fields : string)
-    ~(node : Node.t) : State.feedback =
+(* Generative open of an existential package [node], generalized to n nested
+   quantifiers (a module with several abstract types). Peels every leading
+   `exists`, binding `name.<t_i>` for each minted abstract (positional
+   [type_names], defaulting to the tyvar names t, u, …), `name` to the opened
+   value, and each named positional field. Each open is generative — re-opening
+   mints fresh, incompatible abstracts. *)
+let open_existential_node ~(s : Substrate.t) ~(name : string)
+    ~(type_names : string list) ~(field_names : string list) ~(node : Node.t) :
+    State.feedback =
   let name = String.strip name in
   if String.is_empty name then State.Err "module name is required"
   else
-    let env = Store.build_env s.store in
-    match Typecheck.synth_top env [] node with
-    | Error e -> State.Err ("type error: " ^ e)
-    | Ok ty_h -> (
-        match Store.find s.store ty_h with
-        | Some (Definition.Type (Tnode.Exists _)) -> (
-            let m = Mint.fresh s.mint_src in
-            let at = Store.ingest_type s.store (Tnode.Abstract m) in
-            (try Namespace.rebind s.ns ~name:(name ^ ".t") at with _ -> ());
-            match Store.ingest_term s.store (Node.Open { pkg = node; mint = m }) with
-            | Error e -> State.Err ("open failed: " ^ e)
-            | Ok oh ->
-                (try Namespace.rebind s.ns ~name oh with _ -> ());
-                let field_names =
-                  String.split fields ~on:','
-                  |> List.map ~f:String.strip
-                  |> List.filter ~f:(fun x -> not (String.is_empty x))
-                in
-                let n = List.length field_names in
-                let rec snds k nd =
-                  if k <= 0 then nd else snds (k - 1) (Node.Snd nd)
-                in
-                List.iteri field_names ~f:(fun i f ->
-                    let base = snds i (Node.Ref oh) in
-                    let proj = if i = n - 1 then base else Node.Fst base in
-                    match Store.ingest_term s.store proj with
-                    | Ok ph -> (try Namespace.rebind s.ns ~name:(name ^ "." ^ f) ph with _ -> ())
-                    | Error _ -> ());
-                let tystr =
-                  match Store.type_of s.store oh with
-                  | Some t -> Pretty.ty ~ns:s.ns ~st:s.store t
-                  | None -> "?"
-                in
-                let fields_msg =
-                  if n = 0 then ""
-                  else
-                    "; bound "
-                    ^ String.concat ~sep:", "
-                        (List.map field_names ~f:(fun f -> name ^ "." ^ f))
-                in
-                State.Info
-                  (Printf.sprintf "opened %s.t = abstract(%s);  %s : %s%s" name
-                     (Mint.short m) name tystr fields_msg))
-        | _ -> State.Err "open: this is not an existential package")
+    match Open_existential.open_package s.store s.mint_src node with
+    | Error e -> State.Err ("open: " ^ e)
+    | Ok { type_hashes; module_hash; field_hashes } ->
+        let nth_name names i =
+          match List.nth names i with
+          | Some x when not (String.is_empty (String.strip x)) -> Some (String.strip x)
+          | _ -> None
+        in
+        let type_name i = Option.value (nth_name type_names i) ~default:(Pretty.tyvar_name i) in
+        List.iteri type_hashes ~f:(fun i th ->
+            (try Namespace.rebind s.ns ~name:(name ^ "." ^ type_name i) th with _ -> ()));
+        (try Namespace.rebind s.ns ~name module_hash with _ -> ());
+        List.iteri field_hashes ~f:(fun j fh ->
+            match nth_name field_names j with
+            | Some fn -> (try Namespace.rebind s.ns ~name:(name ^ "." ^ fn) fh with _ -> ())
+            | None -> ());
+        let tystr =
+          match Store.type_of s.store module_hash with
+          | Some t -> Pretty.ty ~ns:s.ns ~st:s.store t
+          | None -> "?"
+        in
+        let tlist =
+          String.concat ~sep:", "
+            (List.mapi type_hashes ~f:(fun i _ -> name ^ "." ^ type_name i))
+        in
+        State.Info (Printf.sprintf "opened %s [%s];  %s : %s" name tlist name tystr)
 
 (* Parse + resolve an expression, then open it (work-area gesture). *)
-let open_existential ~(s : Substrate.t) ~(name : string) ~(fields : string)
-    ~(expr : string) : State.feedback =
+let open_existential ~(s : Substrate.t) ~(name : string)
+    ~(type_names : string list) ~(field_names : string list) ~(expr : string) :
+    State.feedback =
   match Parse.parse_expr expr with
   | Error e -> State.Err ("expr: " ^ e)
   | Ok se -> (
       match Resolver.resolve ~ctx:[] ~ns:s.ns ~st:s.store se with
       | Error e -> State.Err e
-      | Ok node -> open_existential_node ~s ~name ~fields ~node)
+      | Ok node -> open_existential_node ~s ~name ~type_names ~field_names ~node)
 
 (* Is the definition at [h] a term whose type is an existential? Used by the
    detail pane to show its one-click open affordance. *)
@@ -187,11 +173,21 @@ let eval ~(s : Substrate.t) ~(open_set : string list) ~(expr : string) :
             | Error e -> State.Err ("type error: " ^ e)
             | Ok t -> (
                 let ty = Pretty.ty ~ns:s.ns ~st:s.store t in
-                let is_exists =
-                  match Store.find s.store t with
-                  | Some (Definition.Type (Tnode.Exists _)) -> true
-                  | _ -> false
+                (* an existential package's shape drives the open form: one input
+                   per abstract type, one per operation field (labeled by type) *)
+                let open_shape =
+                  match Open_existential.inspect s.store node with
+                  | Some (arity, fts) ->
+                      Some
+                        {
+                          State.type_arity = arity;
+                          field_types =
+                            List.map fts ~f:(fun ft ->
+                                Pretty.ty_to_string ~ns:s.ns ~st:s.store ~prec:0
+                                  ~tdepth:arity ft);
+                        }
+                  | None -> None
                 in
                 match Eval.eval_top s.store node with
-                | Ok v -> State.Typed { ty; value = Eval.to_string v; is_exists }
-                | Error m -> State.Typed { ty; value = "(stuck: " ^ m ^ ")"; is_exists })))
+                | Ok v -> State.Typed { ty; value = Eval.to_string v; open_shape }
+                | Error m -> State.Typed { ty; value = "(stuck: " ^ m ^ ")"; open_shape })))

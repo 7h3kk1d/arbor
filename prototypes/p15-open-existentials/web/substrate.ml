@@ -176,41 +176,50 @@ let seed ~store ~ns ~att ~mint_src =
   in
   test_str "Existential.Tests.int_rep" (observe "true");
   test_str "Existential.Tests.pair_rep" (observe "false");
-  (* ---- p15: open the factory into the namespace, extracting Box.t ---- *)
-  let open_existential name fields expr_s =
+  (* ---- p15: open a package into the namespace (n-ary: peels every `exists`) ---- *)
+  let open_existential name type_names field_names expr_s =
+    let nth_name names i =
+      match List.nth_opt names i with Some x when x <> "" -> Some x | _ -> None
+    in
     match Parse.parse_expr expr_s with
     | Ok se -> (
         match Resolver.resolve ~ctx:[] ~ns ~st:store se with
         | Ok node -> (
-            let env = Store.build_env store in
-            match Typecheck.synth_top env [] node with
-            | Ok ty_h -> (
-                match Store.find store ty_h with
-                | Some (Definition.Type (Tnode.Exists _)) -> (
-                    let m = Mint.fresh mint_src in
-                    let at = Store.ingest_type store (Tnode.Abstract m) in
-                    (try Namespace.rebind ns ~name:(name ^ ".t") at with _ -> ());
-                    match Store.ingest_term store (Node.Open { pkg = node; mint = m }) with
-                    | Ok oh ->
-                        (try Namespace.rebind ns ~name oh with _ -> ());
-                        let n = List.length fields in
-                        let rec snds k nd = if k <= 0 then nd else snds (k - 1) (Node.Snd nd) in
-                        List.iteri
-                          (fun i f ->
-                            let base = snds i (Node.Ref oh) in
-                            let proj = if i = n - 1 then base else Node.Fst base in
-                            match Store.ingest_term store proj with
-                            | Ok ph -> (try Namespace.rebind ns ~name:(name ^ "." ^ f) ph with _ -> ())
-                            | Error _ -> ())
-                          fields
-                    | Error _ -> ())
-                | _ -> ())
+            match Open_existential.open_package store mint_src node with
+            | Ok { Open_existential.type_hashes; module_hash; field_hashes } ->
+                List.iteri
+                  (fun i th ->
+                    let tn =
+                      match nth_name type_names i with
+                      | Some x -> x
+                      | None -> Pretty.tyvar_name i
+                    in
+                    try Namespace.rebind ns ~name:(name ^ "." ^ tn) th with _ -> ())
+                  type_hashes;
+                (try Namespace.rebind ns ~name module_hash with _ -> ());
+                List.iteri
+                  (fun j fh ->
+                    match nth_name field_names j with
+                    | Some fn -> (try Namespace.rebind ns ~name:(name ^ "." ^ fn) fh with _ -> ())
+                    | None -> ())
+                  field_hashes
             | Error _ -> ())
         | Error _ -> ())
     | Error _ -> ()
   in
-  open_existential "Box" [ "empty"; "incr"; "get" ] "mkCounter true";
+  open_existential "Box" [] [ "empty"; "incr"; "get" ] "mkCounter true";
   test_str "Existential.Tests.opened_box" "Box.get (Box.incr (Box.incr Box.empty)) == 2";
+  (* a functor-shaped package hiding TWO abstract types (celsius + kelvin),
+     opened in one gesture into Temp.cel / Temp.kel + the conversions *)
+  let temp_ty = "exists c. exists k. (Int -> c) * ((c -> k) * ((k -> c) * (c -> Int)))" in
+  let temp_inner = "exists k. (Int -> Int) * ((Int -> k) * ((k -> Int) * (Int -> Int)))" in
+  let temp_val = {|(\x: Int. x, (\x: Int. x + 273, (\x: Int. x - 273, \x: Int. x)))|} in
+  ignore
+    (define_str "temperature" [] temp_ty
+       (Printf.sprintf "pack [Int] (pack [Int] (%s) as %s) as %s" temp_val temp_inner temp_ty));
+  open_existential "Temp" [ "cel"; "kel" ] [ "fromC"; "toK"; "toC"; "readC" ] "temperature";
+  test_str "Existential.Tests.temp_round_trip"
+    "Temp.readC (Temp.toC (Temp.toK (Temp.fromC 100))) == 100";
   (* ---- p15: lists, with [| ... |] literal syntax ---- *)
   ignore (define_str "demo.nums" [] "List Int" "[| 1, 2, 3 |]");
   test_str "Lists.Tests.sum" "fold demo.nums 0 (\\x: Int. \\acc: Int. x + acc) == 6";

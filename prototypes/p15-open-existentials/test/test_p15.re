@@ -596,6 +596,48 @@ let test_list_literals = () => {
   );
 };
 
+/* A functor returning a module with TWO abstract types (`exists c. exists k.`):
+   open_package peels both, minting two distinct abstracts, and the operations
+   convert between them. Round-trips a value through cel -> kel -> cel -> Int. */
+let test_n_ary_open = () => {
+  let st = Store.create();
+  let ns = Namespace.create();
+  let ms = Mint.make_source();
+  let res = s =>
+    switch (Parse.parse_expr(s)) {
+    | Ok(e) => unwrap(Resolver.resolve(~ctx=[], ~ns, ~st, e))
+    | Error(m) => Alcotest.fail("parse: " ++ m)
+    };
+  let ty = "exists c. exists k. (Int -> c) * ((c -> k) * ((k -> c) * (c -> Int)))";
+  let inner = "exists k. (Int -> Int) * ((Int -> k) * ((k -> Int) * (Int -> Int)))";
+  let value = "(\\x: Int. x, (\\x: Int. x + 273, (\\x: Int. x - 273, \\x: Int. x)))";
+  let pkg = res("pack [Int] (pack [Int] (" ++ value ++ ") as " ++ inner ++ ") as " ++ ty);
+  switch (Open_existential.open_package(st, ms, pkg)) {
+  | Error(m) => Alcotest.fail("open_package: " ++ m)
+  | Ok({Open_existential.type_hashes, module_hash: _, field_hashes}) =>
+    Alcotest.(check(int))("two abstract types peeled", 2, List.length(type_hashes));
+    switch (type_hashes) {
+    | [a, b] =>
+      Alcotest.(check(bool))("the two abstracts are distinct", false, Hash.equal(a, b))
+    | _ => Alcotest.fail("expected two type hashes")
+    };
+    Alcotest.(check(int))("four fields projected", 4, List.length(field_hashes));
+    switch (field_hashes) {
+    | [fromC, toK, toC, readC] =>
+      let app = (f, x) => Node.App(Node.Ref(f), x);
+      let term = app(readC, app(toC, app(toK, app(fromC, Node.Lit(100)))));
+      let h = unwrap(Store.ingest_term(st, term));
+      switch (Eval.eval_top(st, Node.Ref(h))) {
+      | Ok(Eval.VInt(100)) =>
+        Alcotest.(check(bool))("cel->kel->cel round trip = 100", true, true)
+      | Ok(v) => Alcotest.fail("unexpected: " ++ Eval.to_string(v))
+      | Error(m) => Alcotest.fail("stuck: " ++ m)
+      };
+    | _ => Alcotest.fail("expected four fields")
+    };
+  };
+};
+
 let () =
   Alcotest.run(
     "p15",
@@ -658,6 +700,11 @@ let () =
             "generative open + extracted type + lists",
             `Quick,
             test_open_and_lists,
+          ),
+          Alcotest.test_case(
+            "n-ary open: a module with two abstract types",
+            `Quick,
+            test_n_ary_open,
           ),
         ],
       ),

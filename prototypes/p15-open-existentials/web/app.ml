@@ -11,6 +11,12 @@ module Action = struct
   type t = State.action [@@deriving sexp_of]
 end
 
+(* set the i-th element of a positional name list, padding with "" as needed *)
+let list_set (lst : string list) (i : int) (v : string) : string list =
+  let n = List.length lst in
+  if i < n then List.mapi lst ~f:(fun j x -> if j = i then v else x)
+  else lst @ List.init (i - n) ~f:(fun _ -> "") @ [ v ]
+
 let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : State.t =
   let bump (m : State.t) = { m with version = m.version + 1 } in
   let s = Substrate.global in
@@ -38,11 +44,15 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
   | State.Set_work_fb fb -> { m with work_fb = fb }
   | State.Set_work_name v -> { m with work_name = v }
   | State.Set_work_ty v -> { m with work_ty = v }
-  | State.Set_work_fields v -> { m with work_fields = v }
+  | State.Set_open_type_name (i, v) ->
+      { m with open_type_names = list_set m.open_type_names i v }
+  | State.Set_open_field_name (i, v) ->
+      { m with open_field_names = list_set m.open_field_names i v }
   | State.Set_sel_open_name v -> { m with sel_open_name = v }
   | State.Open_existential ->
       let fb =
-        Ops.open_existential ~s ~name:m.work_name ~fields:m.work_fields ~expr:m.work_expr
+        Ops.open_existential ~s ~name:m.work_name ~type_names:m.open_type_names
+          ~field_names:m.open_field_names ~expr:m.work_expr
       in
       bump { m with feedback = fb }
   | State.Open_selected ->
@@ -50,7 +60,8 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
         match m.selected with
         | None -> State.Err "no definition selected"
         | Some h ->
-            Ops.open_existential_node ~s ~name:m.sel_open_name ~fields:"" ~node:(Node.Ref h)
+            Ops.open_existential_node ~s ~name:m.sel_open_name ~type_names:[]
+              ~field_names:[] ~node:(Node.Ref h)
       in
       bump { m with feedback = fb }
   | State.Toggle_test h ->

@@ -100,10 +100,51 @@ let view ~(state : State.t Bonsai.Value.t)
   in
   (* The merged work area: type an expression, see its type + value live, then
      bind it (annotation optional — synthesized if blank). When the expression is
-     an existential package, the fields input and "open as module" button appear;
-     otherwise they're hidden, since open only makes sense for an `exists` type. *)
-  let expr_is_existential =
-    match state.work_fb with State.Typed { is_exists; _ } -> is_exists | _ -> false
+     an existential package, an "open as module" block appears, with one name
+     input per abstract type and one per operation field, populated from the
+     package's structure (no comma-separated guessing). *)
+  let open_shape =
+    match state.work_fb with State.Typed { open_shape; _ } -> open_shape | _ -> None
+  in
+  let nth_or lst i = match List.nth lst i with Some x -> x | None -> "" in
+  let open_block (shape : State.open_shape) =
+    let field_row ~kind ~ty ~placeholder ~value ~on_input =
+      Vdom.Node.div
+        ~attrs:[ Vdom.Attr.class_ "open-field-row" ]
+        [
+          Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "open-field-kind" ] [ Vdom.Node.text kind ];
+          Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "open-field-type" ] [ Vdom.Node.text ty ];
+          text_input ~placeholder ~value ~on_input;
+        ]
+    in
+    let type_rows =
+      List.init shape.type_arity ~f:(fun i ->
+          let dflt = Pretty.tyvar_name i in
+          field_row ~kind:"type" ~ty:dflt ~placeholder:("name (default " ^ dflt ^ ")")
+            ~value:(nth_or state.open_type_names i)
+            ~on_input:(fun v -> inject (State.Set_open_type_name (i, v))))
+    in
+    let field_rows =
+      List.mapi shape.field_types ~f:(fun j fty ->
+          field_row ~kind:"op" ~ty:(": " ^ fty) ~placeholder:"field name (optional)"
+            ~value:(nth_or state.open_field_names j)
+            ~on_input:(fun v -> inject (State.Set_open_field_name (j, v))))
+    in
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "open-block" ]
+      ((Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-note" ]
+          [ Vdom.Node.text "open as module — name the abstract types and operations:" ]
+       :: type_rows)
+      @ field_rows
+      @ [
+          Vdom.Node.button
+            ~attrs:
+              [
+                Vdom.Attr.class_ "btn-secondary";
+                Vdom.Attr.on_click (fun _ -> inject State.Open_existential);
+              ]
+            [ Vdom.Node.text "open as module" ];
+        ])
   in
   let work_section =
     section "work — typecheck & evaluate live, then bind or open"
@@ -130,34 +171,15 @@ let view ~(state : State.t Bonsai.Value.t)
            ~value:state.work_name ~on_input:(fun s -> inject (State.Set_work_name s));
          text_input ~placeholder:"type (optional — synthesized if blank)" ~value:state.work_ty
            ~on_input:(fun s -> inject (State.Set_work_ty s));
-       ]
-      @ (if expr_is_existential then
+         Vdom.Node.div
+           ~attrs:[ Vdom.Attr.class_ "btn-row" ]
            [
-             text_input
-               ~placeholder:"fields for open (optional; e.g. empty, incr, get)"
-               ~value:state.work_fields ~on_input:(fun s -> inject (State.Set_work_fields s));
-           ]
-         else [])
-      @ [
-          Vdom.Node.div
-            ~attrs:[ Vdom.Attr.class_ "btn-row" ]
-            ([
-               Vdom.Node.button
-                 ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Define) ]
-                 [ Vdom.Node.text "bind" ];
-             ]
-            @ (if expr_is_existential then
-                 [
-                   Vdom.Node.button
-                     ~attrs:
-                       [
-                         Vdom.Attr.class_ "btn-secondary";
-                         Vdom.Attr.on_click (fun _ -> inject State.Open_existential);
-                       ]
-                     [ Vdom.Node.text "open as module" ];
-                 ]
-               else []));
-        ])
+             Vdom.Node.button
+               ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Define) ]
+               [ Vdom.Node.text "bind" ];
+           ];
+       ]
+      @ (match open_shape with Some shape -> [ open_block shape ] | None -> []))
   in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "editor-pane" ]

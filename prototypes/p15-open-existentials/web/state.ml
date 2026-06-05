@@ -10,12 +10,21 @@ type kind =
   | Sealed
 [@@deriving sexp, equal]
 
+(* The shape of an existential package, for driving the open form: how many
+   abstract types it hides, and the (pretty-printed) type of each operation
+   field — so the editor can render one input per type and per field. *)
+type open_shape = {
+  type_arity : int;
+  field_types : string list;
+}
+[@@deriving sexp, equal]
+
 type feedback =
   | Empty
   | Info of string
   | Err of string
   | Bound of { name : string; kind : kind; ty : string; hash : string }
-  | Typed of { ty : string; value : string; is_exists : bool }
+  | Typed of { ty : string; value : string; open_shape : open_shape option }
 [@@deriving sexp, equal]
 
 type t = {
@@ -33,7 +42,8 @@ type t = {
   work_fb : feedback;  (* live typecheck + eval of [work_expr]; no binding *)
   work_name : string;  (* name to bind / module name to open as *)
   work_ty : string;  (* optional annotation; synthesized if blank *)
-  work_fields : string;  (* optional comma-separated positional field names, for open *)
+  open_type_names : string list;  (* per-abstract-type names, positional, for open *)
+  open_field_names : string list;  (* per-operation field names, positional, for open *)
   sel_open_name : string;  (* module name for opening the selected detail term *)
   feedback : feedback;  (* result of the last bind / create-type / open *)
 }
@@ -53,7 +63,8 @@ let initial : t =
     work_fb = Empty;
     work_name = "";
     work_ty = "";
-    work_fields = "";
+    open_type_names = [];
+    open_field_names = [];
     sel_open_name = "";
     feedback = Empty;
   }
@@ -70,7 +81,8 @@ type action =
   | Set_work_fb of feedback
   | Set_work_name of string
   | Set_work_ty of string
-  | Set_work_fields of string
+  | Set_open_type_name of int * string
+  | Set_open_field_name of int * string
   | Toggle_test of string
   | Set_sel_open_name of string
   | Open_existential  (* open the work-area expression as a module *)

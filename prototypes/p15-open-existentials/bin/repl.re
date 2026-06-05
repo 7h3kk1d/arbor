@@ -123,36 +123,38 @@ let cmd_open = name => {
   };
 };
 
-/* `:open <expr> as Name [providing f1, f2, ...]` — generative open of an
-   existential: mints a fresh abstract type bound to Name.t, binds Name to the
-   package value, and (optionally) binds each positional field by name. */
-let bind_fields = (modname, oh, fields) => {
-  let n = List.length(fields);
-  let rec snds = (k, node) => k <= 0 ? node : snds(k - 1, Node.Snd(node));
-  List.iteri(
-    (i, fname) => {
-      let base = snds(i, Node.Ref(oh));
-      let proj = i == n - 1 ? base : Node.Fst(base);
-      switch (Store.ingest_term(st, proj)) {
-      | Ok(ph) => ignore(rebind(modname ++ "." ++ fname, ph))
-      | Error(_) => ()
-      };
-    },
-    fields,
-  );
-};
-
+/* `:open <expr> as Name [t1, t2, ...] [providing f1, f2, ...]` — generative open
+   of an existential package. Peels every leading `exists`, minting one fresh
+   abstract type per level (bound `Name.t1`, `Name.t2`, ... — defaulting to the
+   tyvar names t, u, s, ...), binds `Name` to the opened value, and binds each
+   named positional field. */
 let cmd_open_existential = rest =>
   switch (split_first(rest, " as ")) {
-  | None => print_endline("usage: :open <expr> as <Name> [providing f1, f2, ...]")
+  | None =>
+    print_endline("usage: :open <expr> as <Name> [t1, t2] [providing f1, f2, ...]")
   | Some((exprs, tail)) =>
-    let (modname, fields) =
+    let (head, fields) =
       switch (split_first(String.trim(tail), " providing ")) {
-      | Some((n, fs)) => (
-          String.trim(n),
+      | Some((h, fs)) => (
+          String.trim(h),
           List.map(String.trim, String.split_on_char(',', fs)),
         )
       | None => (String.trim(tail), [])
+      };
+    let (modname, type_names) =
+      switch (split_first(head, "[")) {
+      | Some((n, br)) =>
+        let names =
+          switch (split_first(br, "]")) {
+          | Some((inside, _)) =>
+            List.filter(
+              s => s != "",
+              List.map(String.trim, String.split_on_char(',', inside)),
+            )
+          | None => []
+          };
+        (String.trim(n), names);
+      | None => (head, [])
       };
     switch (Parse.parse_expr(String.trim(exprs))) {
     | Error(e) => err(e)
@@ -160,35 +162,34 @@ let cmd_open_existential = rest =>
       switch (Resolver.resolve(~ctx=[], ~ns, ~st, se)) {
       | Error(e) => err(e)
       | Ok(node) =>
-        let env = Store.build_env(st);
-        switch (Typecheck.synth_top(env, [], node)) {
-        | Error(e) => err("type error: " ++ e)
-        | Ok(ty_h) =>
-          switch (Store.find(st, ty_h)) {
-          | Some(Definition.Type(Tnode.Exists(_))) =>
-            let m = Mint.fresh(mint_src);
-            let at = Store.ingest_type(st, Tnode.Abstract(m));
-            let _ = rebind(modname ++ ".t", at);
-            switch (Store.ingest_term(st, Node.Open({pkg: node, mint: m}))) {
-            | Error(e) => err("open failed: " ++ e)
-            | Ok(oh) =>
-              let _ = rebind(modname, oh);
-              bind_fields(modname, oh, fields);
-              let tystr =
-                switch (Store.type_of(st, oh)) {
-                | Some(t) => pty(t)
-                | None => "?"
-                };
-              Printf.printf(
-                "opened %s.t = abstract(%s);  %s : %s\n",
-                modname,
-                Mint.short(m),
-                modname,
-                tystr,
-              );
+        switch (Open_existential.open_package(st, mint_src, node)) {
+        | Error(e) => err("open: " ++ e)
+        | Ok({Open_existential.type_hashes, module_hash, field_hashes}) =>
+          let type_name = i =>
+            i < List.length(type_names) ? List.nth(type_names, i) : Pretty.tyvar_name(i);
+          List.iteri(
+            (i, th) => ignore(rebind(modname ++ "." ++ type_name(i), th)),
+            type_hashes,
+          );
+          ignore(rebind(modname, module_hash));
+          List.iteri(
+            (i, fh) =>
+              if (i < List.length(fields) && List.nth(fields, i) != "") {
+                ignore(rebind(modname ++ "." ++ List.nth(fields, i), fh));
+              },
+            field_hashes,
+          );
+          let tystr =
+            switch (Store.type_of(st, module_hash)) {
+            | Some(t) => pty(t)
+            | None => "?"
             };
-          | _ => err("open: expression is not an existential")
-          }
+          let tlist =
+            String.concat(
+              ", ",
+              List.mapi((i, _) => modname ++ "." ++ type_name(i), type_hashes),
+            );
+          Printf.printf("opened %s [%s];  %s : %s\n", modname, tlist, modname, tystr);
         }
       }
     };
