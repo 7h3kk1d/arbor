@@ -119,7 +119,8 @@ let section_header ~(inject : State.action -> unit Vdom.Effect.t) ~(state : Stat
 (* Render a level of the tree from entries given as (remaining_segments, hash).
    Entries are pre-sorted by full name so same-first-segment rows are adjacent. *)
 let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : State.t)
-    ~(prefix : string) (entries : (string list * Hash.t) list) : Vdom.Node.t list =
+    ~(filtering : bool) ~(prefix : string) (entries : (string list * Hash.t) list) :
+    Vdom.Node.t list =
   List.group entries ~break:(fun (a, _) (b, _) ->
       not (String.equal (List.hd_exn a) (List.hd_exn b)))
   |> List.concat_map ~f:(fun group ->
@@ -136,7 +137,10 @@ let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : St
          if List.is_empty children then
            match direct with Some h -> [ leaf_row ~inject ~state ~seg h ] | None -> []
          else
-           let collapsed = List.mem state.collapsed path ~equal:String.equal in
+           (* an active filter force-expands so matches are always visible *)
+           let collapsed =
+             (not filtering) && List.mem state.collapsed path ~equal:String.equal
+           in
            let header = section_header ~inject ~state ~seg ~path ~collapsed ~direct in
            if collapsed then [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "tree-node" ] [ header ] ]
            else
@@ -147,21 +151,45 @@ let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : St
                    header;
                    Vdom.Node.div
                      ~attrs:[ Vdom.Attr.class_ "tree-children" ]
-                     (render_nodes ~inject ~state ~prefix:path children);
+                     (render_nodes ~inject ~state ~filtering ~prefix:path children);
                  ];
              ])
 
-(* Footer pinned to the bottom: live pass/total across every binding carrying the
-   `test` aspect. Tests themselves live inline in the tree (each shows its
-   pass/fail badge); this is just the running tally. *)
-let tests_summary () : Vdom.Node.t =
+(* Footer pinned to the bottom: live pass/fail tally across the `test`-aspect
+   bindings that pass [keep] (so it tracks the namespace filter). Tests live
+   inline in the tree (each shows its own pass/fail badge); this bar is the
+   running total for what's currently shown, colored by health. *)
+let tests_summary ~(keep : Hash.t -> bool) () : Vdom.Node.t =
   let s = Substrate.global in
-  let results = List.map (Attachment.marked s.att ~aspect:"test") ~f:(fun h -> Ops.test_status s h) in
+  let results =
+    Attachment.marked s.att ~aspect:"test"
+    |> List.filter ~f:keep
+    |> List.map ~f:(fun h -> Ops.test_status s h)
+  in
   let pass = List.count results ~f:(function `Pass -> true | _ -> false) in
   let total = List.length results in
-  let cls = if total > 0 && pass = total then "tests-summary all-pass" else "tests-summary" in
+  let fail = total - pass in
+  let cls =
+    if total = 0 then "tests-summary"
+    else if fail = 0 then "tests-summary all-pass"
+    else "tests-summary has-fail"
+  in
   Vdom.Node.div ~attrs:[ Vdom.Attr.class_ cls ]
-    [ Vdom.Node.text (Printf.sprintf "tests: %d / %d passing" pass total) ]
+    ([
+       Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "tests-summary-label" ] [ Vdom.Node.text "tests" ];
+       Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "tests-pass" ]
+         [ Vdom.Node.text (Printf.sprintf "%d passing" pass) ];
+     ]
+    @ (if fail > 0 then
+         [
+           Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "tests-fail" ]
+             [ Vdom.Node.text (Printf.sprintf "%d failing" fail) ];
+         ]
+       else [])
+    @ [
+        Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "tests-summary-total" ]
+          [ Vdom.Node.text (Printf.sprintf "/ %d" total) ];
+      ])
 
 let view ~(state : State.t Bonsai.Value.t)
     ~(inject : (State.action -> unit Vdom.Effect.t) Bonsai.Value.t) :
@@ -169,13 +197,48 @@ let view ~(state : State.t Bonsai.Value.t)
   let%arr state = state and inject = inject in
   let s = Substrate.global in
   let _ = state.version in
+  let flt = String.strip state.ns_filter in
+  let filtering = not (String.is_empty flt) in
+  let flt_lc = String.lowercase flt in
+  (* one predicate, shared by the tree and the tally: a name passes if there's no
+     filter, or it contains the filter substring (case-insensitive) *)
+  let name_matches name =
+    (not filtering) || String.is_substring (String.lowercase name) ~substring:flt_lc
+  in
+  let keep h = List.exists (Namespace.names_of s.ns h) ~f:name_matches in
   let entries =
     Namespace.entries s.ns
+    |> List.filter ~f:(fun (name, _) -> name_matches name)
     |> List.sort ~compare:(fun (a, _) (b, _) -> String.compare a b)
     |> List.map ~f:(fun (name, h) -> (String.split name ~on:'.', h))
   in
+  let filter_input =
+    Vdom.Node.input
+      ~attrs:
+        [
+          Vdom.Attr.type_ "text";
+          Vdom.Attr.class_ "ns-filter";
+          Vdom.Attr.placeholder "filter namespace (e.g. Counter, Tests)";
+          Vdom.Attr.value_prop state.ns_filter;
+          Vdom.Attr.create "autocomplete" "off";
+          Vdom.Attr.create "spellcheck" "false";
+          Vdom.Attr.on_input (fun _ v -> inject (State.Set_ns_filter v));
+        ]
+      ()
+  in
+  let tree =
+    if List.is_empty entries then
+      [
+        Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-empty" ]
+          [ Vdom.Node.text (if filtering then "(no matches)" else "(empty)") ];
+      ]
+    else render_nodes ~inject ~state ~filtering ~prefix:"" entries
+  in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "browser-pane" ]
-    ((Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "namespace" ]
-     :: render_nodes ~inject ~state ~prefix:"" entries)
-    @ [ tests_summary () ])
+    ([
+       Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "namespace" ];
+       filter_input;
+     ]
+    @ tree
+    @ [ tests_summary ~keep () ])

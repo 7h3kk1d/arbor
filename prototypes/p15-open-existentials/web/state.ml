@@ -23,6 +23,7 @@ type t = {
   open_set : string list;  (* abstract-type hashes currently open *)
   selected : string option;  (* hash shown in the detail pane *)
   collapsed : string list;  (* namespace section path-prefixes collapsed in the browser *)
+  ns_filter : string;  (* substring filter over the whole namespace *)
   ty_name : string;
   ty_body : string;
   ty_abstract : bool;
@@ -44,6 +45,7 @@ let initial : t =
     open_set = [];
     selected = None;
     collapsed = [];
+    ns_filter = "";
     ty_name = "";
     ty_body = "Int";
     ty_abstract = true;
@@ -59,6 +61,7 @@ let initial : t =
 type action =
   | Toggle_open of string
   | Toggle_collapse of string
+  | Set_ns_filter of string
   | Select of string
   | Set_ty_name of string
   | Set_ty_body of string
