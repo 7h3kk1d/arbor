@@ -187,6 +187,11 @@ let eval ~(s : Substrate.t) ~(open_set : string list) ~(expr : string) :
             | Error e -> State.Err ("type error: " ^ e)
             | Ok t -> (
                 let ty = Pretty.ty ~ns:s.ns ~st:s.store t in
+                let is_exists =
+                  match Store.find s.store t with
+                  | Some (Definition.Type (Tnode.Exists _)) -> true
+                  | _ -> false
+                in
                 match Eval.eval_top s.store node with
-                | Ok v -> State.Typed { ty; value = Eval.to_string v }
-                | Error m -> State.Typed { ty; value = "(stuck: " ^ m ^ ")" })))
+                | Ok v -> State.Typed { ty; value = Eval.to_string v; is_exists }
+                | Error m -> State.Typed { ty; value = "(stuck: " ^ m ^ ")"; is_exists })))

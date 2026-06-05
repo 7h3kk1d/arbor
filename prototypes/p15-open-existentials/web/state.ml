@@ -15,7 +15,7 @@ type feedback =
   | Info of string
   | Err of string
   | Bound of { name : string; kind : kind; ty : string; hash : string }
-  | Typed of { ty : string; value : string }
+  | Typed of { ty : string; value : string; is_exists : bool }
 [@@deriving sexp, equal]
 
 type t = {

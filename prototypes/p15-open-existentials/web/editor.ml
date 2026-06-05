@@ -42,7 +42,7 @@ let render_feedback (fb : State.feedback) : Vdom.Node.t =
           kbadge;
           Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "mono hash" ] [ Vdom.Node.text hash ];
         ]
-  | State.Typed { ty; value } ->
+  | State.Typed { ty; value; _ } ->
       Vdom.Node.div
         ~attrs:[ Vdom.Attr.class_ "feedback-ok" ]
         [
@@ -99,48 +99,65 @@ let view ~(state : State.t Bonsai.Value.t)
       ]
   in
   (* The merged work area: type an expression, see its type + value live, then
-     bind it (annotation optional — synthesized if blank) or, when it's an
-     existential package, open it as a module. *)
+     bind it (annotation optional — synthesized if blank). When the expression is
+     an existential package, the fields input and "open as module" button appear;
+     otherwise they're hidden, since open only makes sense for an `exists` type. *)
+  let expr_is_existential =
+    match state.work_fb with State.Typed { is_exists; _ } -> is_exists | _ -> false
+  in
   let work_section =
     section "work — typecheck & evaluate live, then bind or open"
-      [
-        Vdom.Node.textarea
-          ~attrs:
-            [
-              Vdom.Attr.class_ "scratch-area";
-              Vdom.Attr.create "spellcheck" "false";
-              Vdom.Attr.create "autocomplete" "off";
-              Vdom.Attr.create "autocapitalize" "off";
-              Vdom.Attr.placeholder {|expr (e.g. Counter.get (bump2 Counter.empty), or mkCounter true)|};
-              Vdom.Attr.value_prop state.work_expr;
-              Vdom.Attr.on_input (fun _ s ->
-                  let fb = Ops.eval ~s:Substrate.global ~open_set:state.open_set ~expr:s in
-                  Vdom.Effect.Many
-                    [ inject (State.Set_work_expr s); inject (State.Set_work_fb fb) ]);
-            ]
-          [];
-        Vdom.Node.div
-          ~attrs:[ Vdom.Attr.class_ "scratch-feedback" ]
-          [ render_feedback state.work_fb ];
-        text_input ~placeholder:"name (e.g. Counter.incr, or a module name to open as)"
-          ~value:state.work_name ~on_input:(fun s -> inject (State.Set_work_name s));
-        text_input ~placeholder:"type (optional — synthesized if blank)" ~value:state.work_ty
-          ~on_input:(fun s -> inject (State.Set_work_ty s));
-        text_input
-          ~placeholder:"fields for open (optional; e.g. empty, incr, get)"
-          ~value:state.work_fields ~on_input:(fun s -> inject (State.Set_work_fields s));
-        Vdom.Node.div
-          ~attrs:[ Vdom.Attr.class_ "btn-row" ]
-          [
-            Vdom.Node.button
-              ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Define) ]
-              [ Vdom.Node.text "bind" ];
-            Vdom.Node.button
-              ~attrs:
-                [ Vdom.Attr.class_ "btn-secondary"; Vdom.Attr.on_click (fun _ -> inject State.Open_existential) ]
-              [ Vdom.Node.text "open as module" ];
-          ];
-      ]
+      ([
+         Vdom.Node.textarea
+           ~attrs:
+             [
+               Vdom.Attr.class_ "scratch-area";
+               Vdom.Attr.create "spellcheck" "false";
+               Vdom.Attr.create "autocomplete" "off";
+               Vdom.Attr.create "autocapitalize" "off";
+               Vdom.Attr.placeholder {|expr (e.g. Counter.get (bump2 Counter.empty), or mkCounter true)|};
+               Vdom.Attr.value_prop state.work_expr;
+               Vdom.Attr.on_input (fun _ s ->
+                   let fb = Ops.eval ~s:Substrate.global ~open_set:state.open_set ~expr:s in
+                   Vdom.Effect.Many
+                     [ inject (State.Set_work_expr s); inject (State.Set_work_fb fb) ]);
+             ]
+           [];
+         Vdom.Node.div
+           ~attrs:[ Vdom.Attr.class_ "scratch-feedback" ]
+           [ render_feedback state.work_fb ];
+         text_input ~placeholder:"name (e.g. Counter.incr, or a module name to open as)"
+           ~value:state.work_name ~on_input:(fun s -> inject (State.Set_work_name s));
+         text_input ~placeholder:"type (optional — synthesized if blank)" ~value:state.work_ty
+           ~on_input:(fun s -> inject (State.Set_work_ty s));
+       ]
+      @ (if expr_is_existential then
+           [
+             text_input
+               ~placeholder:"fields for open (optional; e.g. empty, incr, get)"
+               ~value:state.work_fields ~on_input:(fun s -> inject (State.Set_work_fields s));
+           ]
+         else [])
+      @ [
+          Vdom.Node.div
+            ~attrs:[ Vdom.Attr.class_ "btn-row" ]
+            ([
+               Vdom.Node.button
+                 ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Define) ]
+                 [ Vdom.Node.text "bind" ];
+             ]
+            @ (if expr_is_existential then
+                 [
+                   Vdom.Node.button
+                     ~attrs:
+                       [
+                         Vdom.Attr.class_ "btn-secondary";
+                         Vdom.Attr.on_click (fun _ -> inject State.Open_existential);
+                       ]
+                     [ Vdom.Node.text "open as module" ];
+                 ]
+               else []));
+        ])
   in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "editor-pane" ]
