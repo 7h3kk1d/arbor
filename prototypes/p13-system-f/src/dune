@@ -1,0 +1,11 @@
+(library
+ (name p13_substrate)
+ (public_name p13_system_f.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))
