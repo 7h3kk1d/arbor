@@ -119,8 +119,7 @@ let section_header ~(inject : State.action -> unit Vdom.Effect.t) ~(state : Stat
 (* Render a level of the tree from entries given as (remaining_segments, hash).
    Entries are pre-sorted by full name so same-first-segment rows are adjacent. *)
 let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : State.t)
-    ~(filtering : bool) ~(prefix : string) (entries : (string list * Hash.t) list) :
-    Vdom.Node.t list =
+    ~(prefix : string) (entries : (string list * Hash.t) list) : Vdom.Node.t list =
   List.group entries ~break:(fun (a, _) (b, _) ->
       not (String.equal (List.hd_exn a) (List.hd_exn b)))
   |> List.concat_map ~f:(fun group ->
@@ -137,10 +136,10 @@ let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : St
          if List.is_empty children then
            match direct with Some h -> [ leaf_row ~inject ~state ~seg h ] | None -> []
          else
-           (* an active filter force-expands so matches are always visible *)
-           let collapsed =
-             (not filtering) && List.mem state.collapsed path ~equal:String.equal
-           in
+           (* honor the collapsed set even while filtering, so a section can be
+              collapsed mid-filter (a filter narrows entries; it no longer forces
+              every section open) *)
+           let collapsed = List.mem state.collapsed path ~equal:String.equal in
            let header = section_header ~inject ~state ~seg ~path ~collapsed ~direct in
            if collapsed then [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "tree-node" ] [ header ] ]
            else
@@ -151,7 +150,7 @@ let rec render_nodes ~(inject : State.action -> unit Vdom.Effect.t) ~(state : St
                    header;
                    Vdom.Node.div
                      ~attrs:[ Vdom.Attr.class_ "tree-children" ]
-                     (render_nodes ~inject ~state ~filtering ~prefix:path children);
+                     (render_nodes ~inject ~state ~prefix:path children);
                  ];
              ])
 
@@ -232,7 +231,7 @@ let view ~(state : State.t Bonsai.Value.t)
         Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "feedback-empty" ]
           [ Vdom.Node.text (if filtering then "(no matches)" else "(empty)") ];
       ]
-    else render_nodes ~inject ~state ~filtering ~prefix:"" entries
+    else render_nodes ~inject ~state ~prefix:"" entries
   in
   Vdom.Node.div
     ~attrs:[ Vdom.Attr.class_ "browser-pane" ]
