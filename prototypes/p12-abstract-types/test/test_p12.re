@@ -164,9 +164,9 @@ let test_counter = () => {
     );
   Alcotest.(check(bool))("bogus seal rejected at ingest", true, is_error(bogus));
 
-  /* implementation set is derived: empty, incr, get, decr (not bump2/Math.inc) */
-  let iset = Store.impl_set(st, counter_t);
-  Alcotest.(check(int))("implementation set has 4 sealed ops", 4, List.length(iset));
+  /* unsealing set is derived: empty, incr, get, decr (not bump2/Math.inc) */
+  let iset = Store.unsealers(st, counter_t);
+  Alcotest.(check(int))("4 definitions unseal the type", 4, List.length(iset));
 
   /* criterion 4: editing decr leaves bump2 byte-identical */
   let decr2_body = Node.Prim(Node.Sub, [Node.Var(0), Node.Lit(2)]);
@@ -288,8 +288,8 @@ let test_multi_abstract = () => {
   | _ => Alcotest.fail("c_to_k is not a seal")
   };
 
-  Alcotest.(check(bool))("c_to_k in Celsius impl set", true, List.mem(c2k, Store.impl_set(st, c)));
-  Alcotest.(check(bool))("c_to_k in Kelvin impl set", true, List.mem(c2k, Store.impl_set(st, k)));
+  Alcotest.(check(bool))("c_to_k unseals Celsius", true, List.mem(c2k, Store.unsealers(st, c)));
+  Alcotest.(check(bool))("c_to_k unseals Kelvin", true, List.mem(c2k, Store.unsealers(st, k)));
 
   /* 0c converts to 273k; the value erases to the underlying Int */
   let (zero_c, _) = unwrap(Editing_context.commit(st, ctx, ~term=Node.Lit(0), ~ann=c));
@@ -325,6 +325,40 @@ let test_aspect = () => {
   Alcotest.(check(bool))("2 == 3 fails", false, passes(Node.Prim(Node.Eq, [Node.Lit(2), Node.Lit(3)])));
 };
 
+/* An "internal" test unseals the abstract type — it compares an abstract value
+   directly to its representation, so it needs the type open. It seals (opens the
+   type), keeps external type Bool, and evaluates. This exercises the mixed-impl
+   path (the impl references a sealed op AND unseals its result). */
+let test_internal_test = () => {
+  let st = Store.create();
+  let int_h = Store.int_type(st);
+  let bool_h = Store.bool_type(st);
+  let ms = Mint.make_source();
+  let counter = Store.ingest_type(st, Tnode.Opaque({mint: Mint.fresh(ms), witness: int_h}));
+  let arrow = (a, b) => Store.ingest_type(st, Tnode.Arrow(a, b));
+  let ctx = Editing_context.make();
+  Editing_context.open_type(ctx, counter);
+  let commit = (term, ann) => Editing_context.commit(st, ctx, ~term, ~ann);
+  let (empty, _) = unwrap(commit(Node.Lit(0), counter));
+  let (incr, _) =
+    unwrap(commit(Node.Lam(counter, Node.Prim(Node.Add, [Node.Var(0), Node.Lit(1)])), arrow(counter, counter)));
+  /* incr empty == 1 : Bool — unseals counter */
+  let term = Node.Prim(Node.Eq, [Node.App(Node.Ref(incr), Node.Ref(empty)), Node.Lit(1)]);
+  let (t, kind) = unwrap(commit(term, bool_h));
+  Alcotest.(check(bool))("internal test seals (needed the unfold)", true, is_sealed(kind));
+  Alcotest.(check(bool))("external type stays Bool", true, Hash.equal(tyof_in(st, t), bool_h));
+  switch (Store.find(st, t)) {
+  | Some(Definition.Term(Node.Seal({opens, _}))) =>
+    Alcotest.(check(bool))("opens the abstract type", true, List.mem(counter, opens))
+  | _ => Alcotest.fail("expected a seal")
+  };
+  switch (Eval.eval_top(st, Node.Ref(t))) {
+  | Ok(Eval.VBool(true)) => Alcotest.(check(bool))("evaluates true", true, true)
+  | Ok(v) => Alcotest.fail("unexpected: " ++ Eval.to_string(v))
+  | Error(m) => Alcotest.fail("stuck: " ++ m)
+  };
+};
+
 let () =
   Alcotest.run(
     "p12",
@@ -353,6 +387,12 @@ let () =
           ),
         ],
       ),
-      ("aspects", [Alcotest.test_case("test aspect + pass/fail", `Quick, test_aspect)]),
+      (
+        "aspects",
+        [
+          Alcotest.test_case("test aspect + pass/fail", `Quick, test_aspect),
+          Alcotest.test_case("internal (unsealing) test", `Quick, test_internal_test),
+        ],
+      ),
     ],
   );

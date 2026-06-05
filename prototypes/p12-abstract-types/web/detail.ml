@@ -37,7 +37,10 @@ let view ~(state : State.t Bonsai.Value.t)
           match Store.find s.store h with
           | None -> [ Vdom.Node.text "dangling hash" ]
           | Some (Definition.Type (Tnode.Opaque { mint; witness })) ->
-              let impl = Store.impl_set s.store h in
+              (* every definition that unseals this type — operations and any
+                 internal definition (e.g. tests) alike; the substrate makes no
+                 distinction *)
+              let unsealers = Store.unsealers s.store h in
               [
                 Vdom.Node.div [ Vdom.Node.text (Printf.sprintf "abstract type — opaque(%s)" (Mint.short mint)) ];
                 Vdom.Node.div
@@ -45,10 +48,10 @@ let view ~(state : State.t Bonsai.Value.t)
                   [ Vdom.Node.text (Printf.sprintf "witness: %s (hidden from consumers)" (Pretty.ty ~ns:s.ns ~st:s.store witness)) ];
                 Vdom.Node.h3
                   ~attrs:[ Vdom.Attr.class_ "section-title" ]
-                  [ Vdom.Node.text (Printf.sprintf "implementation set (%d)" (List.length impl)) ];
+                  [ Vdom.Node.text (Printf.sprintf "unsealing definitions (%d)" (List.length unsealers)) ];
                 Vdom.Node.div
                   ~attrs:[ Vdom.Attr.class_ "impl-list" ]
-                  (List.map impl ~f:(fun o ->
+                  (List.map unsealers ~f:(fun o ->
                        let ty =
                          match Store.type_of s.store o with
                          | Some t -> Pretty.ty ~ns:s.ns ~st:s.store t

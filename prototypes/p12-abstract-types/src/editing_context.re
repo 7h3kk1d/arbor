@@ -45,7 +45,7 @@ let commit =
       Error("annotated external type does not match under opened witnesses")
     | Ok(_) =>
       let impl = Typecheck.normalize_term(env, ctx.opens, term);
-      switch (Store.ingest_term(st, impl)) {
+      switch (Store.ingest_term(st, ~opens=ctx.opens, impl)) {
       | Error(m) => Error("normalized impl failed to ingest: " ++ m)
       | Ok(impl_h) =>
         let seal = Node.Seal({opens: ctx.opens, ty: ann, impl: impl_h});

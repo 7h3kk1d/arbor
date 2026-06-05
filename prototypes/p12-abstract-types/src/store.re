@@ -58,9 +58,14 @@ let build_env = (st: t): Typecheck.env => {
   bool_h: st.bool_h,
 };
 
-let ingest_term = (st: t, node: Node.t): result(Hash.t, string) => {
+/* `opens` lets a definition type-check with some abstract types transparent.
+   The default ([]) is the opaque view used everywhere except a seal's own impl,
+   which is internal to the seal and may legitimately unseal what the seal opens
+   (this is what makes "internal" definitions — e.g. tests that observe the
+   representation — expressible). */
+let ingest_term = (st: t, ~opens=[], node: Node.t): result(Hash.t, string) => {
   let env = build_env(st);
-  switch (Typecheck.synth_top(env, [], node)) {
+  switch (Typecheck.synth_top(env, opens, node)) {
   | Error(m) => Error(m)
   | Ok(ty_h) =>
     let d = Definition.Term(node);
@@ -73,9 +78,12 @@ let ingest_term = (st: t, node: Node.t): result(Hash.t, string) => {
   };
 };
 
-/* The implementation set of an abstract type is DERIVED, not stored: every
-   sealed op that opens it. No module record. */
-let impl_set = (st: t, opaque_h: Hash.t): list(Hash.t) =>
+/* The definitions that UNSEAL an abstract type (open it): derived, not stored —
+   every Seal whose `opens` includes it. This is deliberately broader than "the
+   type's operations": it equally catches any internal definition authored
+   against the representation (e.g. an internal test). The substrate draws no
+   distinction among them — they are all just Seals over the same opened type. */
+let unsealers = (st: t, opaque_h: Hash.t): list(Hash.t) =>
   Hashtbl.fold(
     (h, d, acc) =>
       switch (d) {

@@ -19,11 +19,14 @@ Running list. Findings that generalize bubble up to `docs/design/12-type-abstrac
 
 ## Minimal sealing edge cases
 
-- **Mixed impls.** A term that *both* touches the representation *and* calls a
-  sealed op (e.g. `\x: t. incr x + 1`) is sealed (needs the unfold), but its impl
-  cannot be fully normalized to a witness-only body — it retains an opaque `Ref`.
-  Is that fine (store the impl as-is, checked under `opens`), or does it want a
-  different treatment? Suspect fine; confirm against examples.
+- ~~**Mixed impls.**~~ Resolved (2026-06-05). A term that *both* touches the
+  representation *and* calls a sealed op (e.g. `Counter.incr Counter.empty == 1`,
+  an internal test) seals but cannot be normalized to a witness-only body — it
+  keeps opaque `Ref`s. `Store.ingest_term` gained an optional `~opens`, and the
+  seal path ingests the impl under the seal's opens (the impl is internal to the
+  seal and may unseal what the seal opens). This is what makes *internal*
+  definitions expressible — e.g. tests under `<Module>.Tests.Internal` that
+  observe the representation. Confirmed by the "internal (unsealing) test" case.
 - **What counts as "the opaques actually used"** when computing a seal's `opens`
   from a context that opened several? The minimal set that makes the check pass,
   or the whole context open set? Minimal set is cleaner but costs a search.

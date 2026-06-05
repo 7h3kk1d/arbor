@@ -163,8 +163,8 @@ let cmd_impl = name => {
   switch (Namespace.resolve(ns, name)) {
   | None => err("unbound: " ++ name)
   | Some(h) =>
-    let ops = Store.impl_set(st, h);
-    Printf.printf("implementation set of %s (%d):\n", name, List.length(ops));
+    let ops = Store.unsealers(st, h);
+    Printf.printf("definitions that unseal %s (%d):\n", name, List.length(ops));
     List.iter(
       o => {
         let t =

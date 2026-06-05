@@ -100,19 +100,27 @@ let seed ~store ~ns ~att ~mint_src =
     match Namespace.resolve ns name with Some h -> Node.Ref h | None -> lit 0
   in
   let eqn a b = Node.Prim (Node.Eq, [ a; b ]) in
-  let test name term =
-    match bind name [] term bool_h with
+  let test name opens term =
+    match bind name opens term bool_h with
     | Some h -> Attachment.mark att ~aspect:"test" h
     | None -> ()
   in
-  test "Counter.test_empty" (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 0));
-  test "Counter.test_bump2"
+  (* Public tests live in <Module>.Tests and use only the abstract API (open
+     nothing). *)
+  test "Counter.Tests.empty" [] (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 0));
+  test "Counter.Tests.bump2" []
     (eqn (app (r "Counter.get") (app (r "bump2") (r "Counter.empty"))) (lit 2));
-  test "Counter.test_oops" (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 1));
-  test "Temp.test_c_to_k"
+  test "Counter.Tests.oops" [] (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 1));
+  test "Temp.Tests.c_to_k" []
     (eqn (app (r "Kelvin.value") (app (r "Temp.c_to_k") (r "Celsius.freezing"))) (lit 273));
-  test "Range.test_width"
-    (eqn (app (r "Range.width") (app (app (r "Range.make") (lit 2)) (lit 5))) (lit 3))
+  test "Range.Tests.width" []
+    (eqn (app (r "Range.width") (app (app (r "Range.make") (lit 2)) (lit 5))) (lit 3));
+  (* Internal tests live in <Module>.Tests.Internal and unseal the type — they
+     compare an abstract value directly to its representation, so they open
+     Counter.t (and seal accordingly). *)
+  test "Counter.Tests.Internal.empty_is_zero" [ counter ] (eqn (r "Counter.empty") (lit 0));
+  test "Counter.Tests.Internal.incr_is_one" [ counter ]
+    (eqn (app (r "Counter.incr") (r "Counter.empty")) (lit 1))
 
 let create () =
   let store = Store.create () in
