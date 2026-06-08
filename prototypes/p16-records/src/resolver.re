@@ -17,32 +17,76 @@ let rec lookup_ctx = (ctx: list(string), name: string): option(int) =>
     }
   };
 
+/* Resolve a record field name to a label hash. An already-bound label is reused
+   (intentional sharing by name); an unbound name mints a fresh label and binds it
+   *only* when `mint` is supplied (the record-type-declaration gesture, decision
+   1). Elsewhere (term position, plain annotations) an unbound field name is an
+   error — declare the record type first. */
+let resolve_label =
+    (~ns: Namespace.t, ~st: Store.t, ~mint: option(Mint.source), name: string)
+    : result(Hash.t, string) =>
+  switch (Namespace.resolve(ns, name)) {
+  | Some(h) =>
+    switch (Store.find(st, h)) {
+    | Some(Definition.Label(_)) => Ok(h)
+    | _ => Error("'" ++ name ++ "' is bound but is not a label")
+    }
+  | None =>
+    switch (mint) {
+    | Some(src) =>
+      let lh = Store.ingest_label(st, Label.create(Mint.fresh(src)));
+      (try(Namespace.rebind(ns, ~name, lh)) {
+       | _ => ()
+       });
+      Ok(lh);
+    | None => Error("unbound record field label: " ++ name)
+    }
+  };
+
 /* `tvs` is the type-variable context (innermost first), pushed by `forall`/`/\`.
    A `Named` whose name is bound there resolves to a de Bruijn `TVar`; otherwise
-   it is a namespace type. */
+   it is a namespace type. `mint`, when supplied, lets record field labels be
+   minted (the record-type-declaration gesture); it is None everywhere else. */
 let rec resolve_ty =
-        (~ns: Namespace.t, ~st: Store.t, ~tvs: list(string)=[], s: Surface_ty.t)
+        (
+          ~ns: Namespace.t,
+          ~st: Store.t,
+          ~tvs: list(string)=[],
+          ~mint: option(Mint.source)=None,
+          s: Surface_ty.t,
+        )
         : result(Hash.t, string) =>
   switch (s) {
   | Surface_ty.Int => Ok(Store.int_type(st))
   | Surface_ty.Bool => Ok(Store.bool_type(st))
   | Surface_ty.Arrow(a, b) =>
-    let* ah = resolve_ty(~ns, ~st, ~tvs, a);
-    let* bh = resolve_ty(~ns, ~st, ~tvs, b);
+    let* ah = resolve_ty(~ns, ~st, ~tvs, ~mint, a);
+    let* bh = resolve_ty(~ns, ~st, ~tvs, ~mint, b);
     Ok(Store.ingest_type(st, Tnode.Arrow(ah, bh)));
   | Surface_ty.Product(a, b) =>
-    let* ah = resolve_ty(~ns, ~st, ~tvs, a);
-    let* bh = resolve_ty(~ns, ~st, ~tvs, b);
+    let* ah = resolve_ty(~ns, ~st, ~tvs, ~mint, a);
+    let* bh = resolve_ty(~ns, ~st, ~tvs, ~mint, b);
     Ok(Store.ingest_type(st, Tnode.Product(ah, bh)));
   | Surface_ty.Forall(name, body) =>
-    let* bh = resolve_ty(~ns, ~st, ~tvs=[name, ...tvs], body);
+    let* bh = resolve_ty(~ns, ~st, ~tvs=[name, ...tvs], ~mint, body);
     Ok(Store.ingest_type(st, Tnode.Forall(bh)));
   | Surface_ty.Exists(name, body) =>
-    let* bh = resolve_ty(~ns, ~st, ~tvs=[name, ...tvs], body);
+    let* bh = resolve_ty(~ns, ~st, ~tvs=[name, ...tvs], ~mint, body);
     Ok(Store.ingest_type(st, Tnode.Exists(bh)));
   | Surface_ty.List(elem) =>
-    let* eh = resolve_ty(~ns, ~st, ~tvs, elem);
+    let* eh = resolve_ty(~ns, ~st, ~tvs, ~mint, elem);
     Ok(Store.ingest_type(st, Tnode.List(eh)));
+  | Surface_ty.Record(fields) =>
+    let rec go = (acc, fs) =>
+      switch (fs) {
+      | [] => Ok(List.rev(acc))
+      | [(fname, fsty), ...rest] =>
+        let* lh = resolve_label(~ns, ~st, ~mint, fname);
+        let* fh = resolve_ty(~ns, ~st, ~tvs, ~mint, fsty);
+        go([(lh, fh), ...acc], rest);
+      };
+    let* fields' = go([], fields);
+    Ok(Store.ingest_type(st, Tnode.Record(fields')));
   | Surface_ty.Named(name) =>
     switch (lookup_ctx(tvs, name)) {
     | Some(i) => Ok(Store.ingest_type(st, Tnode.TVar(i)))
@@ -180,6 +224,23 @@ let rec resolve =
         Ok(build(nodes));
       };
     }
+  | Surface.Record_lit(fields) =>
+    /* field names must already resolve to labels (declare the record type
+       first — the type declaration is the mint site, decision 1) */
+    let rec go = (acc, fs) =>
+      switch (fs) {
+      | [] => Ok(List.rev(acc))
+      | [(fname, sval), ...rest] =>
+        let* lh = resolve_label(~ns, ~st, ~mint=None, fname);
+        let* v = resolve(~ctx, ~tvs, ~ns, ~st, sval);
+        go([(lh, v), ...acc], rest);
+      };
+    let* fields' = go([], fields);
+    Ok(Node.Record_lit(fields'));
+  | Surface.Project(r, fname) =>
+    let* r' = resolve(~ctx, ~tvs, ~ns, ~st, r);
+    let* lh = resolve_label(~ns, ~st, ~mint=None, fname);
+    Ok(Node.Project_field(r', lh));
   }
 
 and resolve_args =

@@ -10,4 +10,5 @@ type t =
   | Named(string) /* resolves to a bound type variable or a namespace type */
   | Forall(string, t)
   | Exists(string, t)
-  | List(t);
+  | List(t)
+  | Record(list((string, t))); /* { x: T, y: U } — field names resolve to labels */

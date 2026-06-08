@@ -27,4 +27,6 @@ type t =
   | Nil(Surface_ty.t) /* nil [T] */
   | Cons(t, t) /* cons h t */
   | Fold(t, t, t) /* fold list init step */
-  | ListLit(list(t)); /* [| e1, ..., en |] — element type inferred from the head */
+  | ListLit(list(t)) /* [| e1, ..., en |] — element type inferred from the head */
+  | Record_lit(list((string, t))) /* { x = e, y = e } — field names resolve to labels */
+  | Project(t, string); /* e#x — projection by field name */

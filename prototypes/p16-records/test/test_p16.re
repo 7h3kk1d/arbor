@@ -791,6 +791,43 @@ let test_open_record_interface = () => {
   };
 };
 
+/* p16 stage 4 — surface syntax: a record-type declaration mints its field
+   labels; record literals and `e#x` projection resolve field names to those
+   labels; an undeclared field name in a literal is rejected. */
+let test_record_surface = () => {
+  let st = Store.create();
+  let ns = Namespace.create();
+  let ms = Mint.make_source();
+  let pt =
+    switch (Parse.parse_ty("{ px: Int, py: Int }")) {
+    | Ok(s) => s
+    | Error(m) => Alcotest.fail("parse ty: " ++ m)
+    };
+  /* declaring the record type mints the px/py labels (decision 1) */
+  ignore(unwrap(Resolver.resolve_ty(~ns, ~st, ~mint=Some(ms), pt)));
+  let res = s =>
+    switch (Parse.parse_expr(s)) {
+    | Ok(e) => unwrap(Resolver.resolve(~ctx=[], ~ns, ~st, e))
+    | Error(m) => Alcotest.fail("parse: " ++ m)
+    };
+  /* a record literal projects by field name (labels resolve to the minted ones) */
+  let h = unwrap(Store.ingest_term(st, res("{ px = 3, py = 4 }#px")));
+  switch (Eval.eval_top(st, Node.Ref(h))) {
+  | Ok(Eval.VInt(3)) => Alcotest.(check(bool))("{px=3,py=4}#px = 3", true, true)
+  | Ok(v) => Alcotest.fail("got " ++ Eval.to_string(v))
+  | Error(m) => Alcotest.fail("stuck: " ++ m)
+  };
+  /* an undeclared field name in a literal is rejected (declare the type first) */
+  Alcotest.(check(bool))(
+    "undeclared field label is rejected",
+    true,
+    switch (Parse.parse_expr("{ zz = 1 }")) {
+    | Ok(e) => is_error(Resolver.resolve(~ctx=[], ~ns, ~st, e))
+    | Error(_) => true
+    },
+  );
+};
+
 let () =
   Alcotest.run(
     "p16",
@@ -878,6 +915,11 @@ let () =
             "open an existential with a record interface (labels recovered)",
             `Quick,
             test_open_record_interface,
+          ),
+          Alcotest.test_case(
+            "surface: { x: T } decl mints labels; { x = e } / e#x resolve",
+            `Quick,
+            test_record_surface,
           ),
         ],
       ),

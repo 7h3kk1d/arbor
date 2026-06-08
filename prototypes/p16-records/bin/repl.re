@@ -69,7 +69,7 @@ let cmd_abstract = rest =>
     switch (Parse.parse_ty(String.trim(wty))) {
     | Error(e) => err(e)
     | Ok(sty) =>
-      switch (Resolver.resolve_ty(~ns, ~st, sty)) {
+      switch (Resolver.resolve_ty(~ns, ~st, ~mint=Some(mint_src), sty)) {
       | Error(e) => err(e)
       | Ok(witness_h) =>
         let m = Mint.fresh(mint_src);
@@ -97,7 +97,7 @@ let cmd_type = rest =>
     switch (Parse.parse_ty(String.trim(tys))) {
     | Error(e) => err(e)
     | Ok(sty) =>
-      switch (Resolver.resolve_ty(~ns, ~st, sty)) {
+      switch (Resolver.resolve_ty(~ns, ~st, ~mint=Some(mint_src), sty)) {
       | Error(e) => err(e)
       | Ok(h) =>
         switch (rebind(name, h)) {
@@ -231,7 +231,7 @@ let cmd_let = rest =>
       | (Error(e), _) => err(e)
       | (_, Error(e)) => err(e)
       | (Ok(sty), Ok(sexpr)) =>
-        switch (Resolver.resolve_ty(~ns, ~st, sty)) {
+        switch (Resolver.resolve_ty(~ns, ~st, ~mint=Some(mint_src), sty)) {
         | Error(e) => err(e)
         | Ok(ann) =>
           switch (Resolver.resolve(~ctx=[], ~ns, ~st, sexpr)) {

@@ -44,6 +44,9 @@ rule token = parse
   | "|]"            { BARRBRACK }
   | '['             { LBRACK }      (* type application:  e [T] *)
   | ']'             { RBRACK }
+  | '{'             { LBRACE }      (* records:  { x: T } / { x = e } *)
+  | '}'             { RBRACE }
+  | '#'             { HASH }        (* projection:  e#x *)
   | '.'             { DOT }
   | '('             { LPAREN }
   | ')'             { RPAREN }

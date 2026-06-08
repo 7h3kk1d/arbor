@@ -35,7 +35,8 @@ let define ~(s : Substrate.t) ~(open_set : string list) ~(name : string)
               else
                 match Parse.parse_ty ty with
                 | Error e -> Error ("type: " ^ e)
-                | Ok sty -> Resolver.resolve_ty ~ns:s.ns ~st:s.store sty
+                | Ok sty ->
+                    Resolver.resolve_ty ~ns:s.ns ~st:s.store ~mint:(Some s.mint_src) sty
             in
             match ann_result with
             | Error e -> State.Err e
@@ -65,7 +66,7 @@ let create_type ~(s : Substrate.t) ~(name : string) ~(body : string)
     match Parse.parse_ty body with
     | Error e -> (State.Err ("type: " ^ e), None)
     | Ok sty -> (
-        match Resolver.resolve_ty ~ns:s.ns ~st:s.store sty with
+        match Resolver.resolve_ty ~ns:s.ns ~st:s.store ~mint:(Some s.mint_src) sty with
         | Error e -> (State.Err e, None)
         | Ok witness ->
             if abstract then (

@@ -9,7 +9,7 @@
 %token TY_INT TY_BOOL
 %token EQEQ ARROW TYLAM
 %token BACKSLASH DOT LPAREN RPAREN COMMA COLON EQ LBRACK RBRACK
-%token LBRACKBAR BARRBRACK
+%token LBRACKBAR BARRBRACK LBRACE RBRACE HASH
 %token PLUS MINUS STAR
 %token <string> IDENT
 %token <int> INT_LIT
@@ -60,17 +60,26 @@ app_expr:
   | a = atom               { a }
 
 atom:
+  | a = atom; HASH; f = IDENT                  { Surface.Project (a, f) }
   | x = IDENT                                  { Surface.Var x }
   | n = INT_LIT                                { Surface.Lit n }
   | b = BOOL_LIT                               { Surface.Bool b }
   | NIL; LBRACK; t = ty; RBRACK                { Surface.Nil t }
   | LBRACKBAR; es = expr_list; BARRBRACK       { Surface.ListLit es }
+  | LBRACE; fs = lit_field_list; RBRACE        { Surface.Record_lit fs }
   | LPAREN; e = expr; RPAREN                   { e }
   | LPAREN; a = expr; COMMA; b = expr; RPAREN  { Surface.Pair (a, b) }
 
 expr_list:
   | e = expr                          { [e] }
   | e = expr; COMMA; rest = expr_list { e :: rest }
+
+lit_field:
+  | n = IDENT; EQ; e = expr { (n, e) }
+
+lit_field_list:
+  | f = lit_field                          { [f] }
+  | f = lit_field; COMMA; rest = lit_field_list { f :: rest }
 
 ty:
   | FORALL; x = IDENT; DOT; t = ty { Surface_ty.Forall (x, t) }
@@ -90,4 +99,12 @@ ty_atom:
   | TY_BOOL                 { Surface_ty.Bool }
   | LIST; t = ty_atom       { Surface_ty.List t }
   | n = IDENT               { Surface_ty.Named n }
+  | LBRACE; fs = ty_field_list; RBRACE { Surface_ty.Record fs }
   | LPAREN; t = ty; RPAREN  { t }
+
+ty_field:
+  | n = IDENT; COLON; t = ty { (n, t) }
+
+ty_field_list:
+  | f = ty_field                          { [f] }
+  | f = ty_field; COMMA; rest = ty_field_list { f :: rest }
