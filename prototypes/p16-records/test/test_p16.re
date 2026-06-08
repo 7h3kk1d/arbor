@@ -685,6 +685,47 @@ let test_calendar = () => {
   };
 };
 
+/* p16 stage 2 — the label sort + record substrate: labels are minted (distinct
+   field identity), record types/literals are canonical by sorted label hash
+   (`{x,y}` = `{y,x}`), and projection type-checks + evaluates by label. */
+let test_records = () => {
+  let st = Store.create();
+  let ms = Mint.make_source();
+  let int_h = Store.int_type(st);
+  let bool_h = Store.bool_type(st);
+  let mklabel = () => Store.ingest_label(st, Label.create(Mint.fresh(ms)));
+  let (x, y, z) = (mklabel(), mklabel(), mklabel());
+  Alcotest.(check(bool))("distinct labels are distinct", false, Hash.equal(x, y));
+  let rxy = Store.ingest_type(st, Tnode.Record([(x, int_h), (y, bool_h)]));
+  let ryx = Store.ingest_type(st, Tnode.Record([(y, bool_h), (x, int_h)]));
+  Alcotest.(check(bool))("record type is permutation-invariant", true, Hash.equal(rxy, ryx));
+  let rzy = Store.ingest_type(st, Tnode.Record([(z, int_h), (y, bool_h)]));
+  Alcotest.(check(bool))("different label => different record", false, Hash.equal(rxy, rzy));
+  let lit = Node.Record_lit([(x, Node.Lit(1)), (y, Node.BoolLit(true))]);
+  let lh = unwrap(Store.ingest_term(st, lit));
+  Alcotest.(check(bool))("{x=1,y=true} : {x:Int,y:Bool}", true, Hash.equal(tyof_in(st, lh), rxy));
+  let px = unwrap(Store.ingest_term(st, Node.Project_field(Node.Ref(lh), x)));
+  let py = unwrap(Store.ingest_term(st, Node.Project_field(Node.Ref(lh), y)));
+  Alcotest.(check(bool))("r#x : Int", true, Hash.equal(tyof_in(st, px), int_h));
+  Alcotest.(check(bool))("r#y : Bool", true, Hash.equal(tyof_in(st, py), bool_h));
+  switch (Eval.eval_top(st, Node.Ref(px))) {
+  | Ok(Eval.VInt(1)) => Alcotest.(check(bool))("r#x = 1", true, true)
+  | Ok(v) => Alcotest.fail("r#x = " ++ Eval.to_string(v))
+  | Error(m) => Alcotest.fail("r#x stuck: " ++ m)
+  };
+  switch (Eval.eval_top(st, Node.Ref(py))) {
+  | Ok(Eval.VBool(true)) => Alcotest.(check(bool))("r#y = true", true, true)
+  | Ok(v) => Alcotest.fail("r#y = " ++ Eval.to_string(v))
+  | Error(m) => Alcotest.fail("r#y stuck: " ++ m)
+  };
+  let bad = Node.Project_field(Node.Ref(lh), z);
+  Alcotest.(check(bool))(
+    "projecting an absent field is rejected",
+    true,
+    is_error(Store.ingest_term(st, bad)),
+  );
+};
+
 let () =
   Alcotest.run(
     "p16",
@@ -757,6 +798,16 @@ let () =
             "calendar: distinct date/span types reject illegal ops",
             `Quick,
             test_calendar,
+          ),
+        ],
+      ),
+      (
+        "records",
+        [
+          Alcotest.test_case(
+            "label sort + record types/literals/projection",
+            `Quick,
+            test_records,
           ),
         ],
       ),

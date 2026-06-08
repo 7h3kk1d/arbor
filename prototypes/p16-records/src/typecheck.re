@@ -40,6 +40,16 @@ let rec equal_ty = (env: env, opens: list(Hash.t), h1: Hash.t, h2: Hash.t): bool
     | (Tnode.Forall(b1), Tnode.Forall(b2)) => equal_ty(env, opens, b1, b2)
     | (Tnode.Exists(b1), Tnode.Exists(b2)) => equal_ty(env, opens, b1, b2)
     | (Tnode.List(e1), Tnode.List(e2)) => equal_ty(env, opens, e1, e2)
+    | (Tnode.Record(f1), Tnode.Record(f2)) =>
+      let sort = List.sort(((l1, _), (l2, _)) => String.compare(l1, l2));
+      let (s1, s2) = (sort(f1), sort(f2));
+      List.length(s1) == List.length(s2)
+      && List.for_all2(
+           ((la, ta), (lb, tb)) =>
+             Hash.equal(la, lb) && equal_ty(env, opens, ta, tb),
+           s1,
+           s2,
+         );
     | (_, _) => false
     };
   };
@@ -71,6 +81,12 @@ let rec normalize_type = (env: env, opens: list(Hash.t), h: Hash.t): Hash.t =>
     env.mk_type(Tnode.Exists(normalize_type(env, opens, body)))
   | Tnode.List(elem) =>
     env.mk_type(Tnode.List(normalize_type(env, opens, elem)))
+  | Tnode.Record(fields) =>
+    env.mk_type(
+      Tnode.Record(
+        List.map(((l, ft)) => (l, normalize_type(env, opens, ft)), fields),
+      ),
+    )
   };
 
 /* de Bruijn type substitution over content-addressed types. `shift_ty` raises
@@ -94,6 +110,10 @@ let rec shift_ty = (env: env, d: int, cutoff: int, h: Hash.t): Hash.t =>
     env.mk_type(Tnode.Exists(shift_ty(env, d, cutoff + 1, body)))
   | Tnode.List(elem) =>
     env.mk_type(Tnode.List(shift_ty(env, d, cutoff, elem)))
+  | Tnode.Record(fields) =>
+    env.mk_type(
+      Tnode.Record(List.map(((l, ft)) => (l, shift_ty(env, d, cutoff, ft)), fields)),
+    )
   };
 
 let rec subst_ty = (env: env, j: int, repl: Hash.t, h: Hash.t): Hash.t =>
@@ -120,6 +140,10 @@ let rec subst_ty = (env: env, j: int, repl: Hash.t, h: Hash.t): Hash.t =>
     env.mk_type(Tnode.Exists(subst_ty(env, j + 1, shift_ty(env, 1, 0, repl), body)))
   | Tnode.List(elem) =>
     env.mk_type(Tnode.List(subst_ty(env, j, repl, elem)))
+  | Tnode.Record(fields) =>
+    env.mk_type(
+      Tnode.Record(List.map(((l, ft)) => (l, subst_ty(env, j, repl, ft)), fields)),
+    )
   };
 
 /* Does the type variable TVar(j) occur free in the type? The avoidance check on
@@ -136,6 +160,8 @@ let rec occurs_tvar = (env: env, j: int, h: Hash.t): bool =>
   | Tnode.Forall(body)
   | Tnode.Exists(body) => occurs_tvar(env, j + 1, body)
   | Tnode.List(elem) => occurs_tvar(env, j, elem)
+  | Tnode.Record(fields) =>
+    List.exists(((_, ft)) => occurs_tvar(env, j, ft), fields)
   };
 
 let rec normalize_term = (env: env, opens: list(Hash.t), node: Node.t): Node.t =>
@@ -184,6 +210,9 @@ let rec normalize_term = (env: env, opens: list(Hash.t), node: Node.t): Node.t =
       normalize_term(env, opens, z),
       normalize_term(env, opens, f),
     )
+  | Node.Record_lit(fields) =>
+    Node.Record_lit(List.map(((l, v)) => (l, normalize_term(env, opens, v)), fields))
+  | Node.Project_field(r, l) => Node.Project_field(normalize_term(env, opens, r), l)
   };
 
 let rec synth =
@@ -302,6 +331,18 @@ let rec synth =
       );
       acc;
     | _ => raise(Type_error("fold: not a list"))
+    }
+  | Node.Record_lit(fields) =>
+    let ftys = List.map(((l, v)) => (l, synth(env, opens, ctx, v)), fields);
+    env.mk_type(Tnode.Record(ftys));
+  | Node.Project_field(r, label) =>
+    switch (env.resolve(whnf(env, opens, synth(env, opens, ctx, r)))) {
+    | Tnode.Record(fields) =>
+      switch (List.find_opt(((l, _)) => Hash.equal(l, label), fields)) {
+      | Some((_, fty)) => fty
+      | None => raise(Type_error("projection: record has no such field"))
+      }
+    | _ => raise(Type_error("projection: not a record"))
     };
   }
 

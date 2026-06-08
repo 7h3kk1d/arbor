@@ -36,6 +36,8 @@ let view ~(state : State.t Bonsai.Value.t)
         let rows =
           match Store.find s.store h with
           | None -> [ Vdom.Node.text "dangling hash" ]
+          | Some (Definition.Label _) ->
+              [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-note" ] [ Vdom.Node.text "label (record-field identity)" ] ]
           | Some (Definition.Type (Tnode.Opaque { mint; witness })) ->
               (* every definition that unseals this type — operations and any
                  internal definition (e.g. tests) alike; the substrate makes no

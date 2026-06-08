@@ -29,7 +29,11 @@ type t =
      extracted by opening an existential (a Skolem; no witness, never unfolds).
      `List(elem)` is a homogeneous list type. */
   | Abstract(Mint.t)
-  | List(Hash.t);
+  | List(Hash.t)
+  /* p16: a record type — `(label-hash, field-type-hash)` pairs. Field identity
+     is the label hash (never a name). Canonical by sorted label hash, so
+     `{x,y}` = `{y,x}` and renames never perturb the hash (design/11). */
+  | Record(list((Hash.t, Hash.t)));
 
 /* Encoding starts with sort byte 'T' so type and term ('P') hashes never
    collide. Hashes are fixed-width hex, so concatenation is self-delimiting. */
@@ -66,6 +70,19 @@ let encode = (t: t): string => {
   | List(elem) =>
     Buffer.add_uint8(b, 0x19);
     Buffer.add_string(b, elem);
+  | Record(fields) =>
+    /* canonical: sort by label hash so field order never affects identity */
+    let sorted =
+      List.sort(((l1, _), (l2, _)) => String.compare(l1, l2), fields);
+    Buffer.add_uint8(b, 0x1a);
+    Buffer.add_uint8(b, List.length(sorted));
+    List.iter(
+      ((l, ft)) => {
+        Buffer.add_string(b, l);
+        Buffer.add_string(b, ft);
+      },
+      sorted,
+    );
   };
   Buffer.contents(b);
 };

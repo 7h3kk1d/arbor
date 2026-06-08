@@ -49,6 +49,7 @@ let binding_controls ~(inject : State.action -> unit Vdom.Effect.t)
       | Some (Definition.Type _) -> (badge "badge-type" "type", [])
       | Some (Definition.Term (Node.Seal _)) -> (badge "badge-sealed" "sealed", [])
       | Some (Definition.Term _) -> (badge "badge-term" "term", [])
+      | Some (Definition.Label _) -> (badge "badge-abstract" "label", [])
       | None -> (badge "badge-term" "?", [])
   in
   [

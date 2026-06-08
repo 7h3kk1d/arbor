@@ -282,6 +282,8 @@ let cmd_show = name => {
         | _ => "  = " ++ Pretty.term(~ns, ~st, node)
         };
       print_endline(src);
+    | Some(Definition.Label(_)) =>
+      Printf.printf("%s : label  %s\n", name, Hash.short(h))
     | None => err("dangling: " ++ name)
     }
   };
@@ -322,6 +324,7 @@ let show_names = () =>
         switch (Store.find(st, h)) {
         | Some(Definition.Type(_)) => "type"
         | Some(Definition.Term(_)) => "term"
+        | Some(Definition.Label(_)) => "label"
         | None => "?"
         };
       Printf.printf("  %s  (%s)  %s\n", n, k, Hash.short(h));

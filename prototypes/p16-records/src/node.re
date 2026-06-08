@@ -54,7 +54,12 @@ type t =
     })
   | Nil(Hash.t)
   | Cons(t, t)
-  | Fold(t, t, t);
+  | Fold(t, t, t)
+  /* p16: records. `Record_lit` carries `(label-hash, value)` pairs (canonical by
+     sorted label hash, like the type); `Project_field` selects a field by its
+     label hash. */
+  | Record_lit(list((Hash.t, t)))
+  | Project_field(t, Hash.t);
 
 let prim_tag = (op: prim_op): int =>
   switch (op) {
@@ -148,6 +153,23 @@ let rec enc = (b: Buffer.t, t: t): unit =>
     enc(b, lst);
     enc(b, z);
     enc(b, f);
+  | Record_lit(fields) =>
+    /* canonical: sort by label hash (matches the record type's canonical form) */
+    let sorted =
+      List.sort(((l1, _), (l2, _)) => String.compare(l1, l2), fields);
+    Buffer.add_uint8(b, 0x15);
+    Buffer.add_uint8(b, List.length(sorted));
+    List.iter(
+      ((l, v)) => {
+        Buffer.add_string(b, l);
+        enc(b, v);
+      },
+      sorted,
+    );
+  | Project_field(r, l) =>
+    Buffer.add_uint8(b, 0x16);
+    enc(b, r);
+    Buffer.add_string(b, l);
   };
 
 let encode = (t: t): string => {

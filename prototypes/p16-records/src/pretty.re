@@ -63,7 +63,21 @@ let rec ty_to_string =
     | Some(Definition.Type(Tnode.List(elem))) =>
       let s = "List " ++ ty_to_string(~ns, ~st, ~prec=2, ~tdepth, elem);
       prec >= 5 ? "(" ++ s ++ ")" : s;
+    | Some(Definition.Type(Tnode.Record(fields))) =>
+      let label_name = lh =>
+        switch (Namespace.name_of(ns, lh)) {
+        | Some(n) => n
+        | None => Hash.short(lh)
+        };
+      let parts =
+        List.map(
+          ((lh, ft)) =>
+            label_name(lh) ++ ": " ++ ty_to_string(~ns, ~st, ~prec=0, ~tdepth, ft),
+          List.sort(((a, _), (b, _)) => String.compare(label_name(a), label_name(b)), fields),
+        );
+      "{ " ++ String.concat(", ", parts) ++ " }";
     | Some(Definition.Term(_)) => "<term>"
+    | Some(Definition.Label(_)) => Hash.short(h)
     | None => Hash.short(h)
     }
   };
@@ -283,6 +297,26 @@ let rec term_prec =
       ++ " "
       ++ term_prec(~ns, ~st, ~ctx, ~tdepth, ~prec=5, f),
     )
+  | Node.Record_lit(fields) =>
+    let label_name = lh =>
+      switch (Namespace.name_of(ns, lh)) {
+      | Some(n) => n
+      | None => Hash.short(lh)
+      };
+    let parts =
+      List.map(
+        ((lh, v)) =>
+          label_name(lh) ++ " = " ++ term_prec(~ns, ~st, ~ctx, ~tdepth, ~prec=0, v),
+        List.sort(((a, _), (b, _)) => String.compare(label_name(a), label_name(b)), fields),
+      );
+    "{ " ++ String.concat(", ", parts) ++ " }";
+  | Node.Project_field(r, lh) =>
+    let label_name =
+      switch (Namespace.name_of(ns, lh)) {
+      | Some(n) => n
+      | None => Hash.short(lh)
+      };
+    paren(prec > 5, term_prec(~ns, ~st, ~ctx, ~tdepth, ~prec=6, r) ++ "#" ++ label_name);
   };
 
 let term = (~ns, ~st, node) => term_prec(~ns, ~st, ~ctx=[], ~tdepth=0, ~prec=0, node);

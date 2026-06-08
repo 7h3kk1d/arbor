@@ -53,6 +53,7 @@ let rec resolve_ty =
         switch (Store.find(st, h)) {
         | Some(Definition.Type(_)) => Ok(h)
         | Some(Definition.Term(_)) => Error("'" ++ name ++ "' is a term, not a type")
+        | Some(Definition.Label(_)) => Error("'" ++ name ++ "' is a label, not a type")
         | None => Error("dangling type binding: " ++ name)
         }
       }
@@ -87,6 +88,7 @@ let rec resolve =
         switch (Store.find(st, h)) {
         | Some(Definition.Term(_)) => Ok(Node.Ref(h))
         | Some(Definition.Type(_)) => Error("'" ++ name ++ "' is a type, not a term")
+        | Some(Definition.Label(_)) => Error("'" ++ name ++ "' is a label, not a term")
         | None => Error("dangling binding: " ++ name)
         }
       }

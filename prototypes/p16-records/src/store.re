@@ -35,6 +35,17 @@ let ingest_type = (st: t, tn: Tnode.t): Hash.t => register_type(st.defs, tn);
 
 let find = (st: t, h: Hash.t): option(Definition.t) => Hashtbl.find_opt(st.defs, h);
 
+/* Labels are minted (each fresh), so this rarely dedups — but the ingest shape
+   matches terms/types: hash the Label definition, store it, return its hash. */
+let ingest_label = (st: t, l: Label.t): Hash.t => {
+  let d = Definition.Label(l);
+  let h = Definition.hash(d);
+  if (!Hashtbl.mem(st.defs, h)) {
+    Hashtbl.replace(st.defs, h, d);
+  };
+  h;
+};
+
 let type_of = (st: t, h: Hash.t): option(Hash.t) => Hashtbl.find_opt(st.tyof, h);
 
 let int_type = (st: t): Hash.t => st.int_h;
@@ -46,6 +57,8 @@ let build_env = (st: t): Typecheck.env => {
     | Some(Definition.Type(tn)) => tn
     | Some(Definition.Term(_)) =>
       raise(Typecheck.Type_error("expected a type, got a term: " ++ Hash.short(h)))
+    | Some(Definition.Label(_)) =>
+      raise(Typecheck.Type_error("expected a type, got a label: " ++ Hash.short(h)))
     | None => raise(Typecheck.Type_error("unknown type: " ++ Hash.short(h)))
     },
   mk_type: tn => register_type(st.defs, tn),

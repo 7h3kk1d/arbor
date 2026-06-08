@@ -10,7 +10,8 @@ type value =
   | VPair(value, value)
   | VClosure(list(value), Node.t) /* captured env, lambda body */
   | VNil
-  | VCons(value, value);
+  | VCons(value, value)
+  | VRecord(list((Hash.t, value))); /* (label-hash, field value) */
 
 exception Stuck(string);
 
@@ -21,6 +22,15 @@ let rec value_eq = (a: value, b: value): bool =>
   | (VPair(a1, a2), VPair(b1, b2)) => value_eq(a1, b1) && value_eq(a2, b2)
   | (VNil, VNil) => true
   | (VCons(h1, t1), VCons(h2, t2)) => value_eq(h1, h2) && value_eq(t1, t2)
+  | (VRecord(f1), VRecord(f2)) =>
+    let sort = List.sort(((l1, _), (l2, _)) => String.compare(l1, l2));
+    let (s1, s2) = (sort(f1), sort(f2));
+    List.length(s1) == List.length(s2)
+    && List.for_all2(
+         ((la, va), (lb, vb)) => Hash.equal(la, lb) && value_eq(va, vb),
+         s1,
+         s2,
+       );
   | (_, _) => false
   };
 
@@ -84,6 +94,17 @@ let rec eval = (st: Store.t, env: list(value), node: Node.t): value =>
       | _ => raise(Stuck("fold: not a list"))
       };
     go(eval(st, env, lst));
+  | Node.Record_lit(fields) =>
+    VRecord(List.map(((l, v)) => (l, eval(st, env, v)), fields))
+  | Node.Project_field(r, label) =>
+    switch (eval(st, env, r)) {
+    | VRecord(fields) =>
+      switch (List.find_opt(((l, _)) => Hash.equal(l, label), fields)) {
+      | Some((_, v)) => v
+      | None => raise(Stuck("projection: no such field"))
+      }
+    | _ => raise(Stuck("projection of a non-record"))
+    }
   }
 
 and apply = (st: Store.t, fv: value, arg: value): value =>
@@ -96,6 +117,7 @@ and eval_ref = (st: Store.t, h: Hash.t): value =>
   switch (Store.find(st, h)) {
   | Some(Definition.Term(node)) => eval(st, [], node)
   | Some(Definition.Type(_)) => raise(Stuck("reference to a type in term position"))
+  | Some(Definition.Label(_)) => raise(Stuck("reference to a label in term position"))
   | None => raise(Stuck("dangling reference"))
   }
 
@@ -122,6 +144,11 @@ let rec to_string = (v: value): string =>
   | VClosure(_, _) => "<closure>"
   | VNil => "[]"
   | VCons(_, _) => "[" ++ list_to_string(v) ++ "]"
+  | VRecord(fields) =>
+    /* labels aren't named here (no namespace); sort by label hash, show values */
+    let sorted =
+      List.sort(((l1, _), (l2, _)) => String.compare(l1, l2), fields);
+    "{ " ++ String.concat(", ", List.map(((_, fv)) => to_string(fv), sorted)) ++ " }";
   }
 and list_to_string = (v: value): string =>
   switch (v) {
