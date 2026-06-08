@@ -117,6 +117,7 @@ body {
   color: var(--dim);
 }
 .badge-abstract { color: var(--abstract); border-color: var(--abstract); }
+.badge-opaque { color: var(--sealed); border-color: var(--sealed); }
 .badge-sealed { color: var(--sealed); border-color: var(--sealed); }
 .badge-type { color: var(--accent); border-color: var(--accent); }
 .badge-term { color: var(--dim); }

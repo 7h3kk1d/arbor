@@ -44,7 +44,7 @@ let view ~(state : State.t Bonsai.Value.t)
                  distinction *)
               let unsealers = Store.unsealers s.store h in
               [
-                Vdom.Node.div [ Vdom.Node.text (Printf.sprintf "abstract type — opaque(%s)" (Mint.short mint)) ];
+                Vdom.Node.div [ Vdom.Node.text (Printf.sprintf "opaque type — opaque(%s)" (Mint.short mint)) ];
                 Vdom.Node.div
                   ~attrs:[ Vdom.Attr.class_ "detail-note" ]
                   [ Vdom.Node.text (Printf.sprintf "witness: %s (hidden from consumers)" (Pretty.ty ~ns:s.ns ~st:s.store witness)) ];
@@ -69,6 +69,13 @@ let view ~(state : State.t Bonsai.Value.t)
                            Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "chip chip-name" ] [ Vdom.Node.text (label_of o) ];
                            Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "feedback-type" ] [ Vdom.Node.text (" : " ^ ty) ];
                          ]));
+              ]
+          | Some (Definition.Type (Tnode.Abstract mint)) ->
+              [
+                Vdom.Node.div [ Vdom.Node.text (Printf.sprintf "abstract type — abstract(%s)" (Mint.short mint)) ];
+                Vdom.Node.div
+                  ~attrs:[ Vdom.Attr.class_ "detail-note" ]
+                  [ Vdom.Node.text "opened from an existential — no representation is visible (not even a hidden witness)" ];
               ]
           | Some (Definition.Type _) ->
               [ Vdom.Node.div [ Vdom.Node.text ("concrete type = " ^ Pretty.ty ~ns:s.ns ~st:s.store h) ] ]

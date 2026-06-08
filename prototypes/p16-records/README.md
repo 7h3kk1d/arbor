@@ -60,7 +60,7 @@ Surface + interface layer (built — REPL drives the editing-context model by ha
 - `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn); surface types → registered hashes.
 - `pretty.re` — name-aware type rendering (`Counter.t`, `Counter.t -> Int`); never shows a witness.
 - `eval.re` — CBV evaluator; abstraction erased at runtime (a `Seal` is transparent, abstract values reduce to their representation).
-- `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type + value.
+- `bin/repl.re` — `:opaque` (create + open an opaque type), `:open` (re-open to extend, or open an existential), `:let` (auto-seal via minimal sealing), `:type`, `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type + value.
 
 Web interface (`web/`, Bonsai + js_of_ocaml; entry `webmain/main.ml`): three panes —
 namespace browser (left), editor + editing-context indicator (center), detail (right).

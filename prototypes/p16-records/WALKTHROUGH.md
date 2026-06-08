@@ -24,6 +24,12 @@ evaluates whatever you type, live), **detail** (right — the selected definitio
 type, source, and value). You author by typing in the work area; nothing is saved
 until you click **bind**.
 
+Two kinds of hidden type appear, with distinct badges: **opaque** (the
+representation exists but is hidden from consumers — `Counter.t`; it carries an
+`edit` toggle, because *you* can reveal it to author against it) and **abstract**
+(no representation at all — what you get from opening an existential, e.g.
+`Box.t`; there's nothing to reveal).
+
 > Skipped in this tour (present in the namespace, not part of the story): the
 > `*.Tests.*` bindings + the pass/fail tally, and `demo.nums`/lists.
 
@@ -33,8 +39,8 @@ until you click **bind**.
 
 **Why.** A "counter" is just an `Int` underneath. If you expose it *as* `Int`,
 nothing stops a caller from writing `c * 2`, or stuffing in `-7`, or passing any
-old number where a counter belongs. An **abstract type** makes the representation
-a secret: callers get only the operations you publish, and the type checker holds
+old number where a counter belongs. An **opaque type** makes the representation a
+secret: callers get only the operations you publish, and the type checker holds
 them to it.
 
 **Do.**
@@ -50,18 +56,19 @@ them to it.
    → `error: type error …`. `Counter.empty` is a `Counter.t`, and `+` wants an
    `Int`. The `Int` representation is **not** reachable from out here.
 
-**Point at.** Expand `Counter` in the browser and click `Counter.t`: the detail
-pane says *abstract type — opaque(…)* and shows its **representation is hidden**.
-The takeaway: the only way to get or change a counter is through `empty` / `incr`
-/ `get` — exactly the invariant you wanted.
+**Point at.** Expand `Counter` in the browser and click `Counter.t`: its badge is
+**opaque**, and the detail pane says *opaque type — opaque(…)* with its
+**representation hidden from consumers**. The takeaway: the only way to get or
+change a counter is through `empty` / `incr` / `get` — exactly the invariant you
+wanted.
 
 ---
 
 ## Act 2 — But someone has to write `incr` (the editing context + sealing)
 
 **Why.** `incr` obviously *does* need to touch the `Int` (`x + 1`). So who's
-allowed? The answer is an **editing context**: you explicitly "open" the abstract
-type while authoring, and any definition that actually used the representation is
+allowed? The answer is an **editing context**: you explicitly "open" the opaque
+type's representation while authoring, and any definition that actually used it is
 recorded as **sealed**. Definitions that only compose the public API are *not*
 sealed. This is opacity enforced by the editor, not bundled into the type — and
 the substrate can tell you, after the fact, exactly which definitions saw the
@@ -90,9 +97,9 @@ question.
 
 **Why.** This is the famous-bug act. Celsius and Kelvin are *both* "an `Int`
 number of degrees" — identical representations — but confusing them crashed a Mars
-orbiter. Two abstract types over the **same** representation are still **distinct**
-(each was minted separately), so the checker refuses to let you mix them. The only
-bridge is an explicit conversion.
+orbiter. Two **opaque** types over the **same** representation are still
+**distinct** (each was minted separately), so the checker refuses to let you mix
+them. The only bridge is an explicit conversion.
 
 **Do.**
 1. Type the unit bug:
@@ -242,6 +249,6 @@ hash, and two record types that mention the same `x` share one label.
 6. A module can hide several types at once, and their distinctness catches real
    bugs (`mk_calendar`).
 
-Everything above is content-addressed: the abstract types, the module values, and
-the record-field labels are all definitions in one store, referenced by hash, with
-human-readable names living only in the namespace.
+Everything above is content-addressed: the opaque and abstract types, the module
+values, and the record-field labels are all definitions in one store, referenced
+by hash, with human-readable names living only in the namespace.

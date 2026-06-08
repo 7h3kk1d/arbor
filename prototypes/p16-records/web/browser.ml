@@ -36,7 +36,8 @@ let binding_controls ~(inject : State.action -> unit Vdom.Effect.t)
     else
       match Store.find s.store h with
       | Some (Definition.Type (Tnode.Opaque _)) ->
-          ( badge "badge-abstract" "abstract",
+          (* opaque: a hidden-but-known representation (a witness you can unseal) *)
+          ( badge "badge-opaque" "opaque",
             [
               Vdom.Node.button
                 ~attrs:
@@ -46,6 +47,9 @@ let binding_controls ~(inject : State.action -> unit Vdom.Effect.t)
                   ]
                 [ Vdom.Node.text (if is_open then "editing" else "edit") ];
             ] )
+      | Some (Definition.Type (Tnode.Abstract _)) ->
+          (* abstract: no representation at all (extracted by opening an existential) *)
+          (badge "badge-abstract" "abstract", [])
       | Some (Definition.Type _) -> (badge "badge-type" "type", [])
       | Some (Definition.Term (Node.Seal _)) -> (badge "badge-sealed" "sealed", [])
       | Some (Definition.Term _) -> (badge "badge-term" "term", [])

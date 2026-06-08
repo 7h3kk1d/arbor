@@ -1,10 +1,10 @@
 /* p16 REPL — drives the editing-context model by hand.
 
-   Two opening gestures: `:abstract` (create + open) and `:open` (re-open to add
+   Two opening gestures: `:opaque` (create + open) and `:open` (re-open to add
    ops later). Bindings made while a type is open auto-seal iff they need the
    representation (minimal sealing); everything else is an ordinary term. The
    default context opens nothing — that is where consumers are written and
-   abstract types stay opaque. */
+   opaque types stay sealed. */
 
 open P16_substrate;
 
@@ -63,7 +63,7 @@ let split_first = (s, sub) =>
 
 let cmd_abstract = rest =>
   switch (split_first(rest, " = ")) {
-  | None => print_endline("usage: :abstract <name> = <witness-type>")
+  | None => print_endline("usage: :opaque <name> = <witness-type>")
   | Some((name, wty)) =>
     let name = String.trim(name);
     switch (Parse.parse_ty(String.trim(wty))) {
@@ -79,7 +79,7 @@ let cmd_abstract = rest =>
         | Ok(_) =>
           Editing_context.open_type(ctx^, opaque);
           Printf.printf(
-            "abstract type %s = opaque(%s) over %s  [opened]\n",
+            "opaque type %s = opaque(%s) over %s  [opened]\n",
             name,
             Mint.short(m),
             pty(witness_h),
@@ -117,7 +117,7 @@ let cmd_open = name => {
     | Some(Definition.Type(Tnode.Opaque(_))) =>
       Editing_context.open_type(ctx^, h);
       Printf.printf("opened %s\n", name);
-    | Some(Definition.Type(_)) => err(name ++ " is a concrete type, not abstract")
+    | Some(Definition.Type(_)) => err(name ++ " is not an opaque type")
     | _ => err(name ++ " is not a type")
     }
   };
@@ -335,7 +335,7 @@ let cmd_expr = line =>
 let show_ctx = () => {
   let opens = Editing_context.opens(ctx^);
   if (opens == []) {
-    print_endline("context: nothing open (default — abstract types opaque)");
+    print_endline("context: nothing open (default — opaque types sealed)");
   } else {
     Printf.printf("context opens: %s\n", String.concat(", ", List.map(name_or_hash, opens)));
   };
@@ -358,20 +358,20 @@ let show_names = () =>
 
 let print_help = () => {
   print_endline("commands:");
-  print_endline("  :abstract <name> = <witness>     create an abstract type (mints; opens it)");
+  print_endline("  :opaque <name> = <witness>     create an opaque type (mints; opens it)");
   print_endline("  :type <name> = <type>            create a concrete type alias");
-  print_endline("  :open <name>                     open an existing abstract type here");
+  print_endline("  :open <name>                     open an existing opaque type here");
   print_endline("  :close                           reset context (nothing open)");
   print_endline("  :ctx                             show the current open set");
   print_endline("  :let <name> : <type> = <expr>    bind a term (auto-seals if it needs the rep)");
-  print_endline("  :impl <name>                     show an abstract type's implementation set");
+  print_endline("  :impl <name>                     show what unseals an opaque type");
   print_endline("  :show <name>                     show a definition");
   print_endline("  :ls                              list the namespace");
   print_endline("  <expr>                           show an expression's type");
   print_endline("  :quit");
   print_endline("note: put a space after the lambda dot:  \\x: Int. x");
   print_endline("example:");
-  print_endline("  :abstract Counter.t = Int");
+  print_endline("  :opaque Counter.t = Int");
   print_endline("  :let Counter.empty : Counter.t = 0");
   print_endline("  :let Counter.incr : Counter.t -> Counter.t = \\x: Counter.t. x + 1");
   print_endline("  :let Counter.get : Counter.t -> Int = \\x: Counter.t. x");
@@ -394,15 +394,15 @@ let handle = line => {
     show_ctx();
   } else if (line == ":ls" || line == ":names") {
     show_names();
-  } else if (starts_with(line, ":abstract ")) {
-    cmd_abstract(drop_prefix(line, ":abstract "));
+  } else if (starts_with(line, ":opaque ")) {
+    cmd_abstract(drop_prefix(line, ":opaque "));
   } else if (starts_with(line, ":type ")) {
     cmd_type(drop_prefix(line, ":type "));
   } else if (starts_with(line, ":open ")) {
     let rest = drop_prefix(line, ":open ");
     switch (split_first(rest, " as ")) {
     | Some(_) => cmd_open_existential(rest) /* :open <expr> as Name */
-    | None => cmd_open(rest) /* :open <abstract-type> into the editing context */
+    | None => cmd_open(rest) /* :open <opaque-type> into the editing context */
     };
   } else if (starts_with(line, ":let ")) {
     cmd_let(drop_prefix(line, ":let "));
@@ -418,7 +418,7 @@ let handle = line => {
 };
 
 let () = {
-  print_endline("p16 — abstract types REPL. :help for commands, :quit to exit.");
+  print_endline("p16 — type abstraction REPL. :help for commands, :quit to exit.");
   let rec loop = () => {
     Printf.printf("p16> %!");
     switch (

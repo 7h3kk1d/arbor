@@ -56,7 +56,7 @@ let open_indicator (open_set : string list) : Vdom.Node.t =
   if List.is_empty open_set then
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.classes [ "open-indicator"; "open-default" ] ]
-      [ Vdom.Node.text "context: default — abstract types are opaque" ]
+      [ Vdom.Node.text "context: default — representations are sealed" ]
   else
     Vdom.Node.div
       ~attrs:[ Vdom.Attr.classes [ "open-indicator"; "open-active" ] ]
@@ -91,7 +91,7 @@ let view ~(state : State.t Bonsai.Value.t)
                   Vdom.Attr.on_click (fun _ -> inject State.Toggle_ty_abstract);
                 ]
               ();
-            Vdom.Node.text " abstract (mint an opaque type; auto-opens it)";
+            Vdom.Node.text " opaque (mint a hidden-representation type; auto-opens it)";
           ];
         Vdom.Node.button
           ~attrs:[ Vdom.Attr.class_ "btn-primary"; Vdom.Attr.on_click (fun _ -> inject State.Create_type) ]
