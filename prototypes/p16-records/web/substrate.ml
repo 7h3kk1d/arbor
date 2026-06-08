@@ -12,11 +12,16 @@ type t = {
   mint_src : Mint.source;
 }
 
-(* A small spread of "modules" so the namespace reads like a real codebase:
-   Counter (over Int); a Temperature pair — Celsius.t and Kelvin.t, both over Int
-   but distinct by mint — whose conversions open BOTH abstract types at once; and
-   Range (over a Product witness). Consumers (bump2, readout, Temp.round_trip)
-   compose sealed ops at the abstract level and stay ordinary terms. *)
+(* A curated tour of the substrate, one clean example per feature (see
+   WALKTHROUGH.md). Reading order in the namespace:
+     Counter           — abstract type, editor-enforced opacity, minimal sealing
+     Celsius/Kelvin/Temp — two distinct abstract types + ops that span both
+     Tally + step      — System-F: one polymorphic functor over two reps
+     mkCounter / Box   — existential (∃) with a record interface, opened
+     mkCalendar / Cal  — n-ary open: a module hiding TWO abstract types
+     Geom.Point        — records as plain data + #-projection
+     demo.nums         — lists + fold
+   Tests for each feature carry the `test` aspect and show in the tally. *)
 let seed ~store ~ns ~att ~mint_src =
   let int_h = Store.int_type store in
   let bool_h = Store.bool_type store in
@@ -69,24 +74,20 @@ let seed ~store ~ns ~att ~mint_src =
   ignore
     (bind "Counter.decr" [ counter ]
        (Node.Lam (counter, Node.Prim (Node.Sub, [ var 0; lit 1 ]))) (arrow counter counter));
-  (match incr, get with
-   | Some incr, Some get ->
+  ignore get;
+  (match incr with
+   | Some incr ->
+       (* a consumer composed at the abstract level — stays an ordinary
+          (unsealed) term, since it never touches the representation *)
        ignore
          (bind "bump2" []
             (Node.Lam (counter, app (Node.Ref incr) (app (Node.Ref incr) (var 0))))
-            (arrow counter counter));
-       ignore
-         (bind "readout" []
-            (Node.Lam (counter, app (Node.Ref get) (app (Node.Ref incr) (var 0))))
-            (arrow counter int_h))
+            (arrow counter counter))
    | _ -> ());
   (* ---- Temperature: Celsius + Kelvin; conversions open BOTH ---- *)
   let celsius = abstract "Celsius.t" int_h in
   let kelvin = abstract "Kelvin.t" int_h in
   ignore (bind "Celsius.freezing" [ celsius ] (lit 0) celsius);
-  ignore
-    (bind "Celsius.is_freezing" [ celsius ]
-       (Node.Lam (celsius, Node.Prim (Node.Eq, [ var 0; lit 0 ]))) (arrow celsius bool_h));
   ignore (bind "Kelvin.value" [ kelvin ] (Node.Lam (kelvin, var 0)) (arrow kelvin int_h));
   let c2k =
     bind "Temp.c_to_k" [ celsius; kelvin ]
@@ -103,18 +104,6 @@ let seed ~store ~ns ~att ~mint_src =
             (Node.Lam (celsius, app (Node.Ref k2c) (app (Node.Ref c2k) (var 0))))
             (arrow celsius celsius))
    | _ -> ());
-  (* ---- Range, over a Product witness ---- *)
-  let range = abstract "Range.t" (prod int_h int_h) in
-  ignore
-    (bind "Range.make" [ range ]
-       (Node.Lam (int_h, Node.Lam (int_h, Node.Pair (var 1, var 0))))
-       (arrow int_h (arrow int_h range)));
-  ignore (bind "Range.lo" [ range ] (Node.Lam (range, Node.Fst (var 0))) (arrow range int_h));
-  ignore (bind "Range.hi" [ range ] (Node.Lam (range, Node.Snd (var 0))) (arrow range int_h));
-  ignore
-    (bind "Range.width" [ range ]
-       (Node.Lam (range, Node.Prim (Node.Sub, [ Node.Snd (var 0); Node.Fst (var 0) ])))
-       (arrow range int_h));
   (* ---- tests: boolean expressions, marked with the `test` aspect ---- *)
   let r name =
     match Namespace.resolve ns name with Some h -> Node.Ref h | None -> lit 0
@@ -133,8 +122,6 @@ let seed ~store ~ns ~att ~mint_src =
   test "Counter.Tests.oops" [] (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 1));
   test "Temp.Tests.c_to_k" []
     (eqn (app (r "Kelvin.value") (app (r "Temp.c_to_k") (r "Celsius.freezing"))) (lit 273));
-  test "Range.Tests.width" []
-    (eqn (app (r "Range.width") (app (app (r "Range.make") (lit 2)) (lit 5))) (lit 3));
   (* Internal tests live in <Module>.Tests.Internal and unseal the type — they
      compare an abstract value directly to its representation, so they open
      Counter.t (and seal accordingly). *)
@@ -220,28 +207,7 @@ let seed ~store ~ns ~att ~mint_src =
      `providing` list needed) *)
   open_existential "Box" [] [] "mkCounter true";
   test_str "Existential.Tests.opened_box" "Box.get (Box.incr (Box.incr Box.empty)) == 2";
-  (* a FUNCTOR (Int offset -> module) hiding TWO abstract types — a celsius `c`
-     and a kelvin `k`, with conversions that differ by the offset. Its interface
-     is a record, so opening names the fields from labels. Apply and open in one
-     gesture into Temp.cel / Temp.kel + the conversions. Try it: `mkScale 273`. *)
-  let scale_out =
-    "exists c. exists k. { fromC: Int -> c, toK: c -> k, toC: k -> c, readC: c -> Int }"
-  in
-  let scale_inner =
-    "exists k. { fromC: Int -> Int, toK: Int -> k, toC: k -> Int, readC: Int -> Int }"
-  in
-  let scale_body =
-    {|{ fromC = \x: Int. x, toK = \x: Int. x + off, toC = \x: Int. x - off, readC = \x: Int. x }|}
-  in
-  ignore
-    (define_str "mkScale" []
-       (Printf.sprintf "Int -> %s" scale_out)
-       (Printf.sprintf {|\off: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} scale_body
-          scale_inner scale_out));
-  open_existential "Temp" [ "cel"; "kel" ] [] "mkScale 273";
-  test_str "Existential.Tests.temp_round_trip"
-    "Temp.readC (Temp.toC (Temp.toK (Temp.fromC 100))) == 100";
-  (* a slightly more realistic two-abstract-type functor: a calendar where a
+  (* a two-abstract-type functor: a calendar where a
      `date` and a `span` (duration) are distinct types — so adding two dates, or
      measuring a date as a duration, is a type error. mkCalendar's Int is the
      epoch: the day-number of the origin. Try it live: type `mkCalendar 0`. *)
@@ -260,12 +226,28 @@ let seed ~store ~ns ~att ~mint_src =
        (Printf.sprintf {|\base: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} cal_val
           cal_inner cal_out));
   open_existential "Cal" [ "date"; "span" ] [] "mkCalendar 0";
-  test_str "Existential.Tests.calendar"
+  test_str "Calendar.Tests.length"
     "Cal.lengthOf (Cal.between Cal.origin (Cal.shift Cal.origin (Cal.after 30))) == 30";
-  (* ---- p16: lists, with [| ... |] literal syntax ---- *)
+  (* ---- p16: records as plain data + #-projection ---- *)
+  (* declare a record type (the mint site for its field labels x, y) *)
+  let define_type name body_s =
+    match Parse.parse_ty body_s with
+    | Ok sty -> (
+        match Resolver.resolve_ty ~ns ~st:store ~mint:(Some mint_src) sty with
+        | Ok h -> (try Namespace.rebind ns ~name h with _ -> ()); Some h
+        | Error _ -> None)
+    | Error _ -> None
+  in
+  ignore (define_type "Geom.Point" "{ x: Int, y: Int }");
+  ignore (define_str "Geom.origin" [] "Geom.Point" "{ x = 0, y = 0 }");
+  ignore (define_str "Geom.example" [] "Geom.Point" "{ x = 3, y = 4 }");
+  ignore
+    (define_str "Geom.taxicab" [] "Geom.Point -> Int" "\\p: Geom.Point. p#x + p#y");
+  test_str "Records.Tests.projection" "Geom.example#x + Geom.example#y == 7";
+  test_str "Records.Tests.taxicab" "Geom.taxicab Geom.example == 7";
+  (* ---- p15: lists, with [| ... |] literal syntax ---- *)
   ignore (define_str "demo.nums" [] "List Int" "[| 1, 2, 3 |]");
-  test_str "Lists.Tests.sum" "fold demo.nums 0 (\\x: Int. \\acc: Int. x + acc) == 6";
-  test_str "Lists.Tests.literal" "fold [| 10, 20, 30 |] 0 (\\x: Int. \\acc: Int. x + acc) == 60"
+  test_str "Lists.Tests.sum" "fold demo.nums 0 (\\x: Int. \\acc: Int. x + acc) == 6"
 
 let create () =
   let store = Store.create () in
