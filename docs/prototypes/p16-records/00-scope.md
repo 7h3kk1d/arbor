@@ -13,9 +13,9 @@ p15 opened existential packages into the namespace, but the package interface wa
 p16 folds the **label sort** (`11-label-sort.md`, first prototyped in p10) into the p12–p15 type-abstraction line: records reference labels by *hash*, field names live in the namespace, and an existential package's interface becomes a **record** instead of a positional product. The payoff lands on `open`:
 
 ```
-mkCounter : Bool -> exists t. { empty: t, incr: t -> t, get: t -> Int }
+mk_counter : Bool -> exists t. { empty: t, incr: t -> t, get: t -> Int }
 ```
-`:open mkCounter true as Counter` now binds `Counter.empty` / `Counter.incr` / `Counter.get` with **names read from the record's labels** — no `providing`, no positional guessing, no over-split. The field names are recovered from the structure, not supplied by the user.
+`:open mk_counter true as Counter` now binds `Counter.empty` / `Counter.incr` / `Counter.get` with **names read from the record's labels** — no `providing`, no positional guessing, no over-split. The field names are recovered from the structure, not supplied by the user.
 
 This is the "records as the real fix" follow-on. It does *not* reintroduce p10's mint-everything-by-default: terms and types stay structural (as in p12–p15); **only labels mint**. The lineage: p12 (abstract types) → p13 (System-F) → p14 (existentials) → p15 (open) → p16 (the interface gets names).
 
@@ -70,9 +70,9 @@ The web "open as module" form keeps the per-abstract-type inputs but **pre-fills
 
 1. **Fork** p15 → p16 (`cp -R`, clean `_build`/bundle/`_opam`, sed `p15→p16` / `P15_substrate→P16_substrate` / `p15-open-existentials→p16-records`, rename `test_p15`→`test_p16`, README). Green baseline.
 2. **Label sort + record substrate:** port `Label`, add `Definition.Label`, `Tnode.Record`, `Node.Record_lit`/`Project_field` with sorted-label canonicalization → build → programmatic test (a `{x,y}` record literal type-checks, projects, and `{x,y}` = `{y,x}` by hash).
-3. **Existentials over records + open:** teach `open_existential` the `Record` interface; `open` binds fields by label name. REPL: `mkCounter` with a record interface, opened with auto-named fields.
+3. **Existentials over records + open:** teach `open_existential` the `Record` interface; `open` binds fields by label name. REPL: `mk_counter` with a record interface, opened with auto-named fields.
 4. **Surface + resolver:** record type / literal syntax; label minting per decision 1.
-5. **Web + bootstrap:** reseed `mkCounter` / `mkScale` / `mkCalendar` with record interfaces; the open form pre-fills field names from labels.
+5. **Web + bootstrap:** reseed `mk_counter` / `mkScale` / `mk_calendar` with record interfaces; the open form pre-fills field names from labels.
 6. Commit per stage.
 
 ## Test plan
@@ -81,7 +81,7 @@ The web "open as module" form keeps the per-abstract-type inputs but **pre-fills
 - Record canonicalization: `{ x: Int, y: Bool }` = `{ y: Bool, x: Int }` by hash; record literals likewise.
 - Projection: `synth(Project_field(r, x))` = the field type; projecting an absent label is rejected.
 - Module open: `open` a record-interfaced existential binds `N.<label>` for each field, names recovered from labels (no `providing`); round-trip a counter.
-- n-ary + records: `mkCalendar`-style two-abstract-type module with a record interface opens to `Cal.date` / `Cal.span` + named ops; the date/span safety property still holds.
+- n-ary + records: `mk_calendar`-style two-abstract-type module with a record interface opens to `Cal.date` / `Cal.span` + named ops; the date/span safety property still holds.
 
 ## Out of scope (deferred)
 

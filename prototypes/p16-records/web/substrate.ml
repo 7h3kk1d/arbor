@@ -17,8 +17,8 @@ type t = {
      Counter           — abstract type, editor-enforced opacity, minimal sealing
      Celsius/Kelvin/Temp — two distinct abstract types + ops that span both
      Tally + step      — System-F: one polymorphic functor over two reps
-     mkCounter / Box   — existential (∃) with a record interface, opened
-     mkCalendar / Cal  — n-ary open: a module hiding TWO abstract types
+     mk_counter / Box   — existential (∃) with a record interface, opened
+     mk_calendar / Cal  — n-ary open: a module hiding TWO abstract types
      Geom.Point        — records as plain data + #-projection
      demo.nums         — lists + fold
    Tests for each feature carry the `test` aspect and show in the tally. *)
@@ -152,7 +152,7 @@ let seed ~store ~ns ~att ~mint_src =
   (* ---- existential: a factory whose interface is a RECORD (p16) ---- *)
   let ex = "exists t. { empty: t, incr: t -> t, get: t -> Int }" in
   ignore
-    (define_str "mkCounter" []
+    (define_str "mk_counter" []
        ("Bool -> " ^ ex)
        ("\\fast: Bool. if fast "
         ^ "then pack [Int] { empty = 0, incr = \\x: Int. x + 1, get = \\x: Int. x } as " ^ ex
@@ -161,7 +161,7 @@ let seed ~store ~ns ~att ~mint_src =
   (* the SAME factory observed through two hidden representations — both give 2,
      now via record projection (c#get, c#incr, c#empty) instead of fst/snd *)
   let observe b =
-    "(unpack [t] c = mkCounter " ^ b ^ " in c#get (c#incr (c#incr c#empty))) == 2"
+    "(unpack [t] c = mk_counter " ^ b ^ " in c#get (c#incr (c#incr c#empty))) == 2"
   in
   test_str "Existential.Tests.int_rep" (observe "true");
   test_str "Existential.Tests.pair_rep" (observe "false");
@@ -205,29 +205,29 @@ let seed ~store ~ns ~att ~mint_src =
   in
   (* a record interface — open recovers empty/incr/get from the labels (no
      `providing` list needed) *)
-  open_existential "Box" [] [] "mkCounter true";
+  open_existential "Box" [] [] "mk_counter true";
   test_str "Existential.Tests.opened_box" "Box.get (Box.incr (Box.incr Box.empty)) == 2";
   (* a two-abstract-type functor: a calendar where a
      `date` and a `span` (duration) are distinct types — so adding two dates, or
-     measuring a date as a duration, is a type error. mkCalendar's Int is the
-     epoch: the day-number of the origin. Try it live: type `mkCalendar 0`. *)
+     measuring a date as a duration, is a type error. mk_calendar's Int is the
+     epoch: the day-number of the origin. Try it live: type `mk_calendar 0`. *)
   let cal_out =
-    "exists date. exists span. { origin: date, after: Int -> span, shift: date -> span -> date, between: date -> date -> span, lengthOf: span -> Int }"
+    "exists date. exists span. { origin: date, after: Int -> span, shift: date -> span -> date, between: date -> date -> span, length_of: span -> Int }"
   in
   let cal_inner =
-    "exists span. { origin: Int, after: Int -> span, shift: Int -> span -> Int, between: Int -> Int -> span, lengthOf: span -> Int }"
+    "exists span. { origin: Int, after: Int -> span, shift: Int -> span -> Int, between: Int -> Int -> span, length_of: span -> Int }"
   in
   let cal_val =
-    {|{ origin = base, after = \n: Int. n, shift = \d: Int. \s: Int. d + s, between = \a: Int. \b: Int. b - a, lengthOf = \s: Int. s }|}
+    {|{ origin = base, after = \n: Int. n, shift = \d: Int. \s: Int. d + s, between = \a: Int. \b: Int. b - a, length_of = \s: Int. s }|}
   in
   ignore
-    (define_str "mkCalendar" []
+    (define_str "mk_calendar" []
        (Printf.sprintf "Int -> %s" cal_out)
        (Printf.sprintf {|\base: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} cal_val
           cal_inner cal_out));
-  open_existential "Cal" [ "date"; "span" ] [] "mkCalendar 0";
+  open_existential "Cal" [ "date"; "span" ] [] "mk_calendar 0";
   test_str "Calendar.Tests.length"
-    "Cal.lengthOf (Cal.between Cal.origin (Cal.shift Cal.origin (Cal.after 30))) == 30";
+    "Cal.length_of (Cal.between Cal.origin (Cal.shift Cal.origin (Cal.after 30))) == 30";
   (* ---- p16: records as plain data + #-projection ---- *)
   (* declare a record type (the mint site for its field labels x, y) *)
   let define_type name body_s =

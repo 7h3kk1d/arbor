@@ -452,7 +452,7 @@ let test_systemf = () => {
   };
 };
 
-/* Existentials: a factory that hides its representation. mkCounter returns a
+/* Existentials: a factory that hides its representation. mk_counter returns a
    counter package over either Int or Int*Int (the two `if` branches pack
    different witnesses, unifying at the one `∃` type); the consumer unpacks and
    observes the same value either way, and cannot leak the abstract value out
@@ -478,7 +478,7 @@ let test_existential = () => {
   };
   let ex = "exists t. t * ((t -> t) * (t -> Int))";
   bind_str(
-    "mkCounter",
+    "mk_counter",
     "Bool -> " ++ ex,
     "\\fast: Bool. if fast "
     ++ "then pack [Int] (0, (\\x: Int. x + 1, \\x: Int. x)) as "
@@ -489,7 +489,7 @@ let test_existential = () => {
   /* get (incr (incr empty)) on the unpacked package */
   let use = b =>
     res(
-      "unpack [t] c = mkCounter "
+      "unpack [t] c = mk_counter "
       ++ b
       ++ " in snd (snd c) ((fst (snd c)) ((fst (snd c)) (fst c)))",
     );
@@ -502,7 +502,7 @@ let test_existential = () => {
   Alcotest.(check(int))("Int-rep counter observes 2", 2, observe("true"));
   Alcotest.(check(int))("Pair-rep counter observes 2", 2, observe("false"));
   /* leaking the abstract value out of unpack is rejected (avoidance) */
-  switch (Store.ingest_term(st, res("unpack [t] c = mkCounter true in fst c"))) {
+  switch (Store.ingest_term(st, res("unpack [t] c = mk_counter true in fst c"))) {
   | Error(_) => Alcotest.(check(bool))("witness escape rejected", true, true)
   | Ok(_) => Alcotest.fail("UNSOUND: the witness type escaped its scope")
   };
@@ -623,9 +623,9 @@ let test_n_ary_open = () => {
     };
     Alcotest.(check(int))("four fields projected", 4, List.length(fields));
     switch (List.map(snd, fields)) {
-    | [fromC, toK, toC, readC] =>
+    | [from_c, to_k, to_c, read_c] =>
       let app = (f, x) => Node.App(Node.Ref(f), x);
-      let term = app(readC, app(toC, app(toK, app(fromC, Node.Lit(100)))));
+      let term = app(read_c, app(to_c, app(to_k, app(from_c, Node.Lit(100)))));
       let h = unwrap(Store.ingest_term(st, term));
       switch (Eval.eval_top(st, Node.Ref(h))) {
       | Ok(Eval.VInt(100)) =>
@@ -660,12 +660,12 @@ let test_calendar = () => {
   | Ok({Open_existential.type_hashes, module_hash: _, fields}) =>
     Alcotest.(check(int))("date and span are two distinct types", 2, List.length(type_hashes));
     switch (List.map(snd, fields)) {
-    | [origin, after, shift, between, lengthOf] =>
+    | [origin, after, shift, between, length_of] =>
       let r = h => Node.Ref(h);
       let app = (f, x) => Node.App(f, x);
-      /* lengthOf (between origin (shift origin (after 30))) = 30 */
+      /* length_of (between origin (shift origin (after 30))) = 30 */
       let d30 = app(app(r(shift), r(origin)), app(r(after), Node.Lit(30)));
-      let len = app(r(lengthOf), app(app(r(between), r(origin)), d30));
+      let len = app(r(length_of), app(app(r(between), r(origin)), d30));
       let h = unwrap(Store.ingest_term(st, len));
       switch (Eval.eval_top(st, Node.Ref(h))) {
       | Ok(Eval.VInt(30)) =>

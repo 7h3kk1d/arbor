@@ -61,22 +61,22 @@ functor** applied to either: `step [Counter.t] …` and `step [Tally.t] …` (se
 `Functor.Tests`). Inside `step`, `t` is opaque (parametricity) — the same code,
 two different representations.
 
-### 5. Existentials + open — `mkCounter` → `Box`
-`mkCounter : Bool -> exists t. { empty: t, incr: t -> t, get: t -> Int }` is a
+### 5. Existentials + open — `mk_counter` → `Box`
+`mk_counter : Bool -> exists t. { empty: t, incr: t -> t, get: t -> Int }` is a
 **factory** that *hides its own representation* (the `true` branch packs `Int`,
 the `false` branch packs `Int * Int`) behind one `∃` type. Its interface is a
-**record**. `Box` is `mkCounter true` **opened into the namespace**: `Box.t` (the
+**record**. `Box` is `mk_counter true` **opened into the namespace**: `Box.t` (the
 extracted abstract type), `Box` (the value), and `Box.empty` / `incr` / `get` —
 their names **recovered from the record's labels**, no positional guessing. This
-is OCaml's `module Box = (val mkCounter true)`.
+is OCaml's `module Box = (val mk_counter true)`.
 
-### 6. n-ary open + the safety payoff — `mkCalendar` → `Cal`
-`mkCalendar : Int -> exists date. exists span. { … }` hides **two** distinct
+### 6. n-ary open + the safety payoff — `mk_calendar` → `Cal`
+`mk_calendar : Int -> exists date. exists span. { … }` hides **two** distinct
 abstract types. Opening peels both at once: `Cal.date`, `Cal.span`, and the
-operations `origin` / `after` / `shift` / `between` / `lengthOf`. The point is
+operations `origin` / `after` / `shift` / `between` / `length_of`. The point is
 the discipline two distinct types buy — `Cal.shift : Cal.date -> Cal.span ->
 Cal.date`, so adding two dates (`Cal.shift Cal.origin Cal.origin`) or measuring a
-date as a duration (`Cal.lengthOf Cal.origin`) is a **type error**.
+date as a duration (`Cal.length_of Cal.origin`) is a **type error**.
 
 ### 7. Records as plain data + `#`-projection — `Geom`
 `Geom.Point = { x: Int, y: Int }` is a record *type* (declaring it minted the
@@ -117,7 +117,7 @@ Do these in order in the web app. Each step calls out the feature it exercises.
 
 3. **Open an existential (the headline).** Clear the work area and type:
    ```
-   mkCounter true
+   mk_counter true
    ```
    Because it's an `exists …`, an **open as module** block appears, with **one
    type input** (default `t`) and **three field inputs pre-filled from the
@@ -126,17 +126,17 @@ Do these in order in the web app. Each step calls out the feature it exercises.
    Type in the work area: `My.get (My.incr My.empty)` → `= 1`. (No `providing`
    list — the field names came from the record's labels.)
 
-4. **n-ary open + a type error you *want*.** Type `mkCalendar 0` in the work
+4. **n-ary open + a type error you *want*.** Type `mk_calendar 0` in the work
    area; the open block now shows **two** type inputs. Name the first `date` and
    the second `span` (the field inputs pre-fill), name the module `K`, and open.
    Then type:
    ```
    K.shift K.origin K.origin
    ```
-   The feedback goes red: a date isn't a span. Now `K.lengthOf (K.between
+   The feedback goes red: a date isn't a span. Now `K.length_of (K.between
    K.origin (K.shift K.origin (K.after 30)))` → `= 30`.
 
-5. **Open from the detail pane.** Click `mkCalendar` in the tree. The detail pane
+5. **Open from the detail pane.** Click `mk_calendar` in the tree. The detail pane
    recognizes it as an existential and offers an inline **open** box — the second
    entry point to the same gesture.
 

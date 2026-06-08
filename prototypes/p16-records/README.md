@@ -7,8 +7,8 @@ whose interface is a **record** rather than a positional `Product`. The payoff
 lands on `open`, which recovers field names from the record's labels:
 
 ```
-mkCounter : Bool -> exists t. { empty: t, incr: t -> t, get: t -> Int }
-:open mkCounter true as Counter        -- binds Counter.empty / incr / get by label name
+mk_counter : Bool -> exists t. { empty: t, incr: t -> t, get: t -> Int }
+:open mk_counter true as Counter        -- binds Counter.empty / incr / get by label name
 Counter.get (Counter.incr Counter.empty)
 ```
 
@@ -31,8 +31,8 @@ Records / labeled modules are **implemented** (all five build-order stages):
 3. **surface syntax** — `{ x: T }` types, `{ x = e }` literals, `e#x` projection;
    a record-type declaration mints its field labels (sharing an already-bound
    label by name).
-4. **web + bootstrap** — `mkCounter` / `mkScale` / `mkCalendar` reseeded with
-   record interfaces; the open form pre-fills field names from labels.
+4. **web + bootstrap** — `mk_counter` / `mk_calendar` reseeded with record
+   interfaces; the open form pre-fills field names from labels.
 
 Everything p15 had — opaque types + seals, System-F (`∀`), existentials (`∃`,
 `open`), lists, evaluator, REPL, Bonsai web, tests aspect — carries over. 17

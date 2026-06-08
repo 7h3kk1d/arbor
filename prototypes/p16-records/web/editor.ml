@@ -161,7 +161,7 @@ let view ~(state : State.t Bonsai.Value.t)
                Vdom.Attr.create "spellcheck" "false";
                Vdom.Attr.create "autocomplete" "off";
                Vdom.Attr.create "autocapitalize" "off";
-               Vdom.Attr.placeholder {|expr (e.g. Counter.get (bump2 Counter.empty), or mkCounter true)|};
+               Vdom.Attr.placeholder {|expr (e.g. Counter.get (bump2 Counter.empty), or mk_counter true)|};
                Vdom.Attr.value_prop state.work_expr;
                Vdom.Attr.on_input (fun _ s ->
                    let fb = Ops.eval ~s:Substrate.global ~open_set:state.open_set ~expr:s in
