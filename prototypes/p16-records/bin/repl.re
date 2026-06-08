@@ -123,17 +123,25 @@ let cmd_open = name => {
   };
 };
 
+/* last dot-segment of a (possibly dotted) name — the field "leaf" */
+let leaf_segment = s =>
+  switch (String.rindex_opt(s, '.')) {
+  | Some(i) => String.sub(s, i + 1, String.length(s) - i - 1)
+  | None => s
+  };
+
 /* `:open <expr> as Name [t1, t2, ...] [providing f1, f2, ...]` — generative open
    of an existential package. Peels every leading `exists`, minting one fresh
    abstract type per level (bound `Name.t1`, `Name.t2`, ... — defaulting to the
    tyvar names t, u, s, ...), binds `Name` to the opened value, and binds each
-   named positional field. */
+   field: a `providing` name wins; otherwise a record interface's fields are
+   named from their labels; an unnamed product field is left unbound. */
 let cmd_open_existential = rest =>
   switch (split_first(rest, " as ")) {
   | None =>
     print_endline("usage: :open <expr> as <Name> [t1, t2] [providing f1, f2, ...]")
   | Some((exprs, tail)) =>
-    let (head, fields) =
+    let (head, provided) =
       switch (split_first(String.trim(tail), " providing ")) {
       | Some((h, fs)) => (
           String.trim(h),
@@ -164,7 +172,7 @@ let cmd_open_existential = rest =>
       | Ok(node) =>
         switch (Open_existential.open_package(st, mint_src, node)) {
         | Error(e) => err("open: " ++ e)
-        | Ok({Open_existential.type_hashes, module_hash, field_hashes}) =>
+        | Ok({Open_existential.type_hashes, module_hash, fields}) =>
           let type_name = i =>
             i < List.length(type_names) ? List.nth(type_names, i) : Pretty.tyvar_name(i);
           List.iteri(
@@ -172,12 +180,28 @@ let cmd_open_existential = rest =>
             type_hashes,
           );
           ignore(rebind(modname, module_hash));
+          /* a provided name wins; else a record field's label name (leaf); else
+             the field is left unbound (a positional product with no name given) */
+          let field_name = (i, label_opt) =>
+            if (i < List.length(provided) && List.nth(provided, i) != "") {
+              Some(List.nth(provided, i));
+            } else {
+              switch (label_opt) {
+              | Some(lh) =>
+                switch (Namespace.name_of(ns, lh)) {
+                | Some(nm) => Some(leaf_segment(nm))
+                | None => None
+                }
+              | None => None
+              };
+            };
           List.iteri(
-            (i, fh) =>
-              if (i < List.length(fields) && List.nth(fields, i) != "") {
-                ignore(rebind(modname ++ "." ++ List.nth(fields, i), fh));
+            (i, (label_opt, fh)) =>
+              switch (field_name(i, label_opt)) {
+              | Some(nm) => ignore(rebind(modname ++ "." ++ nm, fh))
+              | None => ()
               },
-            field_hashes,
+            fields,
           );
           let tystr =
             switch (Store.type_of(st, module_hash)) {

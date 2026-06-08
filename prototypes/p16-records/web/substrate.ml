@@ -181,12 +181,14 @@ let seed ~store ~ns ~att ~mint_src =
     let nth_name names i =
       match List.nth_opt names i with Some x when x <> "" -> Some x | _ -> None
     in
+    let leaf nm = match String.rindex_opt nm '.' with Some i -> String.sub nm (i + 1) (String.length nm - i - 1) | None -> nm in
+    let label_name lh = match Namespace.name_of ns lh with Some nm -> Some (leaf nm) | None -> None in
     match Parse.parse_expr expr_s with
     | Ok se -> (
         match Resolver.resolve ~ctx:[] ~ns ~st:store se with
         | Ok node -> (
             match Open_existential.open_package store mint_src node with
-            | Ok { Open_existential.type_hashes; module_hash; field_hashes } ->
+            | Ok { Open_existential.type_hashes; module_hash; fields } ->
                 List.iteri
                   (fun i th ->
                     let tn =
@@ -198,11 +200,16 @@ let seed ~store ~ns ~att ~mint_src =
                   type_hashes;
                 (try Namespace.rebind ns ~name module_hash with _ -> ());
                 List.iteri
-                  (fun j fh ->
-                    match nth_name field_names j with
-                    | Some fn -> (try Namespace.rebind ns ~name:(name ^ "." ^ fn) fh with _ -> ())
+                  (fun j (label_opt, fh) ->
+                    let fname =
+                      match nth_name field_names j with
+                      | Some n -> Some n
+                      | None -> ( match label_opt with Some lh -> label_name lh | None -> None )
+                    in
+                    match fname with
+                    | Some n -> (try Namespace.rebind ns ~name:(name ^ "." ^ n) fh with _ -> ())
                     | None -> ())
-                  field_hashes
+                  fields
             | Error _ -> ())
         | Error _ -> ())
     | Error _ -> ()

@@ -614,15 +614,15 @@ let test_n_ary_open = () => {
   let pkg = res("pack [Int] (pack [Int] (" ++ value ++ ") as " ++ inner ++ ") as " ++ ty);
   switch (Open_existential.open_package(st, ms, pkg)) {
   | Error(m) => Alcotest.fail("open_package: " ++ m)
-  | Ok({Open_existential.type_hashes, module_hash: _, field_hashes}) =>
+  | Ok({Open_existential.type_hashes, module_hash: _, fields}) =>
     Alcotest.(check(int))("two abstract types peeled", 2, List.length(type_hashes));
     switch (type_hashes) {
     | [a, b] =>
       Alcotest.(check(bool))("the two abstracts are distinct", false, Hash.equal(a, b))
     | _ => Alcotest.fail("expected two type hashes")
     };
-    Alcotest.(check(int))("four fields projected", 4, List.length(field_hashes));
-    switch (field_hashes) {
+    Alcotest.(check(int))("four fields projected", 4, List.length(fields));
+    switch (List.map(snd, fields)) {
     | [fromC, toK, toC, readC] =>
       let app = (f, x) => Node.App(Node.Ref(f), x);
       let term = app(readC, app(toC, app(toK, app(fromC, Node.Lit(100)))));
@@ -657,9 +657,9 @@ let test_calendar = () => {
   let pkg = Node.App(res(body), Node.Lit(0));
   switch (Open_existential.open_package(st, ms, pkg)) {
   | Error(m) => Alcotest.fail("open: " ++ m)
-  | Ok({Open_existential.type_hashes, module_hash: _, field_hashes}) =>
+  | Ok({Open_existential.type_hashes, module_hash: _, fields}) =>
     Alcotest.(check(int))("date and span are two distinct types", 2, List.length(type_hashes));
-    switch (field_hashes) {
+    switch (List.map(snd, fields)) {
     | [origin, after, shift, between, lengthOf] =>
       let r = h => Node.Ref(h);
       let app = (f, x) => Node.App(f, x);
@@ -724,6 +724,71 @@ let test_records = () => {
     true,
     is_error(Store.ingest_term(st, bad)),
   );
+};
+
+/* p16 stage 3 — an existential whose interface is a RECORD. open_package recovers
+   each field's label (so the caller can name it `N.<label>`), not a positional
+   guess; projecting the opened ops by label round-trips. */
+let test_open_record_interface = () => {
+  let st = Store.create();
+  let ms = Mint.make_source();
+  let int_h = Store.int_type(st);
+  let mklabel = () => Store.ingest_label(st, Label.create(Mint.fresh(ms)));
+  let (empty_l, incr_l, get_l) = (mklabel(), mklabel(), mklabel());
+  /* exists t. { empty: t, incr: t -> t, get: t -> Int }  (t = TVar 0) */
+  let tv0 = Store.ingest_type(st, Tnode.TVar(0));
+  let arr = (a, b) => Store.ingest_type(st, Tnode.Arrow(a, b));
+  let rbody =
+    Store.ingest_type(
+      st,
+      Tnode.Record([(empty_l, tv0), (incr_l, arr(tv0, tv0)), (get_l, arr(tv0, int_h))]),
+    );
+  let ex = Store.ingest_type(st, Tnode.Exists(rbody));
+  /* pack [Int] { empty = 0, incr = \x. x+1, get = \x. x } as ex */
+  let reclit =
+    Node.Record_lit([
+      (empty_l, Node.Lit(0)),
+      (incr_l, Node.Lam(int_h, Node.Prim(Node.Add, [Node.Var(0), Node.Lit(1)]))),
+      (get_l, Node.Lam(int_h, Node.Var(0))),
+    ]);
+  let pkg = Node.Pack({witness: int_h, body: reclit, ty: ex});
+  switch (Open_existential.open_package(st, ms, pkg)) {
+  | Error(m) => Alcotest.fail("open: " ++ m)
+  | Ok({Open_existential.type_hashes, module_hash: _, fields}) =>
+    Alcotest.(check(int))("one abstract type peeled", 1, List.length(type_hashes));
+    Alcotest.(check(int))("three fields", 3, List.length(fields));
+    /* every field carries its label (record interface, not positional) */
+    Alcotest.(check(bool))(
+      "all fields are labeled",
+      true,
+      List.for_all(((lo, _)) => lo != None, fields),
+    );
+    let field = lbl =>
+      switch (
+        List.find_opt(
+          ((lo, _)) =>
+            switch (lo) {
+            | Some(l) => Hash.equal(l, lbl)
+            | None => false
+            },
+          fields,
+        )
+      ) {
+      | Some((_, fh)) => fh
+      | None => Alcotest.fail("label not recovered from the record interface")
+      };
+    let app = (fh, arg) => Node.App(Node.Ref(fh), arg);
+    /* get (incr (incr empty)) = 2 — projected entirely by label */
+    let term =
+      app(field(get_l), app(field(incr_l), app(field(incr_l), Node.Ref(field(empty_l)))));
+    let h = unwrap(Store.ingest_term(st, term));
+    switch (Eval.eval_top(st, Node.Ref(h))) {
+    | Ok(Eval.VInt(2)) =>
+      Alcotest.(check(bool))("get (incr (incr empty)) = 2", true, true)
+    | Ok(v) => Alcotest.fail("unexpected: " ++ Eval.to_string(v))
+    | Error(m) => Alcotest.fail("stuck: " ++ m)
+    };
+  };
 };
 
 let () =
@@ -808,6 +873,11 @@ let () =
             "label sort + record types/literals/projection",
             `Quick,
             test_records,
+          ),
+          Alcotest.test_case(
+            "open an existential with a record interface (labels recovered)",
+            `Quick,
+            test_open_record_interface,
           ),
         ],
       ),

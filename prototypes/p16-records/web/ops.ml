@@ -100,19 +100,30 @@ let open_existential_node ~(s : Substrate.t) ~(name : string)
   else
     match Open_existential.open_package s.store s.mint_src node with
     | Error e -> State.Err ("open: " ^ e)
-    | Ok { type_hashes; module_hash; field_hashes } ->
+    | Ok { type_hashes; module_hash; fields } ->
         let nth_name names i =
           match List.nth names i with
           | Some x when not (String.is_empty (String.strip x)) -> Some (String.strip x)
           | _ -> None
         in
         let type_name i = Option.value (nth_name type_names i) ~default:(Pretty.tyvar_name i) in
+        (* leaf segment of a (possibly dotted) label name *)
+        let leaf nm = match String.rsplit2 nm ~on:'.' with Some (_, l) -> l | None -> nm in
+        let label_name lh =
+          match Namespace.name_of s.ns lh with Some nm -> Some (leaf nm) | None -> None
+        in
         List.iteri type_hashes ~f:(fun i th ->
             (try Namespace.rebind s.ns ~name:(name ^ "." ^ type_name i) th with _ -> ()));
         (try Namespace.rebind s.ns ~name module_hash with _ -> ());
-        List.iteri field_hashes ~f:(fun j fh ->
-            match nth_name field_names j with
-            | Some fn -> (try Namespace.rebind s.ns ~name:(name ^ "." ^ fn) fh with _ -> ())
+        (* a provided name wins; else a record field's label name; else unbound *)
+        List.iteri fields ~f:(fun j (label_opt, fh) ->
+            let fname =
+              match nth_name field_names j with
+              | Some n -> Some n
+              | None -> ( match label_opt with Some lh -> label_name lh | None -> None )
+            in
+            match fname with
+            | Some n -> (try Namespace.rebind s.ns ~name:(name ^ "." ^ n) fh with _ -> ())
             | None -> ());
         let tystr =
           match Store.type_of s.store module_hash with
@@ -182,7 +193,7 @@ let eval ~(s : Substrate.t) ~(open_set : string list) ~(expr : string) :
                         {
                           State.type_arity = arity;
                           field_types =
-                            List.map fts ~f:(fun ft ->
+                            List.map fts ~f:(fun (_label, ft) ->
                                 Pretty.ty_to_string ~ns:s.ns ~st:s.store ~prec:0
                                   ~tdepth:arity ft);
                         }
