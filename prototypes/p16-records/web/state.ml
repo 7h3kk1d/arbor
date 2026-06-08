@@ -10,12 +10,21 @@ type kind =
   | Sealed
 [@@deriving sexp, equal]
 
+(* One operation field of an existential's interface, for the open form: its
+   pretty-printed type, and — when the interface is a record — the field's label
+   name, used to pre-fill (and default) the field's binding name. *)
+type open_field = {
+  flabel : string option;
+  fty : string;
+}
+[@@deriving sexp, equal]
+
 (* The shape of an existential package, for driving the open form: how many
-   abstract types it hides, and the (pretty-printed) type of each operation
-   field — so the editor can render one input per type and per field. *)
+   abstract types it hides, and its operation fields — so the editor can render
+   one input per type and per field. *)
 type open_shape = {
   type_arity : int;
-  field_types : string list;
+  fields : open_field list;
 }
 [@@deriving sexp, equal]
 

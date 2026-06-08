@@ -43,17 +43,19 @@ let seed ~store ~ns ~att ~mint_src =
   let define_str name opens ty_s expr_s =
     match Parse.parse_ty ty_s, Parse.parse_expr expr_s with
     | Ok sty, Ok se -> (
-        match
-          Resolver.resolve_ty ~ns ~st:store sty,
-          Resolver.resolve ~ctx:[] ~ns ~st:store se
-        with
-        | Ok ann, Ok node ->
-            let ctx = Editing_context.make () in
-            List.iter (fun o -> Editing_context.open_type ctx o) opens;
-            (match Editing_context.commit store ctx ~term:node ~ann with
-             | Ok (h, _) -> (try Namespace.rebind ns ~name h with _ -> ()); Some h
-             | Error _ -> None)
-        | _ -> None)
+        (* resolve the annotation FIRST (with minting) so a record interface mints
+           its field labels before the body's record literal resolves them *)
+        match Resolver.resolve_ty ~ns ~st:store ~mint:(Some mint_src) sty with
+        | Error _ -> None
+        | Ok ann -> (
+            match Resolver.resolve ~ctx:[] ~ns ~st:store se with
+            | Error _ -> None
+            | Ok node ->
+                let ctx = Editing_context.make () in
+                List.iter (fun o -> Editing_context.open_type ctx o) opens;
+                (match Editing_context.commit store ctx ~term:node ~ann with
+                 | Ok (h, _) -> (try Namespace.rebind ns ~name h with _ -> ()); Some h
+                 | Error _ -> None)))
     | _ -> None
   in
   (* ---- Counter, over Int ---- *)
@@ -160,19 +162,19 @@ let seed ~store ~ns ~att ~mint_src =
     "Counter.get (step [Counter.t] (Counter.incr, Counter.decr) Counter.empty true) == 1";
   test_str "Functor.Tests.step_down_tally"
     "Tally.get (step [Tally.t] (Tally.incr, Tally.decr) Tally.start false) == 0 - 1";
-  (* ---- existential: a factory that chooses and hides its representation ---- *)
-  let ex = "exists t. t * ((t -> t) * (t -> Int))" in
+  (* ---- existential: a factory whose interface is a RECORD (p16) ---- *)
+  let ex = "exists t. { empty: t, incr: t -> t, get: t -> Int }" in
   ignore
     (define_str "mkCounter" []
        ("Bool -> " ^ ex)
        ("\\fast: Bool. if fast "
-        ^ "then pack [Int] (0, (\\x: Int. x + 1, \\x: Int. x)) as " ^ ex
-        ^ " else pack [Int * Int] ((0, 0), (\\p: Int * Int. (fst p + 1, snd p), \\p: Int * Int. fst p)) as "
+        ^ "then pack [Int] { empty = 0, incr = \\x: Int. x + 1, get = \\x: Int. x } as " ^ ex
+        ^ " else pack [Int * Int] { empty = (0, 0), incr = \\p: Int * Int. (fst p + 1, snd p), get = \\p: Int * Int. fst p } as "
         ^ ex));
-  (* the SAME factory observed through two hidden representations — both give 2 *)
+  (* the SAME factory observed through two hidden representations — both give 2,
+     now via record projection (c#get, c#incr, c#empty) instead of fst/snd *)
   let observe b =
-    "(unpack [t] c = mkCounter " ^ b
-    ^ " in snd (snd c) ((fst (snd c)) ((fst (snd c)) (fst c)))) == 2"
+    "(unpack [t] c = mkCounter " ^ b ^ " in c#get (c#incr (c#incr c#empty))) == 2"
   in
   test_str "Existential.Tests.int_rep" (observe "true");
   test_str "Existential.Tests.pair_rep" (observe "false");
@@ -214,21 +216,29 @@ let seed ~store ~ns ~att ~mint_src =
         | Error _ -> ())
     | Error _ -> ()
   in
-  open_existential "Box" [] [ "empty"; "incr"; "get" ] "mkCounter true";
+  (* a record interface — open recovers empty/incr/get from the labels (no
+     `providing` list needed) *)
+  open_existential "Box" [] [] "mkCounter true";
   test_str "Existential.Tests.opened_box" "Box.get (Box.incr (Box.incr Box.empty)) == 2";
   (* a FUNCTOR (Int offset -> module) hiding TWO abstract types — a celsius `c`
-     and a kelvin `k`, with conversions that differ by the offset. Apply and open
-     in one gesture into Temp.cel / Temp.kel + the conversions. Try it live: type
-     `mkScale 273` (or any offset) in the editor and open the result. *)
-  let scale_out = "exists c. exists k. (Int -> c) * ((c -> k) * ((k -> c) * (c -> Int)))" in
-  let scale_inner = "exists k. (Int -> Int) * ((Int -> k) * ((k -> Int) * (Int -> Int)))" in
-  let scale_body = {|(\x: Int. x, (\x: Int. x + off, (\x: Int. x - off, \x: Int. x)))|} in
+     and a kelvin `k`, with conversions that differ by the offset. Its interface
+     is a record, so opening names the fields from labels. Apply and open in one
+     gesture into Temp.cel / Temp.kel + the conversions. Try it: `mkScale 273`. *)
+  let scale_out =
+    "exists c. exists k. { fromC: Int -> c, toK: c -> k, toC: k -> c, readC: c -> Int }"
+  in
+  let scale_inner =
+    "exists k. { fromC: Int -> Int, toK: Int -> k, toC: k -> Int, readC: Int -> Int }"
+  in
+  let scale_body =
+    {|{ fromC = \x: Int. x, toK = \x: Int. x + off, toC = \x: Int. x - off, readC = \x: Int. x }|}
+  in
   ignore
     (define_str "mkScale" []
        (Printf.sprintf "Int -> %s" scale_out)
        (Printf.sprintf {|\off: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} scale_body
           scale_inner scale_out));
-  open_existential "Temp" [ "cel"; "kel" ] [ "fromC"; "toK"; "toC"; "readC" ] "mkScale 273";
+  open_existential "Temp" [ "cel"; "kel" ] [] "mkScale 273";
   test_str "Existential.Tests.temp_round_trip"
     "Temp.readC (Temp.toC (Temp.toK (Temp.fromC 100))) == 100";
   (* a slightly more realistic two-abstract-type functor: a calendar where a
@@ -236,21 +246,20 @@ let seed ~store ~ns ~att ~mint_src =
      measuring a date as a duration, is a type error. mkCalendar's Int is the
      epoch: the day-number of the origin. Try it live: type `mkCalendar 0`. *)
   let cal_out =
-    "exists date. exists span. date * ((Int -> span) * ((date -> span -> date) * ((date -> date -> span) * (span -> Int))))"
+    "exists date. exists span. { origin: date, after: Int -> span, shift: date -> span -> date, between: date -> date -> span, lengthOf: span -> Int }"
   in
   let cal_inner =
-    "exists span. Int * ((Int -> span) * ((Int -> span -> Int) * ((Int -> Int -> span) * (span -> Int))))"
+    "exists span. { origin: Int, after: Int -> span, shift: Int -> span -> Int, between: Int -> Int -> span, lengthOf: span -> Int }"
   in
   let cal_val =
-    {|(base, (\n: Int. n, (\d: Int. \s: Int. d + s, (\a: Int. \b: Int. b - a, \s: Int. s))))|}
+    {|{ origin = base, after = \n: Int. n, shift = \d: Int. \s: Int. d + s, between = \a: Int. \b: Int. b - a, lengthOf = \s: Int. s }|}
   in
   ignore
     (define_str "mkCalendar" []
        (Printf.sprintf "Int -> %s" cal_out)
        (Printf.sprintf {|\base: Int. pack [Int] (pack [Int] (%s) as %s) as %s|} cal_val
           cal_inner cal_out));
-  open_existential "Cal" [ "date"; "span" ]
-    [ "origin"; "after"; "shift"; "between"; "lengthOf" ] "mkCalendar 0";
+  open_existential "Cal" [ "date"; "span" ] [] "mkCalendar 0";
   test_str "Existential.Tests.calendar"
     "Cal.lengthOf (Cal.between Cal.origin (Cal.shift Cal.origin (Cal.after 30))) == 30";
   (* ---- p16: lists, with [| ... |] literal syntax ---- *)

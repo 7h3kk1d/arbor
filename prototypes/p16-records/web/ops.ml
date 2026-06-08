@@ -187,16 +187,23 @@ let eval ~(s : Substrate.t) ~(open_set : string list) ~(expr : string) :
                 let ty = Pretty.ty ~ns:s.ns ~st:s.store t in
                 (* an existential package's shape drives the open form: one input
                    per abstract type, one per operation field (labeled by type) *)
+                let leaf nm = match String.rsplit2 nm ~on:'.' with Some (_, l) -> l | None -> nm in
                 let open_shape =
                   match Open_existential.inspect s.store node with
                   | Some (arity, fts) ->
                       Some
                         {
                           State.type_arity = arity;
-                          field_types =
-                            List.map fts ~f:(fun (_label, ft) ->
-                                Pretty.ty_to_string ~ns:s.ns ~st:s.store ~prec:0
-                                  ~tdepth:arity ft);
+                          fields =
+                            List.map fts ~f:(fun (label_opt, ft) ->
+                                {
+                                  State.flabel =
+                                    Option.bind label_opt ~f:(fun lh ->
+                                        Option.map (Namespace.name_of s.ns lh) ~f:leaf);
+                                  fty =
+                                    Pretty.ty_to_string ~ns:s.ns ~st:s.store ~prec:0
+                                      ~tdepth:arity ft;
+                                });
                         }
                   | None -> None
                 in

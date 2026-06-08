@@ -125,8 +125,13 @@ let view ~(state : State.t Bonsai.Value.t)
             ~on_input:(fun v -> inject (State.Set_open_type_name (i, v))))
     in
     let field_rows =
-      List.mapi shape.field_types ~f:(fun j fty ->
-          field_row ~kind:"op" ~ty:(": " ^ fty) ~placeholder:"field name (optional)"
+      List.mapi shape.fields ~f:(fun j (f : State.open_field) ->
+          (* a record interface pre-fills the field name from its label (leave it
+             blank to bind by that label); a product field has no label *)
+          let placeholder =
+            match f.flabel with Some n -> n ^ " (from label)" | None -> "field name (optional)"
+          in
+          field_row ~kind:"op" ~ty:(": " ^ f.fty) ~placeholder
             ~value:(nth_or state.open_field_names j)
             ~on_input:(fun v -> inject (State.Set_open_field_name (j, v))))
     in

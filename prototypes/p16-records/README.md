@@ -20,12 +20,23 @@ Design and scope: `docs/prototypes/p16-records/00-scope.md` (the plan).
 
 ## Status
 
-Forked from p15 (verbatim, renamed `P16_substrate`) and building green — at this
-point **identical to p15**. The records / label-sort additions are in progress
-per the plan's build order (label sort + record substrate → existentials over
-records + open → surface `{…}` / `p#x` → web/bootstrap). Everything p15 had —
-opaque types + seals, System-F (`∀`), existentials (`∃`, `open`), lists, surface
-language, evaluator, REPL, Bonsai web, tests aspect — carries over.
+Records / labeled modules are **implemented** (all five build-order stages):
+
+1. **label sort + record substrate** — `Definition.Label`, `Tnode.Record`,
+   `Node.Record_lit`/`Project_field`, canonical by sorted label hash; only labels
+   mint.
+2. **open over a record interface** — `open_existential` recovers each field's
+   label, so opening binds `N.<field>` by name (no positional `providing`);
+   positional Product interfaces still work.
+3. **surface syntax** — `{ x: T }` types, `{ x = e }` literals, `e#x` projection;
+   a record-type declaration mints its field labels (sharing an already-bound
+   label by name).
+4. **web + bootstrap** — `mkCounter` / `mkScale` / `mkCalendar` reseeded with
+   record interfaces; the open form pre-fills field names from labels.
+
+Everything p15 had — opaque types + seals, System-F (`∀`), existentials (`∃`,
+`open`), lists, evaluator, REPL, Bonsai web, tests aspect — carries over. 17
+substrate tests green (plus the in-browser bootstrap tests).
 
 Substrate core (the `src/` library, `P16_substrate`):
 
