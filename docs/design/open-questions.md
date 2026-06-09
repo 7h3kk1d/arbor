@@ -7,7 +7,7 @@ Running list. Items graduate to `decisions.md` when resolved, or into specific d
 ## Strategic
 
 - **Composition model for languages.** Fixed ladder, feature lattice, shared core IR, or hybrid. Deliberately deferred; see `01-language-model.md`.
-- ~~**Project name.**~~ Resolved 2026-04-23: **arbor** (see `decisions.md`). Working directory remains `lc-content-addressed`.
+- ~~**Project name.**~~ Resolved 2026-04-23: **arbor** (see `decisions.md`). Working directory renamed to `arbor` on 2026-06-01.
 - **Research framing.** What's the thesis this becomes a prospectus *for*? Translation as first-class, content-addressed semantics, something else?
 
 ## Tech stack
@@ -75,7 +75,7 @@ Still open:
 Sharpened in `10-minted-identity.md`.
 
 - **Per-definition vs. per-language opt-in.** Unison-style `unique` per definition, a language-wide declaration that all its definitions are minted, or both with the per-language default overridable per-definition.
-- **Marks across content edits.** Whether a mint mark dies with its hash (blocks coincidental collapsing, nothing more) or survives edits (gives the substrate a second identity axis and a home for editing history / update propagation). Entangled with the Grove direction in `07-hazel-substrate.md`.
+- **Marks across content edits.** Whether a mint mark dies with its hash (blocks coincidental collapsing, nothing more) or survives edits (gives the substrate a second identity axis and a home for editing history / update propagation). Entangled with the Grove direction in `07-hazel-substrate.md`. **p12 finding (2026-06-04):** the mint plays two separable roles — *distinctness* (wants a fresh mark; dies-with-hash) and *lineage thread* (the survives-edits axis). Abstract-type soundness depends on neither — it rides witness-in-hash — and within a single checkout lineage is carried by the namespace, so p12 leans **dies-with-hash by default**, with survives-edits load-bearing only across checkouts/branches (collaboration phase). Does not retract p11's update-strategies use of marks-survive; scopes it. Sharpened in `10` §"Marks that survive content edits."
 - **How marks are minted.** Random UID, monotonic counter, content-derived from creation context, something else. Affects reproducibility under re-ingest and import.
 - **Where the mint mark lives in `Definition.t`.** First-class field with a sentinel for structural, a separate constructor, or an aspect with a hash-stable contract.
 - **Interface surfacing.** Badge, color, nothing — bound up with the editing gesture in the per-definition reading.
@@ -88,6 +88,21 @@ Sharpened in `11-label-sort.md`. Substrate direction is settled in several place
 - **How variants attach payload-type information to labels.** Aspect on the label, richer label-node shape, or eventual split into a separate sort.
 - **Recursive modules.** Modules whose fields reference other definitions in the same module force the substrate to canonicalize mutual reference. Intersects the existing "Mutual recursion canonicalization" item under "Content addressing"; will get resolved there once a language forces the issue.
 - **Type-language shape that consumes shared labels.** Whether early prototypes get away with structural subtyping over fixed label sets, or need explicit row variables from the start.
+
+## Type abstraction
+
+Sharpened in `12-type-abstraction.md`. Substrate leanings are settled in several places (abstract-type identity = `opaque ++ mint ++ witness`; witness-in-hash forced by soundness; mint for distinctness; signature = binder over a `11` label-record; sealing in the type system; functor application applicative by default; projection inlines to a direct reference for fine-grained dependency; private = signature omission). What's open:
+
+- **Opacity enforcement mechanism.** The *opacity trilemma* (flat-&-unbundled / pure-content revalidation / enforced opacity — pick two) means adversarial-safe enforcement without bundling needs an out-of-store capability. Near-term lean (2026-06-04): **editor-enforced opacity** for a cooperative threat model — flat, unbundled, pure-content `open #A in E : T` nodes; the editor offers the unfold affordance only within an abstract type's implementation set (not the namespace, not a stored bundle); an optional aspect surfaces unsanctioned opens. Deferred path to ingest-level / adversarial safety: **mint-as-keypair** (public half = the distinctness mint in `#A`'s hash; secret half = capability) with a deterministic-signature attestation aspect ingest verifies. Cryptographic safety not pursued now. Also resolves a latent tension in `12`'s §"Opacity is a typing discipline" (seals as independent dependable nodes vs. "not independently-ingestable"). Sharpened in `12-type-abstraction.md` §"Unbundled abstract types and the opacity trilemma."
+- **Module ↔ namespace relationship.** Module-aware namespace with inlined projection (current lean) vs. reify-on-demand vs. first-class path-dependent access into namespaces. The display/round-trip contract and the gesture distinguishing "use this module's member" from a plain named reference are open.
+- **Open vs. closed existential scope.** Path-dependent `m.t` by hash (lean) vs. OCaml-style unpack-into-binding vs. open existentials (Montagu–Rémy / avoidance problem). Not settled.
+- **Signature/translucency encoding.** Node shape for per-component opaque/manifest signatures; how value-component types reference type-component labels by hash in a self-referential record.
+- **First-class signature matching.** Coercion (restricted-module, new hash) vs. a subtyping judgment; whether depth/variance is ever needed. Inherits the row-variable question from "Label sort."
+- **Functor application identity.** Applicative-by-default contract: editor-authored `F(X)` (mints) vs. computed `F(X)` (content-addressed), plus the explicit-unit generative escape hatch. Pin when a prototype forces it.
+- **Same-witness-type invariant drift.** The criterion-6 boundary — changes preserving the witness type but altering its invariant are uncaught (general semantic drift, not abstraction-specific).
+- **Mint-persistence across representation change (pair-counter lineage).** ~~Carry the mint forward via an edit-of gesture.~~ p12 finding (2026-06-04): not needed for the type system — witness-in-hash carries soundness, a fresh mark gives distinctness, and within-checkout lineage is carried by the namespace. Dropped from p12 (dies-with-hash); deferred to the cross-checkout/collaboration phase. See `10` §"Marks that survive content edits."
+- **Editing / checkout UX.** What makes multi-version abstract modules legible to a user who never sees hashes. For a later interface prototype; relates to the "Editing context" item under "Interfaces."
+- **Recursive modules.** Inherited from "Label sort"; intersects "Mutual recursion canonicalization" under "Content addressing."
 
 ## Roadmap
 

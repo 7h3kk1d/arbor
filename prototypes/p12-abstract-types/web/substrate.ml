@@ -1,0 +1,133 @@
+(* Module-level singleton: the one Store + Namespace the whole app shares, plus
+   the mint source for new abstract types. The editing context's open set is UI
+   state and lives in the Bonsai model, not here. Bootstrap seeds the Counter
+   worked example so the app is demonstrable on load. *)
+
+open P12_substrate
+
+type t = {
+  store : Store.t;
+  ns : Namespace.t;
+  att : Attachment.t;
+  mint_src : Mint.source;
+}
+
+(* A small spread of "modules" so the namespace reads like a real codebase:
+   Counter (over Int); a Temperature pair — Celsius.t and Kelvin.t, both over Int
+   but distinct by mint — whose conversions open BOTH abstract types at once; and
+   Range (over a Product witness). Consumers (bump2, readout, Temp.round_trip)
+   compose sealed ops at the abstract level and stay ordinary terms. *)
+let seed ~store ~ns ~att ~mint_src =
+  let int_h = Store.int_type store in
+  let bool_h = Store.bool_type store in
+  let arrow a b = Store.ingest_type store (Tnode.Arrow (a, b)) in
+  let prod a b = Store.ingest_type store (Tnode.Product (a, b)) in
+  let abstract name witness =
+    let h = Store.ingest_type store (Tnode.Opaque { mint = Mint.fresh mint_src; witness }) in
+    (try Namespace.rebind ns ~name h with _ -> ());
+    h
+  in
+  (* commit [term : ann] with [opens] transparent, bind it, return its hash *)
+  let bind name opens term ann =
+    let ctx = Editing_context.make () in
+    List.iter (fun o -> Editing_context.open_type ctx o) opens;
+    match Editing_context.commit store ctx ~term ~ann with
+    | Ok (h, _) -> (try Namespace.rebind ns ~name h with _ -> ()); Some h
+    | Error _ -> None
+  in
+  let var n = Node.Var n in
+  let lit n = Node.Lit n in
+  let app f x = Node.App (f, x) in
+  (* ---- Counter, over Int ---- *)
+  let counter = abstract "Counter.t" int_h in
+  ignore (bind "Counter.empty" [ counter ] (lit 0) counter);
+  let incr =
+    bind "Counter.incr" [ counter ]
+      (Node.Lam (counter, Node.Prim (Node.Add, [ var 0; lit 1 ]))) (arrow counter counter)
+  in
+  let get = bind "Counter.get" [ counter ] (Node.Lam (counter, var 0)) (arrow counter int_h) in
+  ignore
+    (bind "Counter.decr" [ counter ]
+       (Node.Lam (counter, Node.Prim (Node.Sub, [ var 0; lit 1 ]))) (arrow counter counter));
+  (match incr, get with
+   | Some incr, Some get ->
+       ignore
+         (bind "bump2" []
+            (Node.Lam (counter, app (Node.Ref incr) (app (Node.Ref incr) (var 0))))
+            (arrow counter counter));
+       ignore
+         (bind "readout" []
+            (Node.Lam (counter, app (Node.Ref get) (app (Node.Ref incr) (var 0))))
+            (arrow counter int_h))
+   | _ -> ());
+  (* ---- Temperature: Celsius + Kelvin; conversions open BOTH ---- *)
+  let celsius = abstract "Celsius.t" int_h in
+  let kelvin = abstract "Kelvin.t" int_h in
+  ignore (bind "Celsius.freezing" [ celsius ] (lit 0) celsius);
+  ignore
+    (bind "Celsius.is_freezing" [ celsius ]
+       (Node.Lam (celsius, Node.Prim (Node.Eq, [ var 0; lit 0 ]))) (arrow celsius bool_h));
+  ignore (bind "Kelvin.value" [ kelvin ] (Node.Lam (kelvin, var 0)) (arrow kelvin int_h));
+  let c2k =
+    bind "Temp.c_to_k" [ celsius; kelvin ]
+      (Node.Lam (celsius, Node.Prim (Node.Add, [ var 0; lit 273 ]))) (arrow celsius kelvin)
+  in
+  let k2c =
+    bind "Temp.k_to_c" [ kelvin; celsius ]
+      (Node.Lam (kelvin, Node.Prim (Node.Sub, [ var 0; lit 273 ]))) (arrow kelvin celsius)
+  in
+  (match c2k, k2c with
+   | Some c2k, Some k2c ->
+       ignore
+         (bind "Temp.round_trip" []
+            (Node.Lam (celsius, app (Node.Ref k2c) (app (Node.Ref c2k) (var 0))))
+            (arrow celsius celsius))
+   | _ -> ());
+  (* ---- Range, over a Product witness ---- *)
+  let range = abstract "Range.t" (prod int_h int_h) in
+  ignore
+    (bind "Range.make" [ range ]
+       (Node.Lam (int_h, Node.Lam (int_h, Node.Pair (var 1, var 0))))
+       (arrow int_h (arrow int_h range)));
+  ignore (bind "Range.lo" [ range ] (Node.Lam (range, Node.Fst (var 0))) (arrow range int_h));
+  ignore (bind "Range.hi" [ range ] (Node.Lam (range, Node.Snd (var 0))) (arrow range int_h));
+  ignore
+    (bind "Range.width" [ range ]
+       (Node.Lam (range, Node.Prim (Node.Sub, [ Node.Snd (var 0); Node.Fst (var 0) ])))
+       (arrow range int_h));
+  (* ---- tests: boolean expressions, marked with the `test` aspect ---- *)
+  let r name =
+    match Namespace.resolve ns name with Some h -> Node.Ref h | None -> lit 0
+  in
+  let eqn a b = Node.Prim (Node.Eq, [ a; b ]) in
+  let test name opens term =
+    match bind name opens term bool_h with
+    | Some h -> Attachment.mark att ~aspect:"test" h
+    | None -> ()
+  in
+  (* Public tests live in <Module>.Tests and use only the abstract API (open
+     nothing). *)
+  test "Counter.Tests.empty" [] (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 0));
+  test "Counter.Tests.bump2" []
+    (eqn (app (r "Counter.get") (app (r "bump2") (r "Counter.empty"))) (lit 2));
+  test "Counter.Tests.oops" [] (eqn (app (r "Counter.get") (r "Counter.empty")) (lit 1));
+  test "Temp.Tests.c_to_k" []
+    (eqn (app (r "Kelvin.value") (app (r "Temp.c_to_k") (r "Celsius.freezing"))) (lit 273));
+  test "Range.Tests.width" []
+    (eqn (app (r "Range.width") (app (app (r "Range.make") (lit 2)) (lit 5))) (lit 3));
+  (* Internal tests live in <Module>.Tests.Internal and unseal the type — they
+     compare an abstract value directly to its representation, so they open
+     Counter.t (and seal accordingly). *)
+  test "Counter.Tests.Internal.empty_is_zero" [ counter ] (eqn (r "Counter.empty") (lit 0));
+  test "Counter.Tests.Internal.incr_is_one" [ counter ]
+    (eqn (app (r "Counter.incr") (r "Counter.empty")) (lit 1))
+
+let create () =
+  let store = Store.create () in
+  let ns = Namespace.create () in
+  let att = Attachment.create () in
+  let mint_src = Mint.make_source () in
+  seed ~store ~ns ~att ~mint_src;
+  { store; ns; att; mint_src }
+
+let global : t = create ()

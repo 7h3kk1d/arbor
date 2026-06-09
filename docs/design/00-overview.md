@@ -1,7 +1,7 @@
 # Overview
 
 **Status:** Draft. Personal design exploration, intended to graduate into a research prospectus.
-**Project name:** **arbor** — Latin for *tree*, after the content-addressed DAG of definitions and the trees its aspect stores (namespaces, type derivations, translation lineages) grow over it. The working directory remains `lc-content-addressed` for now.
+**Project name:** **arbor** — Latin for *tree*, after the content-addressed DAG of definitions and the trees its aspect stores (namespaces, type derivations, translation lineages) grow over it. The working directory was renamed to `arbor` on 2026-06-01.
 
 ## Vision
 
@@ -72,6 +72,7 @@ Step in slowly. When in doubt, prefer the narrow, concrete implementation over t
 - `09-roadmap.md` — prioritization, first prototype.
 - `10-minted-identity.md` — opt-in axis of identity, orthogonal to content addressing, for definitions that should not collapse with coincidental structural twins.
 - `11-label-sort.md` — labels as a first-class minted sort, decoupling record/module field identity from the human-readable field name.
+- `12-type-abstraction.md` — abstract types as `Type` definitions identified by `opaque ++ mint ++ witness`; signatures as existential/universal binders over label-records; sealing, functors, and the projection-inlining dependency model that keeps abstraction fine-grained.
 - `decisions.md` — ADR-lite log of commitments, with dates and rationale.
 - `open-questions.md` — running list; items graduate to docs or decisions as they resolve.
 - `prototype-findings.md` — stocktake across the prototype series: recurring patterns, single-prototype experiments, and shapes left open. Observational, not prescriptive.

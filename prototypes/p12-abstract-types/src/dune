@@ -1,0 +1,11 @@
+(library
+ (name p12_substrate)
+ (public_name p12_abstract_types.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

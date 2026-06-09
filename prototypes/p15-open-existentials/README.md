@@ -1,0 +1,98 @@
+# p15 — Open existentials, namespace type extraction, lists
+
+Forks **p14** (closed existentials) and adds a primitive **`open`** gesture plus
+**lists**. Opening an existential package binds *both* the value and its hidden
+representation type **into the namespace**, so later top-level definitions can
+use them — OCaml's `module Counter = (val e) in <rest>`:
+
+```
+:open mkCounter true as Counter
+-- binds Counter.t (the extracted abstract type) and Counter (the package tuple,
+--   typed Counter.t * ((Counter.t -> Counter.t) * (Counter.t -> Int)))
+Counter.get (Counter.incr (Counter.incr Counter.empty))   -- with the `providing` sugar, : Int = 2
+```
+
+`open` is as primitive as possible — it binds two names (`Counter.t`, `Counter`);
+field naming (`providing empty, incr, get`) is optional sugar over positional
+`Product` projection. Records are still deferred. Lists (`List`, `nil`/`cons`/`fold`)
+let collections of packages be held and mapped-and-observed.
+
+Design and scope: `docs/prototypes/p15-open-existentials/00-scope.md` (the plan).
+
+## Status
+
+Forked from p14 (verbatim, renamed `P15_substrate`) and building green; open /
+lists additions in progress per the plan. Everything p14 had — opaque types +
+seals, System-F (`∀`), existentials (`∃`, closed `unpack`), surface language,
+evaluator, REPL, Bonsai web, tests aspect — carries over.
+
+Not yet done: existentials / first-class modules (the `∃` form) and a dedicated
+web affordance for polymorphism (it currently rides the existing text inputs).
+
+Substrate core (the `src/` library, `P15_substrate`):
+
+- `src/hash.re` — BLAKE2B content hashes (carried from p11).
+- `src/mint.re` — deterministic minted marks (counter-sourced, reproducible).
+- `src/tnode.re` — `Int | Bool | Product | Arrow | Opaque{mint, witness}`; content encoding (sort byte `T`).
+- `src/node.re` — term nodes incl. `Ref(Hash)` and `Seal{opens, ty, impl}`; de Bruijn; encoding (sort byte `P`).
+- `src/definition.re` — `Term(Node.t) | Type(Tnode.t)`; leading-byte disambiguation.
+- `src/typecheck.re` — opacity-parameterized checker (`whnf`/`equal_ty` unfold open opaques); `Seal` ingest rule; witness-`normalize`.
+- `src/store.re` — content-addressed ingest; `Type_of` cache; derived `impl_set` scan; no ingest-level opacity.
+- `src/editing_context.re` — open set; `open_type`; minimal-sealing `commit` (ordinary term vs. seal).
+
+`test/test_p15.re` proves: Counter≠Celsius (mint distinctness), witness-in-hash (rep change moves the type), minimal sealing (empty/incr/get sealed, `bump2` ordinary), correct external types, raw-body sharing (incr's impl == `Math.inc`), opacity (a default-context consumer cannot touch the representation), bogus-seal rejection at ingest, derived implementation set, and criterion-4 (editing `decr` leaves `bump2` byte-identical).
+
+Surface + interface layer (built — REPL drives the editing-context model by hand):
+
+- `surface.re` / `surface_ty.re` — surface ASTs (names; no holes).
+- `lexer.mll` / `parser.mly` — trimmed p9 language, fail-fast (Menhir monolithic); no `open`/`seal` keyword.
+- `parse.re` — fail-fast wrappers returning `result`.
+- `namespace.re` — separate `name → hash` table (exact match; reverse index for display).
+- `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn); surface types → registered hashes.
+- `pretty.re` — name-aware type rendering (`Counter.t`, `Counter.t -> Int`); never shows a witness.
+- `eval.re` — CBV evaluator; abstraction erased at runtime (a `Seal` is transparent, abstract values reduce to their representation).
+- `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type + value.
+
+Web interface (`web/`, Bonsai + js_of_ocaml; entry `webmain/main.ml`): three panes —
+namespace browser (left), editor + editing-context indicator (center), detail (right).
+The editing context is **browser-driven**: each abstract type carries an "open for edit"
+/ "close" toggle in the namespace tree, and the editor shows the current open set. Binding
+a term shows a live **Normal / SEALED** badge (minimal sealing made visible); the detail
+pane shows an abstract type's derived implementation set. Bootstraps the Counter example
+on load. Substrate is the same `.re` library, untouched.
+
+Run the REPL:
+
+```sh
+eval $(opam env --switch=. --set-switch)
+dune exec ./bin/repl.exe      # :help for the worked Counter example
+```
+
+Run the web app:
+
+```sh
+eval $(opam env --switch=. --set-switch)
+scripts/build-web.sh          # builds public/p15.js (~26 MB)
+open public/index.html        # no server; state resets on reload
+```
+
+Decided against (see `docs/prototypes/p15-open-existentials/decisions.md`):
+
+- edit-of / mint carry-forward across a representation change. Dies-with-hash instead: soundness rides witness-in-hash, distinctness wants a fresh mark, within-checkout lineage is the namespace; mint-persistence deferred to the collaboration phase. The soundness boundary it implies (old-rep value rejected by new-rep op) is tested.
+
+Remaining (optional):
+
+- longest-suffix name resolution (deferred from p9).
+
+## Build
+
+```sh
+eval $(opam env --switch=. --set-switch)   # shared switch (symlinked to p7's)
+dune build && dune runtest
+```
+
+`_opam` symlinks to `../p7-web-interface/_opam/_opam`. Tech stack: OCaml ≥ 5.2,
+Reason, dune ≥ 3.17, Menhir 3.0, ppx_deriving, digestif (BLAKE2B), alcotest /
+qcheck for the substrate; Bonsai / Virtual_dom / Core / js_of_ocaml (v0.17) for
+the web layer only. The `src/` substrate library is wrapped (`P15_substrate`);
+the REPL and tests `open P15_substrate`.
