@@ -21,3 +21,12 @@ Running list. Findings that generalize bubble up to `docs/design/12-type-abstrac
   `Abstract`) and with avoidance (the minted type must not escape the body where it
   is in scope). Until then, the top-level gesture plus closed `unpack` is the whole
   surface.
+- **Answered in p17** (`docs/prototypes/p17-translucent-modules/00-scope.md`):
+  `open e as M in body` is a term form, scoped like `unpack` (de Bruijn type
+  vars + occurs-check avoidance, **no mint** — chosen so a hidden type can
+  never leak without a global name to refer to it by, and so α-equivalence
+  survives). The second half — a functor that opens its argument and *returns*
+  a module mentioning the freshly-opened type — remains inexpressible, now for
+  a sharper reason: the witness varies at runtime with the argument, so escape
+  would be unsound; see p17's open questions for the possible closed-scrutinee
+  relaxation.

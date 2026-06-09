@@ -1,0 +1,11 @@
+(library
+ (name p17_substrate)
+ (public_name p17_translucent_modules.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

@@ -1,0 +1,176 @@
+/* Call-by-value evaluator. Abstraction is erased at runtime: a `Seal` is
+   transparent (evaluate its impl), and an abstract-type value is just its
+   underlying representation value. So `bump2 Counter.empty` reduces through the
+   seals to a plain Int. `Ref`/`Seal.impl` dereference into the store and
+   evaluate the (closed) definition in the empty environment. */
+
+type value =
+  | VInt(int)
+  | VBool(bool)
+  | VPair(value, value)
+  | VClosure(list(value), Node.t) /* captured env, lambda body */
+  | VNil
+  | VCons(value, value)
+  | VRecord(list((Hash.t, value))); /* (label-hash, field value) */
+
+exception Stuck(string);
+
+let rec value_eq = (a: value, b: value): bool =>
+  switch (a, b) {
+  | (VInt(x), VInt(y)) => x == y
+  | (VBool(x), VBool(y)) => x == y
+  | (VPair(a1, a2), VPair(b1, b2)) => value_eq(a1, b1) && value_eq(a2, b2)
+  | (VNil, VNil) => true
+  | (VCons(h1, t1), VCons(h2, t2)) => value_eq(h1, h2) && value_eq(t1, t2)
+  | (VRecord(f1), VRecord(f2)) =>
+    let sort = List.sort(((l1, _), (l2, _)) => String.compare(l1, l2));
+    let (s1, s2) = (sort(f1), sort(f2));
+    List.length(s1) == List.length(s2)
+    && List.for_all2(
+         ((la, va), (lb, vb)) => Hash.equal(la, lb) && value_eq(va, vb),
+         s1,
+         s2,
+       );
+  | (_, _) => false
+  };
+
+let rec eval = (st: Store.t, env: list(value), node: Node.t): value =>
+  switch (node) {
+  | Node.Var(i) =>
+    switch (List.nth_opt(env, i)) {
+    | Some(v) => v
+    | None => raise(Stuck("unbound variable " ++ string_of_int(i)))
+    }
+  | Node.Lit(n) => VInt(n)
+  | Node.BoolLit(b) => VBool(b)
+  | Node.Lam(_, body) => VClosure(env, body)
+  | Node.App(f, x) =>
+    let fv = eval(st, env, f);
+    let xv = eval(st, env, x);
+    switch (fv) {
+    | VClosure(cenv, body) => eval(st, [xv, ...cenv], body)
+    | _ => raise(Stuck("application of a non-function"))
+    };
+  | Node.Let(rhs, body) =>
+    let rv = eval(st, env, rhs);
+    eval(st, [rv, ...env], body);
+  | Node.Pair(a, b) => VPair(eval(st, env, a), eval(st, env, b))
+  | Node.Fst(p) =>
+    switch (eval(st, env, p)) {
+    | VPair(a, _) => a
+    | _ => raise(Stuck("fst of a non-pair"))
+    }
+  | Node.Snd(p) =>
+    switch (eval(st, env, p)) {
+    | VPair(_, b) => b
+    | _ => raise(Stuck("snd of a non-pair"))
+    }
+  | Node.If(c, t, e) =>
+    switch (eval(st, env, c)) {
+    | VBool(true) => eval(st, env, t)
+    | VBool(false) => eval(st, env, e)
+    | _ => raise(Stuck("if on a non-bool"))
+    }
+  | Node.Prim(op, args) => eval_prim(st, env, op, args)
+  | Node.Ref(h) => eval_ref(st, h)
+  | Node.Seal({impl, _}) => eval_ref(st, impl) /* seal is transparent at runtime */
+  | Node.TyLam(body) => eval(st, env, body) /* type abstraction erases */
+  | Node.TyApp(f, _) => eval(st, env, f) /* type application erases */
+  | Node.Struct(members) =>
+    /* type members erase; the runtime value is a record of the value members */
+    VRecord(
+      List.filter_map(
+        ((l, m)) =>
+          switch (m) {
+          | Node.Mtype(_) => None
+          | Node.Mval(e) => Some((l, eval(st, env, e)))
+          },
+        members,
+      ),
+    )
+  | Node.Ascribe({impl, _}) => eval(st, env, impl) /* ascription erases */
+  | Node.Open({pkg, _}) => eval(st, env, pkg) /* the extracted types erase */
+  | Node.Open_local({scrut, body, _}) =>
+    /* at runtime, a scoped open is just a let-binding of the module value */
+    let v = eval(st, env, scrut);
+    eval(st, [v, ...env], body);
+  | Node.Nil(_) => VNil
+  | Node.Cons(h, t) => VCons(eval(st, env, h), eval(st, env, t))
+  | Node.Fold(lst, z, f) =>
+    let fv = eval(st, env, f);
+    let zv = eval(st, env, z);
+    let rec go = l =>
+      switch (l) {
+      | VNil => zv
+      | VCons(hd, tl) => apply(st, apply(st, fv, hd), go(tl))
+      | _ => raise(Stuck("fold: not a list"))
+      };
+    go(eval(st, env, lst));
+  | Node.Record_lit(fields) =>
+    VRecord(List.map(((l, v)) => (l, eval(st, env, v)), fields))
+  | Node.Project_field(r, label) =>
+    switch (eval(st, env, r)) {
+    | VRecord(fields) =>
+      switch (List.find_opt(((l, _)) => Hash.equal(l, label), fields)) {
+      | Some((_, v)) => v
+      | None => raise(Stuck("projection: no such field"))
+      }
+    | _ => raise(Stuck("projection of a non-record"))
+    }
+  }
+
+and apply = (st: Store.t, fv: value, arg: value): value =>
+  switch (fv) {
+  | VClosure(cenv, body) => eval(st, [arg, ...cenv], body)
+  | _ => raise(Stuck("application of a non-function"))
+  }
+
+and eval_ref = (st: Store.t, h: Hash.t): value =>
+  switch (Store.find(st, h)) {
+  | Some(Definition.Term(node)) => eval(st, [], node)
+  | Some(Definition.Type(_)) => raise(Stuck("reference to a type in term position"))
+  | Some(Definition.Label(_)) => raise(Stuck("reference to a label in term position"))
+  | None => raise(Stuck("dangling reference"))
+  }
+
+and eval_prim = (st: Store.t, env, op: Node.prim_op, args: list(Node.t)): value =>
+  switch (op, args) {
+  | (Node.Add, [a, b]) => int_bin(st, env, a, b, (x, y) => x + y)
+  | (Node.Sub, [a, b]) => int_bin(st, env, a, b, (x, y) => x - y)
+  | (Node.Mul, [a, b]) => int_bin(st, env, a, b, (x, y) => x * y)
+  | (Node.Eq, [a, b]) => VBool(value_eq(eval(st, env, a), eval(st, env, b)))
+  | (_, _) => raise(Stuck("primitive arity mismatch"))
+  }
+
+and int_bin = (st: Store.t, env, a, b, f: (int, int) => int): value =>
+  switch (eval(st, env, a), eval(st, env, b)) {
+  | (VInt(x), VInt(y)) => VInt(f(x, y))
+  | (_, _) => raise(Stuck("arithmetic on non-ints"))
+  };
+
+let rec to_string = (v: value): string =>
+  switch (v) {
+  | VInt(n) => string_of_int(n)
+  | VBool(b) => b ? "true" : "false"
+  | VPair(a, b) => "(" ++ to_string(a) ++ ", " ++ to_string(b) ++ ")"
+  | VClosure(_, _) => "<closure>"
+  | VNil => "[]"
+  | VCons(_, _) => "[" ++ list_to_string(v) ++ "]"
+  | VRecord(fields) =>
+    /* labels aren't named here (no namespace); sort by label hash, show values */
+    let sorted =
+      List.sort(((l1, _), (l2, _)) => String.compare(l1, l2), fields);
+    "{ " ++ String.concat(", ", List.map(((_, fv)) => to_string(fv), sorted)) ++ " }";
+  }
+and list_to_string = (v: value): string =>
+  switch (v) {
+  | VNil => ""
+  | VCons(h, VNil) => to_string(h)
+  | VCons(h, t) => to_string(h) ++ ", " ++ list_to_string(t)
+  | other => to_string(other)
+  };
+
+let eval_top = (st: Store.t, node: Node.t): result(value, string) =>
+  try(Ok(eval(st, [], node))) {
+  | Stuck(m) => Error(m)
+  };

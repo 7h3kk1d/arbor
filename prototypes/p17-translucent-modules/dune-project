@@ -1,0 +1,29 @@
+(lang dune 3.17)
+
+(using menhir 3.0)
+
+(name p17_translucent_modules)
+
+(generate_opam_files true)
+
+(package
+ (name p17_translucent_modules)
+ (synopsis "Phase 16 prototype: records / labeled modules")
+ (description
+  "Folds the label sort (design/11) into the p12-p15 type-abstraction line: a first-class minted Label sort, record types/literals that reference labels by hash (canonical by sorted label hash), and an existential package whose interface is a record rather than a positional product. The payoff lands on `open`, which recovers field names from the record's labels (no positional `providing`). Only labels mint; terms and types stay structural. Forks p15-open-existentials (System-F, existentials, open, lists, Bonsai/jsoo web UI).")
+ (depends
+  (ocaml (>= 5.2))
+  (reason (>= 3.12))
+  menhir
+  menhirLib
+  ppx_deriving
+  (digestif (>= 1.1))
+  (js_of_ocaml (>= 5.6.0))
+  (js_of_ocaml-ppx (>= 5.6.0))
+  (bonsai (and (>= v0.17) (< v0.18)))
+  (virtual_dom (and (>= v0.17) (< v0.18)))
+  (core (and (>= v0.17) (< v0.18)))
+  (ppx_jane (and (>= v0.17) (< v0.18)))
+  (alcotest :with-test)
+  (qcheck :with-test)
+  (qcheck-alcotest :with-test)))
