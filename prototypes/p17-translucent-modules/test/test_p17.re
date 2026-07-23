@@ -55,6 +55,37 @@ let tyof_in = (st, h) =>
   | None => Alcotest.fail("no Type_of")
   };
 
+/* Deleting a name is a namespace-only edit: the binding goes away (resolve and
+   the reverse index both forget it), other names for the same hash survive, and
+   the definition itself stays in the store. */
+let test_unbind = () => {
+  let st = Store.create();
+  let ns = Namespace.create();
+  let h = unwrap(Store.ingest_term(st, Node.Lit(42)));
+  Namespace.rebind(ns, ~name="answer", h);
+  Namespace.rebind(ns, ~name="meaning", h);
+  Namespace.unbind(ns, ~name="answer");
+  Alcotest.(check(bool))("unbound name no longer resolves", true, Namespace.resolve(ns, "answer") == None);
+  Alcotest.(check(bool))(
+    "the other name survives",
+    true,
+    Namespace.resolve(ns, "meaning") == Some(h),
+  );
+  Alcotest.(check(bool))(
+    "reverse index forgets only the deleted name",
+    true,
+    Namespace.names_of(ns, h) == ["meaning"],
+  );
+  Alcotest.(check(bool))(
+    "the definition stays in the store",
+    true,
+    Store.find(st, h) != None,
+  );
+  /* unbinding an unknown name is a no-op */
+  Namespace.unbind(ns, ~name="nope");
+  Alcotest.(check(bool))("no-op on unbound", true, Namespace.resolve(ns, "meaning") == Some(h));
+};
+
 /* ---- the Counter worked example ---- */
 
 let test_counter = () => {
@@ -952,6 +983,7 @@ let () =
           Alcotest.test_case("hash determinism", `Quick, test_hash_determinism),
           Alcotest.test_case("mint distinctness", `Quick, test_mint_distinct),
           Alcotest.test_case("mint reproducible", `Quick, test_mint_reproducible),
+          Alcotest.test_case("namespace unbind deletes only the name", `Quick, test_unbind),
         ],
       ),
       (

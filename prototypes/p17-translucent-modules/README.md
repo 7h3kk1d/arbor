@@ -58,7 +58,11 @@ Implemented end to end:
    member — width), `mk_counter`/`Box`/`Box2` (generativity), `CalSig` (ONE sig
    hiding TWO types), `VecSig`/`Vec` (manifest `scalar` stays usable), `total`
    (local open). The "open as module" form previews every binding from the
-   sig's labels — nothing to fill in beyond the module name.
+   sig's labels — nothing to fill in beyond the module name. The namespace
+   browser has a **definition-sort filter** (all / terms / types / labels) next
+   to the substring filter, and the detail pane's name chips carry an **✕ that
+   deletes the name** (`Namespace.unbind`; REPL `:unbind <name>`) — a
+   namespace-only edit, the content-addressed definition stays.
 
 Everything else — opaque types + seals + minimal sealing, System-F (`∀`),
 records, lists, evaluator, REPL, Bonsai web, the `test` aspect — carries over

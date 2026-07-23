@@ -238,6 +238,26 @@ let cmd_impl = name => {
   };
 };
 
+let cmd_unbind = name => {
+  let name = String.trim(name);
+  switch (Namespace.resolve(ns, name)) {
+  | None => err("unbound: " ++ name)
+  | Some(h) =>
+    Namespace.unbind(ns, ~name);
+    let remaining =
+      switch (Namespace.names_of(ns, h)) {
+      | [] => "now unnamed"
+      | l => "still named: " ++ String.concat(", ", l)
+      };
+    Printf.printf(
+      "unbound %s (the definition %s stays in the store; %s)\n",
+      name,
+      Hash.short(h),
+      remaining,
+    );
+  };
+};
+
 let cmd_show = name => {
   let name = String.trim(name);
   switch (Namespace.resolve(ns, name)) {
@@ -328,6 +348,7 @@ let print_help = () => {
   print_endline("  :ctx                             show the current open set");
   print_endline("  :let <name> : <type> = <expr>    bind a term (auto-seals if it needs the rep)");
   print_endline("  :impl <name>                     show what unseals an opaque type");
+  print_endline("  :unbind <name>                   delete a name (the definition stays)");
   print_endline("  :show <name>                     show a definition");
   print_endline("  :ls                              list the namespace");
   print_endline("  <expr>                           show an expression's type");
@@ -371,6 +392,8 @@ let handle = line => {
     cmd_let(drop_prefix(line, ":let "));
   } else if (starts_with(line, ":impl ")) {
     cmd_impl(drop_prefix(line, ":impl "));
+  } else if (starts_with(line, ":unbind ")) {
+    cmd_unbind(drop_prefix(line, ":unbind "));
   } else if (starts_with(line, ":show ")) {
     cmd_show(drop_prefix(line, ":show "));
   } else if (starts_with(line, ":")) {

@@ -10,6 +10,16 @@ type kind =
   | Sealed
 [@@deriving sexp, equal]
 
+(* Which definition sorts the browser shows. [`All] is the default; the others
+   keep only bindings whose definition is of that sort. *)
+type sort_filter =
+  [ `All
+  | `Terms
+  | `Types
+  | `Labels
+  ]
+[@@deriving sexp, equal]
+
 (* One component of a module's sig, for the open form. Every component is
    labeled in p17 (the sig's own labels), so opening needs NO user-supplied
    names — the form just previews what `N.<cname>` will bind. *)
@@ -40,6 +50,7 @@ type t = {
   selected : string option;  (* hash shown in the detail pane *)
   collapsed : string list;  (* namespace section path-prefixes collapsed in the browser *)
   ns_filter : string;  (* substring filter over the whole namespace *)
+  sort_filter : sort_filter;  (* definition-sort filter (terms / types / labels) *)
   ty_name : string;
   ty_body : string;
   ty_abstract : bool;
@@ -61,6 +72,7 @@ let initial : t =
     selected = None;
     collapsed = [];
     ns_filter = "";
+    sort_filter = `All;
     ty_name = "";
     ty_body = "Int";
     ty_abstract = true;
@@ -76,6 +88,8 @@ type action =
   | Toggle_open of string
   | Toggle_collapse of string
   | Set_ns_filter of string
+  | Set_sort_filter of sort_filter
+  | Unbind of string  (* delete a name; the definition stays in the store *)
   | Select of string
   | Set_ty_name of string
   | Set_ty_body of string

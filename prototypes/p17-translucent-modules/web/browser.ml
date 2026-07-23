@@ -203,17 +203,31 @@ let view ~(state : State.t Bonsai.Value.t)
   let s = Substrate.global in
   let _ = state.version in
   let flt = String.strip state.ns_filter in
-  let filtering = not (String.is_empty flt) in
+  let filtering =
+    (not (String.is_empty flt)) || not (State.equal_sort_filter state.sort_filter `All)
+  in
   let flt_lc = String.lowercase flt in
   (* one predicate, shared by the tree and the tally: a name passes if there's no
      filter, or it contains the filter substring (case-insensitive) *)
   let name_matches name =
-    (not filtering) || String.is_substring (String.lowercase name) ~substring:flt_lc
+    String.is_empty flt
+    || String.is_substring (String.lowercase name) ~substring:flt_lc
   in
-  let keep h = List.exists (Namespace.names_of s.ns h) ~f:name_matches in
+  (* the sort filter keeps only bindings whose definition is of that sort *)
+  let sort_matches h =
+    match state.sort_filter, Store.find s.store h with
+    | `All, _ -> true
+    | `Terms, Some (Definition.Term _) -> true
+    | `Types, Some (Definition.Type _) -> true
+    | `Labels, Some (Definition.Label _) -> true
+    | _, _ -> false
+  in
+  let keep h =
+    sort_matches h && List.exists (Namespace.names_of s.ns h) ~f:name_matches
+  in
   let entries =
     Namespace.entries s.ns
-    |> List.filter ~f:(fun (name, _) -> name_matches name)
+    |> List.filter ~f:(fun (name, h) -> name_matches name && sort_matches h)
     |> List.sort ~compare:(fun (a, _) (b, _) -> String.compare a b)
     |> List.map ~f:(fun (name, h) -> (String.split name ~on:'.', h))
   in
@@ -231,6 +245,21 @@ let view ~(state : State.t Bonsai.Value.t)
         ]
       ()
   in
+  let sort_chips =
+    let chip (f : State.sort_filter) label =
+      let active = State.equal_sort_filter state.sort_filter f in
+      Vdom.Node.button
+        ~attrs:
+          [
+            Vdom.Attr.classes [ "btn-mini"; "sort-chip"; (if active then "btn-open-on" else "") ];
+            Vdom.Attr.on_click (fun _ -> inject (State.Set_sort_filter f));
+          ]
+        [ Vdom.Node.text label ]
+    in
+    Vdom.Node.div
+      ~attrs:[ Vdom.Attr.class_ "sort-filter-row" ]
+      [ chip `All "all"; chip `Terms "terms"; chip `Types "types"; chip `Labels "labels" ]
+  in
   let tree =
     if List.is_empty entries then
       [
@@ -244,6 +273,7 @@ let view ~(state : State.t Bonsai.Value.t)
     ([
        Vdom.Node.h2 ~attrs:[ Vdom.Attr.class_ "panel-title" ] [ Vdom.Node.text "namespace" ];
        filter_input;
+       sort_chips;
      ]
     @ tree
     @ [ tests_summary ~keep () ])

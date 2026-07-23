@@ -71,6 +71,17 @@ let rebind = (ns: t, ~name: string, h: Hash.t): unit => {
   add_inverse(ns, name, h);
 };
 
+/* Delete a name. The definition it pointed at stays in the store (content is
+   immutable and name-free); only the editor-level name goes away. Other names
+   for the same hash are untouched. No-op if the name is unbound. */
+let unbind = (ns: t, ~name: string): unit =>
+  switch (Hashtbl.find_opt(ns.by_name, name)) {
+  | None => ()
+  | Some(h) =>
+    Hashtbl.remove(ns.by_name, name);
+    remove_inverse(ns, name, h);
+  };
+
 let resolve = (ns: t, name: string): option(Hash.t) =>
   Hashtbl.find_opt(ns.by_name, name);
 

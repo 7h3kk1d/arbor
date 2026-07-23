@@ -23,9 +23,23 @@ let view ~(state : State.t Bonsai.Value.t)
     | None ->
         [ Vdom.Node.div ~attrs:[ Vdom.Attr.class_ "detail-empty" ] [ Vdom.Node.text "select a definition" ] ]
     | Some h ->
+        (* each name carries an ✕ — deleting a name is a namespace-only edit;
+           the definition (content-addressed, name-free) stays in the store *)
         let name_chips =
           List.map (Namespace.names_of s.ns h) ~f:(fun n ->
-              Vdom.Node.span ~attrs:[ Vdom.Attr.class_ "chip chip-name" ] [ Vdom.Node.text n ])
+              Vdom.Node.span
+                ~attrs:[ Vdom.Attr.class_ "chip chip-name" ]
+                [
+                  Vdom.Node.text n;
+                  Vdom.Node.span
+                    ~attrs:
+                      [
+                        Vdom.Attr.classes [ "chip-unbind"; "clickable" ];
+                        Vdom.Attr.create "title" ("delete the name '" ^ n ^ "' (the definition stays)");
+                        Vdom.Attr.on_click (fun _ -> inject (State.Unbind n));
+                      ]
+                    [ Vdom.Node.text " \xc3\x97" ];
+                ])
         in
         let header =
           Vdom.Node.div

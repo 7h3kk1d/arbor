@@ -153,6 +153,14 @@ body {
   font-size: 0.82rem;
 }
 .ns-filter:focus { outline: none; border-color: var(--accent); }
+
+/* definition-sort filter chips (all / terms / types / labels) */
+.sort-filter-row {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+.sort-chip { margin-left: 0; }
 .tests-summary {
   position: sticky;
   bottom: -0.75rem; /* hug the pane's padding edge */
@@ -315,6 +323,9 @@ body {
   border: 1px solid var(--line);
 }
 .chip-name { color: var(--accent); font-family: var(--mono); }
+/* the ✕ on a detail-pane name chip: delete the name, keep the definition */
+.chip-unbind { color: var(--dim); }
+.chip-unbind:hover { color: var(--sealed); }
 .chip-open { color: var(--open); border-color: var(--open); font-family: var(--mono); }
 
 /* detail */

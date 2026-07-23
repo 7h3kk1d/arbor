@@ -30,6 +30,10 @@ let apply_action ~inject:_ ~schedule_event:_ (m : State.t) (a : State.action) : 
       in
       { m with collapsed }
   | State.Set_ns_filter v -> { m with ns_filter = v }
+  | State.Set_sort_filter f -> { m with sort_filter = f }
+  | State.Unbind name ->
+      Namespace.unbind s.ns ~name;
+      bump m
   | State.Select h -> { m with selected = Some h }
   | State.Set_ty_name v -> { m with ty_name = v }
   | State.Set_ty_body v -> { m with ty_body = v }
