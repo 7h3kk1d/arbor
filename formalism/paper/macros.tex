@@ -73,3 +73,42 @@
 \newcommand{\upd}[3]{#1[#2 \mapsto #3]}
 \newcommand{\pfn}{\rightharpoonup}           % partial function arrow
 \newcommand{\defeq}{\triangleq}
+
+% =====================================================================
+% arbor-stlc additions (additive only; arbor-core does not use these)
+% =====================================================================
+% --- deep types ---
+\newcommand{\TyD}{\mathsf{Ty}}
+\newcommand{\TyBool}{\mathsf{Bool}}
+\newcommand{\TyArr}[2]{#1 \mathbin{\to} #2}
+% --- typed deep terms (extend \Var,\Lam,\App,\tRef) ---
+\newcommand{\LamT}[2]{\lambda{:}#1.\,#2}     % annotated lambda (deep type inline)
+\newcommand{\tTrue}{\mathsf{true}}
+\newcommand{\tFalse}{\mathsf{false}}
+\newcommand{\tIf}[3]{\mathsf{if}\;#1\;\mathsf{then}\;#2\;\mathsf{else}\;#3}
+% --- shallow entries, term sort (extend \nVar,\nLam,\nApp,\nRef) ---
+\newcommand{\nLamT}[2]{\mathsf{Lam}(#1,#2)}  % type-hash, body-hash
+\newcommand{\nTrue}{\mathsf{True}}
+\newcommand{\nFalse}{\mathsf{False}}
+\newcommand{\nIf}[3]{\mathsf{If}(#1,#2,#3)}
+% --- shallow entries, type sort ---
+\newcommand{\nTBool}{\mathsf{TBool}}
+\newcommand{\nTArr}[2]{\mathsf{TArrow}(#1,#2)}
+\newcommand{\Entry}{\mathsf{Entry}}
+% --- surface ---
+\newcommand{\sLamT}[3]{\lambda #1{:}#2.\,#3}
+% --- two-sorted store operations ---
+\newcommand{\reconstructty}{\mathsf{reconstruct}_{\mathsf{ty}}}
+\newcommand{\ingestty}{\mathsf{ingest}_{\mathsf{ty}}}
+% --- typing ---
+\newcommand{\types}[4]{#1;\,#2 \vdash #3 : #4}   % Σ; Γ ⊢ t : T
+\newcommand{\typeofop}{\mathsf{typeof}}
+\newcommand{\wtin}[2]{\mathsf{wt}_{#1}(#2)}      % typeof defined (typed analogue of \closedin)
+% --- TypeOf aspect and 5-component configuration ---
+\newcommand{\TyOf}{\Theta}
+\newcommand{\TConfig}[5]{\langle #1,\, #2,\, #3,\, #4,\, #5\rangle}
+% --- migration report and queries ---
+\newcommand{\residual}{\mathsf{residual}}
+\newcommand{\cleanp}{\mathsf{clean}}
+\newcommand{\brokenq}{\mathsf{broken}}
+\newcommand{\healed}{\mathsf{healed}}

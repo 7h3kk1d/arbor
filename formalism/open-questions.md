@@ -10,7 +10,10 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
 - **Types (STLC).** Promote the well-formedness gate to a typecheck gate. This is where
   `follow` first *fails* interestingly (a caller no longer type-checks against the new
   definition). Add a `Type_of` derived aspect beside `E`; state cache-invalidation on the type
-  aspect. Source language: p6 / p9.
+  aspect. Source language: p6 / p9. — *Graduated 2026-07-30*: `paper/arbor-stlc.tex` (see
+  `decisions.md` same date). Note the resolution differs from this entry's framing: there is
+  no typecheck *gate* — migration commits and reports the residual; and no cache invalidation
+  exists to state — Θ entries are absolute per hash. New questions spawned below.
 - **Mint / thread identity.** The second identity axis (p10/p11): threads that survive content
   edits, `edit-of-X` vs. fresh ingest, `thread_of` grouping. Formalize the mint as orthogonal to
   the content hash and re-derive migration lineage from it (stronger than history-based lineage).
@@ -39,6 +42,9 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
   `Σ` *before* `multi_rebind` may abort, so a failed cascade leaves dead hashes in `Σ` while
   `⟨N,H⟩` is untouched (`update_strategy.re`). The paper models `Σ` as strictly accumulating and
   only `⟨N,H⟩` as transactional (T8). Confirm this is the intended contract, not an artifact.
+  — *Annotated 2026-07-30*: the typed rung confirms accumulate-only is safe — under the
+  permissive store, retained candidates are harmless debris (ill-typed entries are legal,
+  unnamed ones unreachable); and arbor-stlc's Migrate never aborts anyway (commit-and-report).
 - **Round-trip precision.** `resolve_N ∘ print_N` is identity "up to name choice" (alphabetically
   -first among aliases, `pretty.re`). State the equivalence relation on surface terms precisely
   (α + name-choice), or restrict the round-trip theorem to core terms and treat surface as a
@@ -49,6 +55,22 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
 - **Determinism / confluence.** Is CBV-WHNF evaluation with `Ref`-unfolding deterministic as a
   function (it should be)? Worth a small lemma; needed for `E` to be well-defined as a partial
   *function* rather than a relation.
+
+## Modeling questions from `arbor-stlc` (2026-07-30)
+
+- **Sound clean-cache keys.** `clean` is decidable but not stable under store growth
+  (arbor-stlc S8; p11's `BLAKE2B(h_old‖h_new)`-keyed write-once cache is unsound). What key
+  makes a follow-clean cache write-once-sound? Candidates: a store-generation counter; the
+  callers-closure snapshot `(g_old, g_new, callers*(Σ, g_old))` in the key; invalidation on
+  Ingest into the closure (but derived aspects are write-once by design). Interacts with
+  `docs/design/02` if the aspect-key schema must grow.
+- **Type naming and type-level migration.** Type aliases in `N` (`Vector = Bool → Bool`;
+  p9's dividend: alias and spelled-out annotation share a Lam hash), printing types by name
+  (a P-Ref for type positions), and migrating a *type* definition (p11's `Named_type` cascade
+  path) — one successor bundle; arbor-stlc defers all of it and its ρ fixes type entries.
+- **Richer residual reporting.** The formalism's residual is a set of names; the
+  continue-the-refactor UX wants per-name witnesses (expected vs. actual type at the failing
+  position). Editing-layer elaboration over the same dry run, or part of the report?
 
 ## Mechanization questions (Agda)
 

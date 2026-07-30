@@ -1,0 +1,678 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{stmaryrd}
+\usepackage{mathpartir}
+\usepackage{xcolor}
+\usepackage{xr-hyper}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=green!40!black]{hyperref}
+\usepackage[nameinlink]{cleveref}
+\usepackage{enumitem}
+\usepackage{array}
+
+\externaldocument[core:]{arbor-core}
+
+\input{macros}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}[section]
+
+\newcommand{\src}[1]{{\footnotesize\textcolor{gray}{[\texttt{#1}]}}}
+% External references to arbor-core. Every use is visually marked, since both
+% documents number "Definition X.Y". Fallback if xr ever misbehaves: redefine as
+% \newcommand{\coreref}[1]{\textsc{arbor-core}~\texttt{#1}}.
+\newcommand{\arborcore}{\textsc{arbor-core}}
+\newcommand{\coreref}[1]{\arborcore~\cref{core:#1}}
+
+\title{\textbf{arbor-stlc}\\[2pt]
+\large The simply-typed rung of the arbor formalism:\\
+content-addressed types, a typing aspect, and migration that reports what it broke}
+\author{The arbor project}
+\date{Draft --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We extend \arborcore{} --- the untyped $\lambda$ formalism of the arbor substrate --- with
+simple types, following prototype \texttt{p6} for the type system and \texttt{p9} for
+content-addressed types. The store becomes two-sorted (term entries and type entries), a
+syntax-directed typing judgment with a reference rule is added, and typing becomes a second
+derived aspect beside the evaluation cache. Nothing is gated on types: the store and the
+namespace remain fully permissive, and migration commits exactly as before. What types add is
+\emph{accounting}: a well-typed term evaluates safely no matter how ill-typed its neighbors
+are (local soundness); a migration reports the \emph{residual} --- precisely the dependents it
+broke, the to-do list for continuing the refactor --- and breaks nothing it does not report;
+a migration at an unchanged type has an empty residual, for every scope (type-preserving
+migration is total); and the \emph{clean} predicate --- ``no intervention will be needed'' ---
+is decidable ahead of time but, unlike every other derived aspect in the substrate, is not
+stable under store growth, which surfaces a latent unsoundness in \texttt{p11}'s cached
+\texttt{follow-clean} oracle.
+\end{abstract}
+
+\tableofcontents
+
+\section{Scope and posture}\label{sec:scope}
+
+This document is a \emph{delta} over \arborcore{}: it restates only what changes and cites
+the rest. ``Restate'' means the definition appears here in full because it changed;
+``cite'' means a \coreref{def:store}-style reference with at most a one-line delta note.
+\arborcore{} itself is unmodified.
+
+\paragraph{What this rung adds.}
+\begin{itemize}[nosep]
+  \item \textbf{Simple types} over one base type, per \texttt{p6}: $\TyBool$, arrows,
+  annotated lambdas, $\tTrue/\tFalse/\mathsf{if}$ --- plus the $\tRef{}$ node carried from
+  \arborcore{} (\texttt{p6} has no reference node; the typing rule for references is new
+  formal content, \cref{rem:tref}).
+  \item \textbf{Content-addressed types}, per \texttt{p9}'s extension and \emph{diverging}
+  from \texttt{p6}, which stores annotations inline: types are store entries in their own
+  right, and a $\lambda$'s annotation is a hash (\cref{sec:store2}). Structural type equality
+  collapses to hash equality (\cref{prop:ty-ident}).
+  \item \textbf{A second derived aspect}: $\TyOf$ maps a term hash to the hash of its type,
+  with the same write-once discipline as the evaluation cache (\cref{sec:aspects}).
+  \item \textbf{Migration accounting}: the \emph{residual} (what a migration broke), the
+  \emph{clean} predicate (the residual will be empty), and the \emph{broken} query (which
+  names currently denote ill-typed terms) --- \cref{sec:migration}.
+\end{itemize}
+
+\paragraph{What this rung deliberately does not add.} \emph{No typed gate.} Migration
+commits exactly as in \arborcore{} and never aborts on type errors; it reports them. The
+store and the namespace stay fully permissive --- ill-typed closed terms may be stored
+\emph{and named} (a mid-refactor state); typing is purely observational. \texttt{p11}'s
+cascade aborts on the first ill-typed caller; that behavior is recoverable as editing-layer
+policy (``if clean, migrate; else ask''), and the substrate primitive stays total
+(\cref{rem:abort}). Also deferred: type names in the namespace (type aliasing) and
+type-level migration; \texttt{p6}'s second language and translation; mints. Rationale for
+all of it lives in \texttt{formalism/decisions.md}.
+
+\paragraph{Five results are the point.}
+\begin{itemize}[nosep]
+  \item \emph{Local soundness} (\cref{thm:local}): a well-typed term evaluates safely
+  regardless of the typing status of every other entry and name.
+  \item \emph{Residual exactness / no silent type-breakage} (\cref{thm:residual-exact}):
+  a migration breaks exactly the names in its report, and nothing else.
+  \item \emph{Type-preserving migration is total} (\cref{thm:tp-total}): editing a
+  definition at an unchanged type yields an empty residual under every scope --- no
+  dependent ever needs rechecking.
+  \item \emph{The clean oracle} (\cref{thm:clean-oracle}): clean and the residual are
+  decidable before migrating --- but clean is \emph{not} stable under store growth, so it
+  cannot be cached the way \texttt{p11} caches it.
+  \item \emph{Incrementality} (\cref{cor:incr}): typing, like evaluation, is computed at
+  most once per hash; migration invalidates nothing outside its own image.
+\end{itemize}
+
+\bigskip
+Notation, margin tags, and conventions are \arborcore{}'s; $\TyD$ ranges over deep types,
+$T,U$ over its elements.
+
+% =====================================================================
+\section{Part I --- The typed object language}\label{sec:lang}
+
+\begin{definition}[Types]\label{def:ty}
+\src{ty.re} $T, U \;::=\; \TyBool \;\mid\; \TyArr{T}{U}$. Equality is structural.
+\end{definition}
+
+\begin{definition}[Core terms]\label{def:core}
+\src{stlc\_ast.re, +\,ref} Core terms are \arborcore{}'s with annotations and booleans:
+\[
+  t,u \;::=\; \Var{i} \;\mid\; \LamT{T}{t} \;\mid\; \App{t}{u} \;\mid\;
+  \tTrue \;\mid\; \tFalse \;\mid\; \tIf{t}{t_1}{t_2} \;\mid\; \tRef{h}.
+\]
+Scoping, $\shift{d}{c}{\cdot}$, $\subst{j}{s}{\cdot}$, and $\mathsf{beta}$ extend pointwise
+from \coreref{def:closed} and \coreref{def:beta}: annotations contain no term variables and
+pass through untouched \src{stlc\_ast.re}, $\tRef{h}$ stays inert, and the new leaves
+$\tTrue/\tFalse$ are closed.
+\end{definition}
+
+\begin{definition}[Surface terms]\label{def:surface}
+\src{stlc\_surface\_ast.re} $s ::= \sVar{x} \mid \sLamT{x}{T}{s} \mid \App{s}{s'} \mid
+\tTrue \mid \tFalse \mid \tIf{s}{s_1}{s_2}$. Surface types are deep types --- there are no
+type names this rung, so a written annotation denotes itself.
+\end{definition}
+
+\begin{remark}[$\alpha$-canonicity and rigid annotations]\label{rem:alpha-ann}
+De Bruijn indices still collapse exactly $\alpha$-equivalence (\coreref{thm:alpha} carries
+over), but annotations are part of the term: $\lambda x{:}\TyBool.\,x$ and
+$\lambda x{:}(\TyArr{\TyBool}{\TyBool}).\,x$ are distinct terms with distinct hashes
+\src{ty.re: ``annotation is in the hashed bytes''}.
+\end{remark}
+
+% =====================================================================
+\section{Part II --- The two-sorted store}\label{sec:store2}
+
+\begin{definition}[Entries]\label{def:entry}
+\src{stlc\_node.re; p9 node.re, definition.re} The store is
+$\Store : \Hash \pfn \Entry$, where an entry is a shallow node of one of two sorts:
+\begin{align*}
+  \text{term entries}\quad n &\;::=\; \nVar{i} \;\mid\; \nLamT{h_T}{h} \;\mid\;
+    \nApp{h_1}{h_2} \;\mid\; \nTrue \;\mid\; \nFalse \;\mid\; \nIf{h_1}{h_2}{h_3}
+    \;\mid\; \nRef{h}\\
+  \text{type entries}\quad \tau &\;::=\; \nTBool \;\mid\; \nTArr{h_{T_1}}{h_{T_2}}
+\end{align*}
+A $\nLamT{h_T}{h}$ carries its annotation \emph{by hash}. There is one injective
+$\hashof{\cdot} : \Entry \to \Hash$; injectivity ($\star$, \coreref{def:hash}) across the
+whole sum makes the two sorts' hash spaces disjoint as a corollary, not an axiom.
+\end{definition}
+
+\begin{remark}[Realizations]\label{rem:two-sort-hash}
+\texttt{p6} tags every encoding with language byte \texttt{'S'} and encodes the $\lambda$
+annotation \emph{inline} (types are not content-addressed there) \src{stlc\_node.re};
+\texttt{p9}'s extension content-addresses types under sort bytes
+(\texttt{'P'}/\texttt{'T'}) but stores each type as one \emph{deep} entry. This formalism
+follows \texttt{p9} on content-addressing and diverges on depth: type entries are shallow
+($\nTArr{h}{h}$), the store's uniform discipline. Since types are finite and reference-free
+the two presentations intern the same information; shallowness is what lets
+\cref{prop:ty-ident} reuse \coreref{thm:alpha}'s induction verbatim.
+\end{remark}
+
+\begin{definition}[Reconstruction, two-sorted]\label{def:reconstruct}
+$\reconstructty : \Hash \pfn \TyD$ follows type entries
+($\nTBool \mapsto \TyBool$; $\nTArr{h_1}{h_2}$ recurses) and is \emph{undefined} on term
+entries; $\reconstruct : \Hash \pfn \Term$ follows term entries, reading
+$\reconstructty$ at $\nLamT{}{}$ annotations, stopping at $\Var{}$ and $\tRef{}$ leaves,
+and is undefined on type entries. Sort discipline is thereby folded into definedness: a
+$\lambda$ whose annotation hash resolves to a term entry simply fails to reconstruct, and
+\coreref{def:wf} clause (i) --- cited verbatim, read with the sort-appropriate
+reconstruction --- already excludes it. Clauses (ii) and (iii) are unchanged: only term
+entries have $\refs$, so type entries are isolated vertices of the reference graph and have
+no callers.
+\end{definition}
+
+\begin{definition}[Ingest, two-sorted]\label{def:ingest}
+\src{store.re: ingest; p9} $\ingestty(\Store, T)$ registers a deep type bottom-up;
+$\ingest(\Store, t)$ is \coreref{def:ingest} extended by
+$\ingest(\Store, \LamT{T}{t}) = $ register $\nLamT{h_T}{h}$ where
+$(\Store_1, h_T) = \ingestty(\Store, T)$ and $(\Store_2, h) = \ingest(\Store_1, t)$, and by
+the evident $\nTrue/\nFalse/\nIf{}{}{}$ cases. As before, ingesting $\tRef{h}$ does not
+ingest $h$.
+\end{definition}
+
+\begin{proposition}[Hashing collapses type equality]\label{prop:ty-ident}
+For deep types $T, U$ ingested at root hashes $h_T, h_U$: $h_T = h_U \iff T = U$. Hence
+structural type equality \emph{is} hash comparison for stored types --- the typed analogue
+of \coreref{thm:alpha}, by the same injectivity induction.
+\end{proposition}
+
+% =====================================================================
+\section{Part III --- Typing}\label{sec:typing}
+
+\begin{definition}[Typing judgment]\label{def:typing}
+\src{stlc\_typecheck.re: infer} Under a context $\Gamma$ (a list of deep types, innermost
+binder first), $\types{\Store}{\Gamma}{t}{T}$ is the least relation closed under:
+\begin{mathpar}
+  \inferrule*[right=T-True]{\ }{\types{\Store}{\Gamma}{\tTrue}{\TyBool}}
+  \and
+  \inferrule*[right=T-False]{\ }{\types{\Store}{\Gamma}{\tFalse}{\TyBool}}
+  \and
+  \inferrule*[right=T-Var]{\Gamma(i) = T}{\types{\Store}{\Gamma}{\Var{i}}{T}}
+  \\
+  \inferrule*[right=T-Abs]{\types{\Store}{T{:}\Gamma}{t}{U}}
+            {\types{\Store}{\Gamma}{\LamT{T}{t}}{\TyArr{T}{U}}}
+  \and
+  \inferrule*[right=T-App]{\types{\Store}{\Gamma}{t}{\TyArr{T}{U}} \\
+                           \types{\Store}{\Gamma}{u}{T}}
+            {\types{\Store}{\Gamma}{\App{t}{u}}{U}}
+  \\
+  \inferrule*[right=T-If]{\types{\Store}{\Gamma}{t}{\TyBool} \\
+                          \types{\Store}{\Gamma}{t_1}{T} \\
+                          \types{\Store}{\Gamma}{t_2}{T}}
+            {\types{\Store}{\Gamma}{\tIf{t}{t_1}{t_2}}{T}}
+  \and
+  \inferrule*[right=T-Ref]{\types{\Store}{\emptyset}{\reconstruct(\Store,h)}{T}}
+            {\types{\Store}{\Gamma}{\tRef{h}}{T}}
+\end{mathpar}
+The annotation in \textsc{T-Abs} is taken as given, never checked against anything, and
+\textsc{T-App}/\textsc{T-If} demand \emph{structural} type equality --- both faithful to
+\texttt{p6}'s \texttt{infer}. By \cref{prop:ty-ident}, implementations discharge the
+equality side conditions by hash comparison; the judgment itself stays at the level of deep
+types.
+\end{definition}
+
+\begin{remark}[\textsc{T-Ref} is new formal content]\label{rem:tref}
+\texttt{p6} has no such rule: it inlines a referenced definition's whole body at resolution
+time, so no reference survives to the typing judgment. \textsc{T-Ref} types the reference
+through the store, the same idealization step \arborcore{} took when it reintroduced
+$\nRef{}$ itself. Note the judgment is deliberately pure of the $\TyOf$ \emph{aspect}
+(\cref{sec:aspects}) --- it re-derives the target's typing rather than reading a cache ---
+mirroring how $\Downarrow$ never reads $\Cache$. A reference into a cycle simply has no
+derivation, exactly as \textsc{E-Ref} on a cycle simply diverges.
+\end{remark}
+
+\begin{lemma}[Typing implies scoping]\label{lem:ty-scope}
+$\types{\Store}{\Gamma}{t}{T} \implies \vdash_{|\Gamma|} t$. In particular a
+\textsc{T-Ref} target is closed with no separate premise.
+\end{lemma}
+
+\begin{lemma}[Unique types]\label{lem:ty-unique}
+If $\types{\Store}{\Gamma}{t}{T_1}$ and $\types{\Store}{\Gamma}{t}{T_2}$ then $T_1 = T_2$.
+\emph{Sketch:} the rules are syntax-directed; induction on the derivation, inversion at
+each step (\textsc{T-Ref} included: both derivations continue at the same reconstruction).
+\end{lemma}
+
+\begin{definition}[typeof and well-typedness]\label{def:typeof}
+$\typeofop(\Store,h)$ is the unique $T$ with
+$\types{\Store}{\emptyset}{\reconstruct(\Store,h)}{T}$, a partial function
+(\cref{lem:ty-unique}); write $\wtin{\Store}{h}$ for its definedness. $\wtin{\Store}{h}$
+implies $\closedin{\Store}{h}$ (\cref{lem:ty-scope}) --- the typed analogue refines the
+untyped notion.
+\end{definition}
+
+\begin{lemma}[Typing is absolute for stored hashes]\label{lem:ty-stable}
+Let $\wf(\Store)$, $\Store \subseteq \Store'$, $\wf(\Store')$, and $h \in \dom(\Store)$.
+Then $\typeofop(\Store',h) = \typeofop(\Store,h)$ (both sides equidefined). More generally
+$\types{\Store}{\Gamma}{t}{T} \iff \types{\Store'}{\Gamma}{t}{T}$ whenever every hash in
+$t$'s reference closure lies in $\dom(\Store)$.
+\emph{Sketch:} a derivation reads only entries reachable from $t$'s references, which are
+identical in both stores by immutability (\coreref{thm:mono}); replay in either direction
+--- the same argument as \coreref{thm:stability}. So the type of a stored term is a fact
+about the hash, fixed at ingest time forever.
+\end{lemma}
+
+\begin{proposition}[Decidability]\label{prop:ty-dec}
+On a finite well-formed store, $\types{\Store}{\Gamma}{t}{T}$ and $\typeofop(\Store,\cdot)$
+are decidable. \emph{Sketch:} structural recursion on $t$, nested with well-founded
+recursion on reference-graph rank at \textsc{T-Ref} (acyclicity is \coreref{def:wf}
+clause~(iii)).
+\end{proposition}
+
+\begin{remark}[The store and the namespace are permissive]\label{rem:permissive}
+Nothing above is a store invariant. $\dom(\Store)$ may hold closed \emph{ill-typed}
+entries, and --- unlike \texttt{p6}, whose resolver refuses to ingest an ill-typed
+definition --- nothing here stops a name from being bound to one: a broken name is a
+legitimate mid-refactor state. Typing is \emph{observational}: the substrate computes,
+caches, and reports it ($\typeofop$, $\TyOf$, $\brokenq$, the migration residual) but never
+gates on it. \texttt{p6}'s resolver check is editing-layer policy layered above these
+observations.
+\end{remark}
+
+\begin{definition}[The broken query]\label{def:broken}
+$\brokenq(\Store,\Names) \defeq \{\, x \in \dom(\Names) \mid \lnot\,\wtin{\Store}{\Names(x)}\,\}$
+--- the names currently denoting ill-typed terms; the standing ``hunt down what still needs
+fixing'' query. Decidable (\cref{prop:ty-dec}; coherent configurations keep $\Names$'s
+targets closed and reconstructible, so failure is genuinely a typing failure). Since typing
+is absolute per hash (\cref{lem:ty-stable}), a name's broken status changes only when its
+\emph{binding} changes --- the observation \cref{thm:residual-exact} sharpens.
+\end{definition}
+
+% =====================================================================
+\section{Part IV --- Naming deltas}\label{sec:naming}
+
+The namespace, resolution, binding history, and orphans are \coreref{def:ns},
+\coreref{def:resolve}, \coreref{def:history}, \coreref{def:orphan}, unchanged --- including
+the premises of the naming transitions: binding demands closedness, not well-typedness
+(\cref{rem:permissive}).
+
+Elaboration and printing extend pointwise; only the $\lambda$ rules change, plus evident
+rules for the new leaves:
+\begin{mathpar}
+  \inferrule*[right=El-Lam]{x{:}\Gamma;\Names \vdash s \Rrightarrow t}
+            {\Gamma;\Names \vdash \sLamT{x}{T}{s} \Rrightarrow \LamT{T}{t}}
+  \and
+  \inferrule*[right=P-Lam]{x{:}\Delta;\Names \vdash t \Lleftarrow s}
+            {\Delta;\Names \vdash \LamT{T}{t} \Lleftarrow \sLamT{x}{T}{s}}
+\end{mathpar}
+Annotations pass through elaboration untouched (surface types denote themselves) and print
+structurally (no type names to prefer). Elaboration remains store-free; it is $\ingest$
+that registers annotation types via $\ingestty$ (\cref{def:ingest}). Both round-trip
+propositions (\coreref{prop:print-elab}, \coreref{prop:elab-print}) carry over with
+unchanged proofs, and the equivalence $\approx$ is unchanged --- annotations admit no
+choice. Note elaboration does \emph{not} typecheck: \texttt{p6} runs its typecheck between
+elaboration and ingest as editing-layer policy \src{resolver.re: resolve\_stlc}, and this
+rung models the policy's \emph{ingredients} ($\typeofop$, $\brokenq$), not the policy.
+
+% =====================================================================
+\section{Part V --- Evaluation and type safety}\label{sec:eval}
+
+\begin{definition}[Values and evaluation]\label{def:value}
+\src{stlc\_node.re: is\_value; stlc\_eval.re} Values are
+$\val ::= \LamT{T}{t} \mid \tTrue \mid \tFalse$. The evaluation relation is
+\coreref{def:eval} with \textsc{E-Lam} generalized to values ($\evals{\Store}{\val}{\val}$)
+and two new rules; \textsc{E-Ref} and \textsc{E-App} are unchanged:
+\begin{mathpar}
+  \inferrule*[right=E-IfTrue]
+    {\evals{\Store}{t}{\tTrue} \\ \evals{\Store}{t_1}{\val}}
+    {\evals{\Store}{\tIf{t}{t_1}{t_2}}{\val}}
+  \and
+  \inferrule*[right=E-IfFalse]
+    {\evals{\Store}{t}{\tFalse} \\ \evals{\Store}{t_2}{\val}}
+    {\evals{\Store}{\tIf{t}{t_1}{t_2}}{\val}}
+\end{mathpar}
+Determinism (\coreref{lem:determinism}) carries over: the guard's value selects at most one
+rule.
+\end{definition}
+
+\begin{lemma}[Substitution]\label{lem:subst}
+If $\types{\Store}{T_1{:}\Gamma}{t}{T_2}$ and $\types{\Store}{\Gamma}{v}{T_1}$ then
+$\types{\Store}{\Gamma}{\mathsf{beta}(t,v)}{T_2}$. \emph{Sketch:} standard (TAPL 9.3.8),
+with annotations and $\tRef{}$ inert; \textsc{T-Ref} subderivations are closed and
+untouched by shifting.
+\end{lemma}
+
+\begin{theorem}[Preservation]\label{thm:pres}
+If $\types{\Store}{\emptyset}{t}{T}$ and $\evals{\Store}{t}{\val}$ then
+$\types{\Store}{\emptyset}{\val}{T}$.
+\emph{Sketch:} induction on the evaluation derivation. \textsc{E-App}: inversion +
+\cref{lem:subst}. \textsc{E-Ref}: inversion of \textsc{T-Ref} \emph{is} the typing of the
+unfolded target --- no appeal to any aspect or store invariant. \textsc{E-IfTrue/False}:
+inversion of \textsc{T-If}. \qed
+\end{theorem}
+
+\begin{lemma}[Canonical forms]\label{lem:canon}
+A closed value of type $\TyBool$ is $\tTrue$ or $\tFalse$; of type $\TyArr{T}{U}$ is some
+$\LamT{T}{t}$.
+\end{lemma}
+
+\begin{theorem}[Progress]\label{thm:prog}
+If $\types{\Store}{\emptyset}{t}{T}$, then no evaluation position reached from $t$ has a
+stuck head: never a free $\Var{}$ (closedness, \cref{lem:ty-scope}), never a non-$\lambda$
+value in function position (\cref{thm:pres} + \cref{lem:canon}), never a non-boolean guard
+value (likewise), and every $\tRef{}$ met is reconstructible (\textsc{T-Ref} presupposes
+it). \emph{Sketch:} \coreref{lem:closed-no-stuck}'s reachable-position device, with the
+typed invariant maintained by \cref{thm:pres} at each step.
+\end{theorem}
+
+\begin{corollary}[Stuck is unreachable, fueled]\label{cor:no-stuck}
+\texttt{p6}'s fueled evaluator returns \textsf{Value}, \textsf{Stuck}, or
+\textsf{StepLimit}; on a well-typed closed term it never returns \textsf{Stuck} --- the
+comment ``Stuck is theoretically unreachable on closed definitions; we keep the case for
+defence in depth'' \src{stlc\_eval.re} is \cref{thm:prog} stated about the implementation.
+\coreref{cor:fuel} carries over unchanged: only divergence is non-cacheable.
+\end{corollary}
+
+\begin{theorem}[Local soundness: well-typed islands]\label{thm:local}
+Suppose $\wtin{\Store}{h}$. Then evaluating $\tRef{h}$ never reaches a stuck head, and if
+it converges the value has type $\typeofop(\Store,h)$ --- \emph{independently of the typing
+status of every other entry and every name}. The store may be full of ill-typed closed
+debris and $\brokenq(\Store,\Names)$ may be non-empty; none of it is reachable from $h$.
+\emph{Sketch:} \cref{thm:pres} + \cref{thm:prog} mention no global hypothesis: a
+$\wtin{\Store}{h}$ derivation types, via \textsc{T-Ref}, everything in $h$'s own reference
+closure --- a well-typed term carries its support with it. Combined with
+\cref{lem:ty-stable}, the guarantee also survives all future store growth. \qed
+\end{theorem}
+
+% =====================================================================
+\section{Part VI --- Aspects: the cache and the typing aspect}\label{sec:aspects}
+
+The evaluation cache $\Cache$ is \coreref{def:cache} unchanged, with one delta: values now
+include booleans, so ``values being closed abstractions'' weakens to ``closed values''.
+
+\begin{definition}[The typing aspect]\label{def:typeof-aspect}
+\src{stlc\_typecheck.re; p9 typecheck.re} $\TyOf : \Hash \pfn \Hash$ is a \emph{derived}
+aspect mapping the hash of a term to the hash of its \emph{type, itself ingested as a type
+entry}. Both key and value are store hashes, as with $\Cache$; \texttt{p6} stores the deep
+$\TyD$ inline (\texttt{Type\_of(Ty.t)}, its first non-hash-valued aspect), and \texttt{p9}'s
+extension made it hash-valued --- we follow \texttt{p9}, recording the divergence. Its
+discipline mirrors \textsc{Cache-sound}: written only for a defined $\typeofop$, never
+overwritten:
+\begin{mathpar}
+  \inferrule*[right=TypeOf-sound]
+    {h \in \dom(\TyOf)}
+    {\reconstructty(\Store, \TyOf(h)) = \typeofop(\Store,h)}
+\end{mathpar}
+In particular $h \in \dom(\TyOf)$ implies $\wtin{\Store}{h}$: broken terms simply never
+acquire a $\TyOf$ entry.
+\end{definition}
+
+\begin{theorem}[Typing-aspect stability]\label{thm:typeof-stable}
+If \textsc{TypeOf-sound} holds for a coherent $C$ and $C \steps C'$, it holds for $C'$;
+hence the type of a definition is computed \emph{at most once} across the whole history ---
+the typed twin of \coreref{cor:cache}. \emph{Sketch:} \cref{lem:ty-stable} for the store
+growth; $\reconstructty$ at a stored hash never changes (\coreref{thm:mono}); no rule
+removes or overwrites a $\TyOf$ entry. \qed
+\end{theorem}
+
+\begin{corollary}[The aspects agree]\label{cor:aspect-agree}
+If $h \in \dom(\Cache) \cap \dom(\TyOf)$ then
+$\typeofop(\Store, \Cache(h)) = \reconstructty(\Store, \TyOf(h))$: the cached value has the
+cached type (\cref{thm:pres} + \cref{lem:ty-unique}). No coherence clause is needed to
+enforce this --- it is derivable.
+\end{corollary}
+
+% =====================================================================
+\section{Part VII --- The edit calculus}\label{sec:edit}
+
+\begin{definition}[Configuration and coherence]\label{def:config}
+$C = \TConfig{\Store}{\Names}{\Cache}{\TyOf}{\Hist}$ --- \coreref{def:config} with the
+typing aspect alongside the cache. Coherence is \arborcore{}'s four clauses verbatim
+(well-formedness; names and history hashes closed; history coherence and
+\textsc{Cache-sound}) plus \textsc{TypeOf-sound}. Deliberately \emph{not} a clause:
+well-typedness of named hashes (\cref{rem:permissive}).
+\end{definition}
+
+\begin{definition}[Transitions]\label{def:transitions}
+\textsc{Ingest}, \textsc{Bind}, \textsc{Rebind}, \textsc{Unbind} are
+\coreref{def:transitions} unchanged ($\TyOf$ carried like $\Cache$); \textsc{Migrate} is
+\cref{def:migrate}. \textsc{Eval} is unchanged too; alongside it, the typing aspect gets
+its own transition:
+\begin{mathpar}
+  \inferrule*[right=TypeOf]
+    {\typeofop(\Store,h) = T \\ h \notin \dom(\TyOf) \\ \ingestty(\Store,T) = (\Store', h_T)}
+    {\TConfig{\Store}{\Names}{\Cache}{\TyOf}{\Hist} \steps
+     \TConfig{\Store'}{\Names}{\Cache}{\upd{\TyOf}{h}{h_T}}{\Hist}}
+\end{mathpar}
+\end{definition}
+
+\begin{remark}[Values enter the store past every editing-layer check]\label{rem:eval-ingest}
+\textsc{Eval} ingests $\beta$-normal values that no resolver ever saw --- in \texttt{p6}
+too, whose evaluator ingests every reduct \src{stlc\_eval.re: try\_beta}, bypassing the
+resolver's typecheck. Under the permissive store this needs no excuse; what makes it
+\emph{harmless} is \cref{thm:pres}: the values are well-typed anyway. \texttt{p6}'s
+``bypass paths'' are exactly the places where its store invariant is really a metatheorem.
+\end{remark}
+
+\begin{theorem}[Coherence preservation]\label{thm:wf}
+If $C$ is coherent and $C \steps C'$, then $C'$ is coherent. \emph{Sketch:} the untyped
+clauses are \coreref{thm:wf} unchanged (the new transition adds only type entries ---
+reconstructible by construction, reference-free, so acyclicity and target-closedness are
+untouched; monotonicity extends to $\TyOf$). \textsc{TypeOf-sound} is preserved by
+\cref{thm:typeof-stable}. And \coreref{thm:nsb} gains its typed half for free: typing never
+reads $\Names$, so a name edit never changes any $\typeofop$ --- no silent breakage,
+typed. \qed
+\end{theorem}
+
+% =====================================================================
+\section{Part VIII --- Migration: the residual, clean, and totality}\label{sec:migration}
+
+Migration itself is \arborcore{}'s, unchanged: the whole-store rewrite $\rho$
+(\coreref{def:cascade}) with scope-guarded reference crossings, callers as observation
+(\coreref{def:callers}), strategies as scopes (\coreref{def:strategy}), sequential passes
+(\coreref{lem:cascade-order}), and the always-committing transition. $\rho^{\#}$ recurses
+uniformly through \emph{all} structural children, the $\nLamT{}{}$ annotation edge
+included. What the typed rung adds is a \emph{report}.
+
+\begin{lemma}[$\rho$ fixes types]\label{lem:rho-ty}
+$\rho$ is the identity on type entries: they have no references, so $\rho^{\#}$ rewrites
+nothing beneath them. Consequently annotations pass through migration unchanged, and a
+migration seed is necessarily term-sorted. Type-level migration is inexpressible this rung
+(no type names to rebind); it returns with type naming
+(\texttt{open-questions.md}).
+\end{lemma}
+
+\begin{lemma}[Rewrite commutes with reconstruction]\label{lem:rho-reconstruct}
+$\reconstruct(\Store', \rho(h)) = \substrefs{\hat\rho}{\reconstruct(\Store,h)}$, where
+$\substrefs{\hat\rho}{\cdot}$ rewrites $\tRef{}$ leaves per the scope-guarded map
+(\coreref{def:substrefs}). \emph{Sketch:} induction on the combined graph; annotations are
+fixed by \cref{lem:rho-ty}. This is the store-level/term-level bridge every result below
+crosses; it is implicit in \arborcore{} and explicit here.
+\end{lemma}
+
+\begin{definition}[Residual and clean]\label{def:residual}
+\src{follow\_clean.re} For a migration rewrite $\rho$ with seed
+$g_{\mathrm{old}} \mapsto g_{\mathrm{new}}$ and scope $P$ over $(\Store, \Names)$, with
+$\Store'$ the extended store:
+\[
+  \residual \;\defeq\; \{\, h \mid \rho(h) \neq h,\ \wtin{\Store}{h},\
+    \lnot\,\wtin{\Store'}{\rho(h)} \,\}
+\]
+--- the followers the migration \emph{breaks}. Its name-level face, the migration's
+\textbf{report}, is
+\[
+  \residual_{\Names} \;\defeq\; \{\, x \in \dom(\Names) \mid
+    \Names'(x) \neq \Names(x),\ \wtin{\Store}{\Names(x)},\
+    \lnot\,\wtin{\Store'}{\Names'(x)} \,\},
+\]
+the ``continue the refactor'' list. Dually,
+$\healed_{\Names} \defeq \{x \mid \Names'(x) \neq \Names(x),\
+\lnot\,\wtin{\Store}{\Names(x)},\ \wtin{\Store'}{\Names'(x)}\}$. The migration is
+\textbf{clean} iff $\residual = \emptyset$.
+\end{definition}
+
+\begin{definition}[Migration transition, with report]\label{def:migrate}
+\textsc{Migrate} is \coreref{def:migrate} verbatim --- it \emph{always commits}: the
+rewrite extends $\Store$, the bundle $U$ rebinds atomically, $\Cache$ and $\TyOf$ are
+carried unchanged (their entries key old hashes, which remain valid,
+\cref{lem:ty-stable}). The transition's observable output additionally includes
+$\residual_{\Names}$.
+\end{definition}
+
+\begin{remark}[Commit-and-report, not gate-and-abort]\label{rem:abort}
+\texttt{p11}'s cascade \emph{aborts} on the first rewritten caller that fails its
+typecheck \src{update\_strategy.re: Cascade\_typecheck\_failed}. This rung deliberately
+diverges: the substrate primitive is total and reports what broke; refusal is
+editing-layer policy, definable as ``if $\cleanp$ then \textsc{Migrate} else consult the
+user'' using \cref{thm:clean-oracle}(a) --- the same layering as names themselves.
+Breakage is never silent (\cref{thm:residual-exact}) and never forbidden
+(\cref{rem:permissive}); it is \emph{visible}, and \cref{thm:local} guarantees the
+untouched, well-typed remainder of the namespace keeps evaluating while the user works
+through the list.
+\end{remark}
+
+\begin{theorem}[Residual exactness --- no silent type-breakage]\label{thm:residual-exact}
+After a \textsc{Migrate} step,
+\[
+  \brokenq(\Store',\Names') \;=\;
+  \bigl(\brokenq(\Store,\Names) \setminus \healed_{\Names}\bigr)
+  \;\cup\; \residual_{\Names}.
+\]
+A migration breaks exactly the names it reports; names it did not rebind never change
+status; and it may incidentally \emph{heal} broken names, which the standing query
+reflects. \emph{Sketch:} per name. If $x$ is not rebound, its hash is unchanged and typing
+is absolute per hash (\cref{lem:ty-stable}), so its status is unchanged. If $x$ is rebound
+to $\rho(\Names(x))$, the four $\mathsf{wt}$-before/after combinations are, by definition,
+membership in $\residual_{\Names}$, $\healed_{\Names}$, or status quo. Coherence keeps
+every binding closed throughout. \qed
+\end{theorem}
+
+\begin{theorem}[Type-preserving migration is total]\label{thm:tp-total}
+Suppose $\wtin{\Store}{g_{\mathrm{old}}}$, $\wtin{\Store}{g_{\mathrm{new}}}$, and
+$\typeofop(\Store,g_{\mathrm{new}}) = \typeofop(\Store,g_{\mathrm{old}})$ --- by
+\cref{prop:ty-ident}, one hash comparison on ingested types. Then for every scope $P$,
+every $\Gamma$, and every term $t$ whose reference closure lies in $\dom(\Store)$:
+\[
+  \types{\Store}{\Gamma}{t}{T} \;\Longrightarrow\;
+  \types{\Store'}{\Gamma}{\substrefs{\hat\rho}{t}}{T}.
+\]
+Consequently (at $\Gamma = \emptyset$, via \cref{lem:rho-reconstruct}):
+$\typeofop(\Store',\rho(h)) = \typeofop(\Store,h)$ for every well-typed $h$; the migration
+is clean under \emph{every} scope; $\brokenq$ is unchanged; and no dependent ever needs
+rechecking. \emph{Sketch:} induction on the typing derivation, nested with well-founded
+induction on reference rank at \textsc{T-Ref}: an unguarded reference keeps its old target
+(typing absolute, \cref{lem:ty-stable}); a guarded reference to $r$ becomes
+$\tRef{\hat\rho(r)}$, whose target's typing at the \emph{same} type is the inner induction
+--- with the seed case exactly the hypothesis
+$\typeofop(g_{\mathrm{new}}) = \typeofop(g_{\mathrm{old}})$. This is \texttt{p11}'s
+\texttt{same\_type} short-circuit \src{follow\_clean.re: compute}, promoted from a dead
+code path (nothing in the running app calls it) to a theorem. \qed
+\end{theorem}
+
+\begin{theorem}[The clean oracle]\label{thm:clean-oracle}
+\begin{enumerate}[nosep,label=(\alph*)]
+  \item \emph{(Decidable, and predictive.)} $\residual$ and $\cleanp$ are decidable and
+  computable from $(\Store, \Names, g_{\mathrm{old}} \mapsto g_{\mathrm{new}}, P)$
+  \emph{before} migrating: $\rho$ and $\Store'$ are determined by these inputs, the
+  follower set is finite, and typing is decidable (\cref{prop:ty-dec}; $\Store'$ stays
+  well-formed by \cref{thm:wf}). The dry run computes the very set the migration reports
+  --- oracle and report are definitionally aligned, which is the property \texttt{p11}'s
+  \texttt{dry\_run} approximates but does not have: it checks only \texttt{Named\_term}
+  callers (skipping \texttt{Named\_type}), ignores the strategy filter, and does not
+  accumulate the substitution map its real cascade builds
+  \src{follow\_clean.re, update\_strategy.re}.
+  \item \emph{(Not stable under growth.)} Unlike every other derived aspect in this
+  formalism, $\cleanp$ is a property of the \emph{current} store: $\Store \subseteq
+  \Store''$ coherent with $\cleanp$ at $\Store$ and $\lnot\,\cleanp$ at $\Store''$ exists.
+  Take $g_{\mathrm{old}} = \tTrue$ ($\TyBool$) and
+  $g_{\mathrm{new}} = \LamT{\TyBool}{\Var{0}}$ ($\TyArr{\TyBool}{\TyBool}$) with no
+  callers: clean. Now ingest $c = \tIf{\tRef{g_{\mathrm{old}}}}{\tTrue}{\tFalse}$ ---
+  well-typed today, and a follower whose image
+  $\tIf{\tRef{g_{\mathrm{new}}}}{\cdots}{}$ has a non-boolean guard: not clean.
+\end{enumerate}
+\end{theorem}
+
+\begin{remark}[\texttt{p11}'s cached oracle is unsound]\label{rem:p11-cache}
+\texttt{p11} caches \texttt{follow-clean} as a write-once derived aspect keyed
+$\mathrm{BLAKE2B}(h_{\mathrm{old}} \Vert h_{\mathrm{new}})$ \src{attachment.re: pair\_key}
+--- a key that encodes nothing that grows with the store, while
+\texttt{callers\_closure} grows monotonically. By \cref{thm:clean-oracle}(b) a cached
+\textsf{true} can silently go stale and is never corrected (derived aspects are
+write-once). The one fact in its neighborhood that \emph{is} stable --- and hence soundly
+cacheable --- is the type-preservation test itself (\cref{thm:tp-total} +
+\cref{lem:ty-stable}): the very short-circuit \texttt{compute} implements. Sound cache keys
+for the general predicate (store generation, or a callers-closure snapshot) are recorded in
+\texttt{open-questions.md}.
+\end{remark}
+
+\begin{corollary}[Incremental typechecking]\label{cor:incr}
+After any \textsc{Migrate}: every $\TyOf$ entry remains sound (\cref{thm:typeof-stable}) ---
+non-followers are never re-typechecked; the only hashes that may need a first typecheck are
+the $\rho$-image's. Under \cref{thm:tp-total}'s hypothesis, not even those: pre-populating
+$\upd{\TyOf}{\rho(h)}{\TyOf(h)}$ for well-typed followers is sound, and the whole migration
+typechecks \emph{nothing}. Editing a definition at its old type is free; editing it at a
+new type costs exactly the followers --- and the residual says which of them need a human.
+\end{corollary}
+
+% =====================================================================
+\section{What carries over}\label{sec:carryover}
+
+\begin{center}
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.42\textwidth} >{\raggedright\arraybackslash}p{0.52\textwidth}}
+\textbf{\arborcore{} result} & \textbf{Status here} \\
+\hline
+\coreref{thm:alpha} (hashing = $\alpha$) & carried; typed twin \cref{prop:ty-ident} for types \\
+\coreref{thm:nsb} (no silent breakage) & carried; typed half in \cref{thm:wf} (typing never reads $\Names$); name-level exactness \cref{thm:residual-exact} \\
+\coreref{thm:mono} (monotone, immutable) & carried; $\TyOf$ also monotone \\
+\coreref{thm:wf} (coherence preservation) & restated (\cref{thm:wf}) with the \textsc{TypeOf} transition \\
+\coreref{thm:stability} (evaluation stability) & carried; typing twin \cref{lem:ty-stable} \\
+\coreref{cor:cache} (evaluate at most once) & carried; typed twin \cref{thm:typeof-stable} \\
+\coreref{cor:incremental} (migration incremental) & strengthened to \cref{cor:incr} \\
+\coreref{cor:fuel} (only divergence non-cacheable) & carried (\cref{cor:no-stuck}) \\
+\coreref{lem:closed-no-stuck} (no stuck heads) & upgraded to \cref{thm:prog}, localized as \cref{thm:local} \\
+\coreref{thm:histcoh} (history coherence) & carried verbatim \\
+\coreref{thm:migosc} (atomicity and scope) & carried; the report (\cref{def:residual}) refines (b) \\
+\coreref{rem:gate} (untyped gate total) & superseded in spirit: migration stays total \emph{by design}; types add the residual, not an abort \\
+\coreref{prop:print-elab}, \coreref{prop:elab-print} (round-trips) & carried with pointwise rule deltas (\cref{sec:naming}) \\
+\end{tabular}
+\end{center}
+
+\section{Mechanization note}\label{sec:mech}
+Mechanization of this rung is deferred; the intended shape is a second Agda development
+depending on the \arborcore{} library, with the reuse boundary (parameterizing the store
+over an abstract node signature) recorded when that work begins. Nothing in
+\texttt{formalism/agda/} changes with this document.
+
+\section*{Provenance}
+The type system, values, and evaluator follow
+\texttt{p6-stlc} (\texttt{stlc\_ast.re}, \texttt{stlc\_node.re}, \texttt{ty.re},
+\texttt{stlc\_typecheck.re}, \texttt{stlc\_eval.re}); content-addressed types and the
+hash-valued typing aspect follow \texttt{p9-typed-namespaces}' extension
+(\texttt{node.re}, \texttt{ty.re}, \texttt{definition.re}, \texttt{typecheck.re}); the
+clean oracle and the migration report answer \texttt{p11-mint-threads}'
+\texttt{follow\_clean.re} and \texttt{update\_strategy.re}, and
+\texttt{docs/design/04-naming-layer.md}'s ``follow-clean'' aspect. The typing rules'
+faithfulness anchor is \texttt{p6}'s \texttt{infer}; \textsc{T-Ref} and everything about
+types-as-entries is this document's own, flagged where it appears.
+
+\end{document}

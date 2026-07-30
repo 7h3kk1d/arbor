@@ -232,6 +232,62 @@ and under Pin only the edited name moves, as in p11.
 
 ---
 
+## 2026-07-30 — arbor-stlc: content-addressed types, commit-and-report migration, the clean oracle
+
+Second formalism artifact, `paper/arbor-stlc.tex` — the STLC rung, written as a delta
+document over arbor-core (which is unchanged; cross-references via `xr-hyper` with a `core:`
+prefix, every external reference rendered "arbor-core Definition N.M").
+
+**Content-addressed types** (user decision), following p9's extension and diverging from p6,
+which stores annotations inline in `Lam` nodes: the store becomes two-sorted (term entries +
+type entries `TBool`/`TArrow(h,h)`), `Lam` carries a type hash, and structural type equality
+collapses to hash comparison. Sub-decision: type entries are *shallow* where p9's are deep
+(`Definition.Type(Ty.t)` stores whole types) — the store's uniform discipline; equivalent up
+to interning since types are finite and ref-free. Sort discipline folds into
+reconstruct-definedness (no new wf clause). Rejected alternative: p6-style inline annotations
+— makes types second-class and blocks the hash-equality/TypeOf story.
+
+**T-Ref is new formal content.** p6 has no reference rule — it inlines referenced bodies at
+resolution, so no reference survives to `infer`. The formalism types references through the
+store (`Σ;∅ ⊢ reconstruct(Σ,h) : T ⟹ Σ;Γ ⊢ ref h : T`), the same idealization step as
+arbor-core's reintroduction of `Ref`. The judgment is deliberately pure of the Θ aspect,
+mirroring ⇓ never reading E.
+
+**Fully permissive store AND namespace; typing is observational.** No transition gains a
+typing premise: ill-typed closed terms may be stored *and named* (a legitimate mid-refactor
+state). The substrate computes and reports typing — `typeof`, the hash-valued Θ aspect
+(p9-style; p6's inline `Type_of(Ty.t)` recorded as divergence), the standing `broken(Σ,N)`
+query, and the migration residual — but never gates on it. p6's resolver typecheck is
+editing-layer policy above these observations. (User direction: breakage visible and
+queryable, never forbidden.)
+
+**Migration = commit-and-report, diverging from p11's abort.** Migrate commits exactly as in
+arbor-core; the typed rung adds its **report**: `residual` = the followers (name-level:
+rebound names) that were well-typed before and are not after — the "continue the refactor"
+list. p11's `Cascade_typecheck_failed` abort is recoverable as editing-layer policy ("if
+clean then migrate else ask"). Headline theorems: **residual exactness** (broken′ =
+(broken ∖ healed) ∪ residualN — a migration breaks exactly what it reports, never silently);
+**type-preserving migration is total** (same `typeof` at the seed ⟹ empty residual under
+every scope, zero rechecking — p11's `same_type` short-circuit promoted from a dead code
+path to a theorem); **local soundness** (a well-typed term evaluates safely regardless of
+ill-typed neighbors — its T-Ref closure carries its own support; p6's "Stuck is theoretically
+unreachable… defence in depth" becomes the progress theorem).
+
+**Finding: `clean` is not a stable aspect.** clean/residual are decidable *before* migrating
+(the oracle and the report are definitionally aligned — the property p11's `dry_run` only
+approximates: it checks `Named_term` callers only, ignores the strategy filter, and does not
+accumulate the substitution map its own cascade builds). But clean is a property of the
+*current* store: ingesting a new caller can falsify it. p11 caches `follow-clean:v1` as a
+write-once bool keyed `BLAKE2B(h_old‖h_new)` — a key encoding nothing that grows with the
+store — so a cached `true` silently goes stale and is never corrected: **unsound**. The one
+soundly cacheable fact in its neighborhood is the type-preservation test itself (typing of a
+stored hash is absolute). Sound keys for the general predicate → open-questions.
+
+**Deferred:** type names in N / type aliasing, type-level migration (p11's `Named_type`
+path), p6's second language + translation, mints, Agda mechanization of this rung.
+
+---
+
 ## 2026-07-30 — Hash-valued cache; single identifier leaf; printing as a judgment
 
 Three fixes closing the remaining faithfulness items from the review (5a, 5b) plus the

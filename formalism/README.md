@@ -3,6 +3,7 @@
 A mathematical formalism of the arbor substrate, developed the way the prototypes are:
 **start small, work up.** The first artifact, `arbor-core`, formalizes the untyped
 λ-calculus fragment of the substrate together with its three stores and an edit calculus.
+The second, `arbor-stlc`, adds simple types as a delta document over it.
 
 This directory is a first-class, *enduring* artifact (like `docs/design/`), distinct from the
 disposable `prototypes/`. Where a design doc argues in prose and a prototype demonstrates in
@@ -41,6 +42,9 @@ cites its source of truth by path:
 | `callers_of`, `multi_rebind`, pin/follow/explicit migration | `prototypes/p11-mint-threads/src/{store,update_strategy,follow_clean}.re` |
 | Content-addressing invariants (`Ref`, no-dangle, immutability) | `docs/design/03-content-addressing.md` |
 | Naming layer, resolution, no-silent-breakage, update strategies | `docs/design/04-naming-layer.md` |
+| Type system, values, fueled evaluator (arbor-stlc) | `prototypes/p6-stlc/src/{stlc_ast,stlc_node,ty,stlc_typecheck,stlc_eval}.re` |
+| Content-addressed types, hash-valued `Type_of` (arbor-stlc) | `prototypes/p9-typed-namespaces/src/{node,ty,definition,typecheck}.re` |
+| Clean oracle / dry run, migration report (arbor-stlc) | `prototypes/p11-mint-threads/src/{follow_clean,update_strategy}.re` |
 
 Two deliberate generalizations of the prototypes are recorded in `decisions.md`: the formalism
 **reintroduces `Ref(hash)`** (which p4 elided by inlining), and **drops the mint/thread axis**
@@ -51,14 +55,32 @@ premises on the `Ingest`/`Bind`/`Rebind` transitions, a **ref-acyclicity** claus
 the **no-definition-sort** stance (a briefly-introduced explicit root set `R` was retracted as
 mint-flavored; migration became the whole-store rewrite) — see `decisions.md`.
 
+## What `arbor-stlc` covers
+
+The STLC rung (`paper/arbor-stlc.tex`), a **delta document**: it restates only what changes
+and cites arbor-core (via `xr-hyper`; external references render "arbor-core Definition
+N.M"). It adds simple types per p6 with **content-addressed types** per p9's extension (the
+store becomes two-sorted; a `Lam` carries a type hash; type equality = hash equality), a
+syntax-directed typing judgment with a new **T-Ref** rule (p6 inlines references; the rule is
+new formal content), and a second derived aspect `Θ` (hash-valued `TypeOf`). Nothing is
+gated on types — store *and namespace* stay permissive; typing is observational. Headline
+results: **local soundness** (a well-typed term evaluates safely amid ill-typed neighbors),
+**residual exactness** (migration commits and reports exactly the names it broke — the
+"continue the refactor" list, with a standing `broken` query), **type-preserving migration is
+total** (same type at the seed ⟹ empty residual under every scope), and the **clean oracle**
+(decidable ahead of time, but *not* stable under store growth — exposing an unsound cache in
+p11's `follow-clean:v1`). Sources: `decisions.md` 2026-07-30 (arbor-stlc entry).
+
 ## Building the paper
 
 Requires a TeX distribution with `latexmk`.
 
 ```sh
 cd formalism/paper
-latexmk -pdf arbor-core.tex     # -> arbor-core.pdf
-latexmk -c                      # clean aux files
+latexmk -pdf arbor-core.tex     # -> arbor-core.pdf  (build this FIRST)
+latexmk -pdf arbor-stlc.tex     # -> arbor-stlc.pdf  (reads arbor-core.aux via xr)
+latexmk -c                      # clean aux files (breaks arbor-stlc's external refs
+                                #   until arbor-core is rebuilt)
 ```
 
 ## Layout
@@ -69,8 +91,9 @@ formalism/
   decisions.md         # ADR-lite log of the modeling choices
   open-questions.md    # running backlog for the "work up" successors
   paper/
-    arbor-core.tex     # the document (Parts I–V + metatheory)
-    macros.tex         # notation
+    arbor-core.tex     # first artifact (Parts I–V + metatheory)
+    arbor-stlc.tex     # second artifact: the STLC rung, a delta over arbor-core
+    macros.tex         # notation (shared; arbor-stlc additions are additive)
     references.bib     # bibliography
   agda/
     README.md          # mechanization roadmap (no code yet)
