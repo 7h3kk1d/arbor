@@ -1,0 +1,11 @@
+# LaTeX build artifacts (regenerate with: latexmk -pdf arbor-core.tex)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.synctex.gz
+arbor-core.pdf

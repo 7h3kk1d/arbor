@@ -1,0 +1,684 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{stmaryrd}
+\usepackage{mathpartir}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=green!40!black]{hyperref}
+\usepackage[nameinlink]{cleveref}
+\usepackage{enumitem}
+
+\input{macros}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{example}{Example}[section]
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}[section]
+
+\newcommand{\src}[1]{{\footnotesize\textcolor{gray}{[\texttt{#1}]}}}
+
+\title{\textbf{arbor-core}\\[2pt]
+\large A formalism of the untyped $\lambda$-fragment of the arbor substrate:\\
+content-addressed store, naming layer, evaluation cache, and an edit calculus}
+\author{The arbor project}
+\date{Draft --- \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We formalize the smallest self-contained slice of the arbor substrate: the untyped
+$\lambda$-calculus stored in a content-addressed term store, a namespace that maps names to
+hashes, a derived evaluation cache, and an \emph{edit calculus} of binding operations and
+explicit migrations. The development is faithful to two arbor prototypes --- \texttt{p4}
+(untyped $\lambda$) and \texttt{p11} (migration) --- and to the design documents
+\texttt{03-content-addressing} and \texttt{04-naming-layer}. Its purpose is to state precisely,
+and in a form ready for mechanization, \emph{what the substrate guarantees and why
+content-addressing earns its complexity}. Everything reduces to one structural fact:
+evaluation is a pure function of the term store and a hash, and the store is immutable and
+monotone. From it we derive two dual metatheorems --- \emph{no silent breakage} (name edits
+never change the meaning of stored code) and \emph{evaluation stability} (a computed result is
+valid forever, so migration re-evaluates only genuinely new definitions).
+\end{abstract}
+
+\tableofcontents
+
+\section{Scope and posture}\label{sec:scope}
+
+This is the first artifact in a formalism developed the way the arbor prototypes are:
+\emph{start small, work up}. We take the untyped $\lambda$-calculus --- enough to exhibit
+content-addressing's payoff, not so much that types obscure it --- and model four pieces of
+substrate state:
+\begin{itemize}[nosep]
+  \item a content-addressed \textbf{term store} $\Store$ (\cref{sec:store});
+  \item a \textbf{namespace} $\Names$ mapping names to hashes (\cref{sec:naming});
+  \item a derived \textbf{evaluation cache} $\Cache$ (\cref{sec:cache});
+  \item an \textbf{edit calculus} of transitions on $\Config{\Store}{\Names}{\Cache}{\Hist}$,
+  where $\Hist$ is an append-only binding history (\cref{sec:edit}).
+\end{itemize}
+
+\paragraph{Two theorems are the point.} The design's whole justification is packed into a dual
+pair, proved in \cref{sec:meta}:
+\begin{itemize}[nosep]
+  \item \emph{No silent breakage} (\cref{thm:nsb}): editing names can never change the meaning
+  of a stored term.
+  \item \emph{Evaluation stability / no re-evaluation} (\cref{thm:stability}): a once-computed
+  evaluation result is valid in every future store; store growth and migration never invalidate
+  it.
+\end{itemize}
+Both follow from one fact the formalism makes syntactic: \textbf{$\Downarrow$ is a function of
+$(\Store, h)$ and $\Store$ only ever grows}. Names and the edit calculus live \emph{beside}
+$\Store$, never inside it.
+
+\paragraph{Two deliberate departures from the prototypes.} They are recorded, with rationale, in
+\texttt{formalism/decisions.md}; in brief:
+\begin{enumerate}[nosep]
+  \item We \textbf{reintroduce an explicit reference node} $\nRef{h}$. Prototype \texttt{p4}
+  elides it --- it inlines closed subterms at edit time --- but then there are no
+  cross-definition edges, and the callers relation and migration become vacuous. The substrate
+  design \texttt{03} mandates $\mathsf{Ref}$; we model the ideal and cite \texttt{p4} as the
+  inlining special case.
+  \item We \textbf{drop the mint/thread identity axis} (\texttt{p10}/\texttt{p11}) and
+  \textbf{all types} (the \texttt{p9} line). Consequently \texttt{p11}'s typecheck gate on
+  migration becomes an untyped \emph{well-formedness gate}; version lineage is recovered from
+  the per-name binding history rather than from mints.
+\end{enumerate}
+
+\paragraph{Deferred (per arbor's ``don't pre-solve future concerns'').} Types and the typecheck
+gate; mint/thread identity; the general asserted/derived aspect store; translation and
+multi-language; holes; branching/merging; primitive leaves; hierarchical names and ambiguous
+(suffix) resolution; garbage collection of orphans. Each is tracked in
+\texttt{formalism/open-questions.md}.
+
+\bigskip
+Throughout, \src{file.re} margin tags name the prototype source that a definition is faithful
+to. $A \pfn B$ denotes a finite partial function; $\dom$ its domain; $\upd{f}{a}{b}$ the update
+of $f$ at $a$; $f \mathord{\setminus} a$ the removal of $a$.
+
+% =====================================================================
+\section{Part I --- The object language}\label{sec:lang}
+
+Arbor keeps two syntaxes: a \emph{surface} syntax with names, produced by parsers and shown to
+users, and an internal \emph{core} syntax that is name-free by construction. The split is what
+makes ``names never appear in stored programs'' a statement about \emph{types}, not a runtime
+check.
+
+\subsection{Core terms (name-free, de Bruijn)}
+
+\begin{definition}[Core terms]\label{def:core}
+\src{ast.re, +\,ref} Core terms use de Bruijn indices for bound variables and an explicit
+reference leaf for cross-definition uses:
+\[
+  t,u \;::=\; \Var{i} \;\mid\; \Lam{t} \;\mid\; \App{t}{u} \;\mid\; \tRef{h}
+  \qquad (i \in \mathbb{N},\ h \in \Hash).
+\]
+A $\lambda$ binds without a name; $\Var{i}$ refers to the $i$-th enclosing binder, counting from
+$0$ innermost. $\tRef{h}$ names another stored definition \emph{by hash}, never by identifier.
+\end{definition}
+
+\begin{definition}[Well-scopedness and closedness]\label{def:closed}
+\src{ast.re: max\_free\_index, is\_closed} Write $\vdash_n t$ (``$t$ is scoped under $n$
+binders'') for the least relation with
+\[
+  \inferrule{i < n}{\vdash_n \Var{i}}\qquad
+  \inferrule{\vdash_{n+1} t}{\vdash_n \Lam{t}}\qquad
+  \inferrule{\vdash_n t \\ \vdash_n u}{\vdash_n \App{t}{u}}\qquad
+  \inferrule{\ }{\vdash_n \tRef{h}}.
+\]
+$t$ is \emph{closed}, written $\isclosed{t}$, iff $\vdash_0 t$. Note $\tRef{h}$ is closed for
+every $h$: a reference carries no free variable, which is why unfolding it later needs no index
+adjustment.
+\end{definition}
+
+\begin{definition}[Shift, substitution, contraction]\label{def:beta}
+\src{ast.re: shift, subst, beta} The TAPL Chapter~6 operations, extended so that $\tRef{h}$ is
+inert (it is closed, so no index crosses it):
+\begin{align*}
+  \shift{d}{c}{\Var{k}} &=
+    \begin{cases} \Var{k} & k < c\\ \Var{k+d} & k \ge c\end{cases}
+  & \shift{d}{c}{\Lam{t}} &= \Lam{\shift{d}{c+1}{t}}\\
+  \shift{d}{c}{\App{t}{u}} &= \App{\shift{d}{c}{t}}{\shift{d}{c}{u}}
+  & \shift{d}{c}{\tRef{h}} &= \tRef{h}\\[4pt]
+  \subst{j}{s}{\Var{k}} &=
+    \begin{cases} s & k = j\\ \Var{k} & k \ne j\end{cases}
+  & \subst{j}{s}{\Lam{t}} &= \Lam{\subst{j+1}{\shift{1}{0}{s}}{t}}\\
+  \subst{j}{s}{\App{t}{u}} &= \App{\subst{j}{s}{t}}{\subst{j}{s}{u}}
+  & \subst{j}{s}{\tRef{h}} &= \tRef{h}.
+\end{align*}
+Beta-contraction of $\App{(\Lam{t})}{v}$ is, in the TAPL convention,
+\[
+  \mathsf{beta}(t, v) \;\defeq\; \shift{-1}{0}{\;\subst{0}{\shift{1}{0}{v}}{t}\;}.
+\]
+\end{definition}
+
+\subsection{Surface terms and $\alpha$-canonicity}
+
+\begin{definition}[Surface terms]\label{def:surface}
+\src{surface\_ast.re} Surface terms carry names and a $\sName{\cdot}$ leaf for free
+identifiers:
+\[
+  s \;::=\; \sVar{x} \;\mid\; \sLam{x}{s} \;\mid\; \App{s}{s'} \;\mid\; \sName{x}
+  \qquad (x \in \Name).
+\]
+$\sVar{x}$ is a use of a $\lambda$-bound name; $\sName{x}$ is a free identifier to be resolved
+against the namespace (\cref{sec:naming}). Names occur \emph{only} in surface terms.
+\end{definition}
+
+The core syntax \emph{is} the $\alpha$-canonical form: de Bruijn indices identify
+$\alpha$-equivalent terms definitionally, so arbor's per-language canonicalizer is the identity
+\src{canonicalize.re}. We record this as the property that discharges the substrate's minimum
+canonicalization requirement (\texttt{03}: ``every language should collapse $\alpha$-equivalence
+so that $\lambda x.x$ and $\lambda y.y$ hash identically'').
+
+\begin{example}[$\alpha$-collapse]\label{ex:alpha}
+$\lambda x.\,x$ and $\lambda y.\,y$ both denote the single core term $\Lam{\Var{0}}$;
+$\lambda x.\lambda y.\,x$ and $\lambda a.\lambda b.\,a$ both denote $\Lam{\Lam{\Var{1}}}$. In the
+\texttt{p4} REPL, \texttt{const}, \texttt{konst}, and \texttt{tru} all resolve to one hash.
+\end{example}
+
+% =====================================================================
+\section{Part II --- The term store}\label{sec:store}
+
+The store is one level of arbor's four-layer architecture (\texttt{06-architecture}): it holds
+content-addressed definitions and nothing about names. Definitions are stored \emph{shallowly}
+--- one node at a time, children referenced by hash --- and the deep term is recovered by
+walking the store.
+
+\subsection{Nodes, hashing, and the store}
+
+\begin{definition}[Shallow nodes]\label{def:node}
+\src{node.re, +\,Ref} A node is one constructor deep, with hash-typed children:
+\[
+  n \;::=\; \nVar{i} \;\mid\; \nLam{h} \;\mid\; \nApp{h_1}{h_2} \;\mid\; \nRef{h}
+  \qquad (i \in \mathbb{N},\ h,h_1,h_2 \in \Hash).
+\]
+\end{definition}
+
+\begin{definition}[Hash]\label{def:hash}
+\src{node.re, hash.re} $\Hash$ is an opaque type with an \emph{injective} map
+$\hashof{\cdot} : \Node \to \Hash$. Injectivity idealizes cryptographic collision-resistance:
+\[
+  \hashof{n_1} = \hashof{n_2} \;\Longrightarrow\; n_1 = n_2. \tag{$\star$}
+\]
+\end{definition}
+
+\begin{remark}[The concrete hash is one realization]\label{rem:concrete-hash}
+Prototype \texttt{p4} realizes $\hashof{\cdot}$ as $\mathrm{BLAKE2B}$ over a tag-byte encoding:
+$\nVar{k}\mapsto \mathtt{0x01}\Vert\mathrm{be}_{64}(k)$,
+$\nLam{h}\mapsto \mathtt{0x02}\Vert h$,
+$\nApp{h_1}{h_2}\mapsto \mathtt{0x03}\Vert h_1\Vert h_2$
+(and, here, $\nRef{h}\mapsto \mathtt{0x05}\Vert h$). Determinism plus collision-resistance is
+exactly what ($\star$) abstracts; no proof below inspects the encoding.
+\end{remark}
+
+\begin{definition}[Store]\label{def:store}
+\src{store.re} A term store is a finite partial function $\Store : \Hash \pfn \Node$.
+\end{definition}
+
+\begin{definition}[Ingest and reconstruct]\label{def:ingest}
+\src{store.re: ingest, register\_node, reconstruct} $\ingest$ registers a deep term
+bottom-up, keying each node by its hash (content-addressing makes this hash-consing:
+re-registering an existing node is a no-op):
+\begin{align*}
+  \ingest(\Store, \Var{i}) &= (\Store', \hashof{\nVar{i}}),\ \Store'=\upd{\Store}{\hashof{\nVar{i}}}{\nVar{i}}\\
+  \ingest(\Store, \Lam{t}) &= \text{let } (\Store_1,h)=\ingest(\Store,t) \text{ in } \bigl(\upd{\Store_1}{\hashof{\nLam{h}}}{\nLam{h}},\ \hashof{\nLam{h}}\bigr)\\
+  \ingest(\Store, \App{t}{u}) &= \text{ingest both, then register } \nApp{h_t}{h_u}\\
+  \ingest(\Store, \tRef{h}) &= \bigl(\upd{\Store}{\hashof{\nRef{h}}}{\nRef{h}},\ \hashof{\nRef{h}}\bigr).
+\end{align*}
+Crucially, ingesting $\tRef{h}$ does \emph{not} ingest $h$: the referent is an already-stored
+definition, cited by hash. $\reconstruct : \Hash \pfn \Term$ walks back, stopping at leaves:
+$\reconstruct(\Store,h)$ follows $\Store(h)$, recursing into $\nLam{}/\nApp{}$ children and
+returning $\Var{i}$ / $\tRef{h'}$ unchanged; it is undefined on $h \notin \dom(\Store)$.
+\end{definition}
+
+\begin{definition}[References and well-formedness]\label{def:wf}
+\src{03-content-addressing.md: ``hashes never dangle''} The references of a hash are the set of
+definitions it cites:
+\[
+  \refs(\Store,h) \;\defeq\; \{\, h' \mid \tRef{h'} \text{ occurs in } \reconstruct(\Store,h)\,\}.
+\]
+$\Store$ is \emph{well-formed}, $\wf(\Store)$, iff for every $h \in \dom(\Store)$:
+(i) $\reconstruct(\Store,h)$ is defined (every structural child resolves --- no dangle);
+(ii) every $h' \in \refs(\Store,h)$ has $h' \in \dom(\Store)$; and
+(iii) each stored definition denotes a \emph{closed} term:
+$\isclosed{\reconstruct(\Store,h)}$ whenever $h$ is a definition (bound in $\Names$ or a
+reference target). Closedness of definitions is the load-bearing \texttt{p4} invariant that lets
+a reference unfold with no shifting.
+\end{definition}
+
+\subsection{Evaluation}
+
+Evaluation is call-by-value to weak head normal form (no reduction under $\lambda$), reading
+$\Store$ only to unfold references --- Cardelli's linking semantics
+\cite{Cardelli1997Linking}. It \textbf{takes no namespace argument}; this is where
+$\Names$-independence becomes syntactic.
+
+\begin{definition}[Values]\label{def:value}
+For closed terms the only weak-head values are abstractions: $\val ::= \Lam{t}$.
+\end{definition}
+
+\begin{definition}[Evaluation relation]\label{def:eval}
+\src{eval.re} $\evals{\Store}{t}{\val}$ is the least relation closed under
+\begin{mathpar}
+  \inferrule*[right=E-Lam]{\ }{\evals{\Store}{\Lam{t}}{\Lam{t}}}
+  \and
+  \inferrule*[right=E-Ref]{h \in \dom(\Store) \\ \evals{\Store}{\reconstruct(\Store,h)}{\val}}
+            {\evals{\Store}{\tRef{h}}{\val}}
+  \\
+  \inferrule*[right=E-App]
+    {\evals{\Store}{t}{\Lam{t_0}} \\ \evals{\Store}{u}{\val_u} \\
+     \evals{\Store}{\mathsf{beta}(t_0,\val_u)}{\val}}
+    {\evals{\Store}{\App{t}{u}}{\val}}
+\end{mathpar}
+There is no rule for a head $\Var{i}$: on closed terms it never occurs at an evaluation position
+(\cref{lem:closed-no-stuck}); \texttt{p4} classifies it \textsf{Stuck} only to keep its function
+total. Divergence is the absence of any derivation (e.g.\ $\Omega$, \cref{ex:omega}).
+\end{definition}
+
+\begin{lemma}[Determinism]\label{lem:determinism}
+If $\evals{\Store}{t}{\val_1}$ and $\evals{\Store}{t}{\val_2}$ then $\val_1 = \val_2$.
+Consequently $\Downarrow$ induces a partial function $\mathsf{eval} : \Store \times \Term \pfn
+\Val$.
+\end{lemma}
+\begin{proof}[Proof sketch]
+The rules are syntax-directed: the shape of $t$ (and, for \textsc{E-Ref}, $\Store(h)$) selects
+at most one rule, and each premise is on a structurally-\,/\,unfolding-smaller term. Induction on
+the derivation. \qed
+\end{proof}
+
+\begin{lemma}[Closed terms never get stuck at the head]\label{lem:closed-no-stuck}
+If $\isclosed{t}$ then no evaluation position reached from $t$ has a free $\Var{}$ at its head;
+hence the missing $\Var$-rule loses no closed-term behavior.
+\end{lemma}
+\begin{proof}[Proof sketch]
+$\mathsf{beta}$ and unfolding of (closed) references preserve closedness (\cref{def:closed},
+\cref{def:beta}); a closed weak-head normal form has an abstraction at its head. \qed
+\end{proof}
+
+\begin{example}[Divergence]\label{ex:omega}
+Let $\delta = \Lam{\App{\Var 0}{\Var 0}}$ and $\Omega = \App{\delta}{\delta}$, both closed.
+$\Omega$ has no $\Downarrow$-derivation: \textsc{E-App} reduces $\Omega$ to $\Omega$. It is the
+canonical non-cacheable term (\cref{sec:cache}).
+\end{example}
+
+% =====================================================================
+\section{Part III --- The namespace}\label{sec:naming}
+
+Names are an editing-layer concern (\texttt{04-naming-layer}). The namespace maps names to
+hashes and is queried at edit time; stored programs carry only $\tRef{}$.
+
+\begin{definition}[Namespace]\label{def:ns}
+\src{namespace.re} A namespace is a finite partial function $\Names : \Name \pfn \Hash$, with
+$\Name$ an opaque string type. It is functional in the name (a name resolves to at most one
+hash) but not injective (aliases --- several names for one hash --- are free).
+\end{definition}
+
+\begin{definition}[Resolution]\label{def:resolve}
+\src{namespace.re: resolve} $\resolves{\Names}{x}{h}$ iff $\Names(x) = h$. There are exactly two
+outcomes --- found, or not found ($x \notin \dom(\Names)$). The substrate resolution is
+unambiguous by construction; the dotted-suffix, possibly-\emph{ambiguous} resolver that
+\texttt{p9}/\texttt{p11} add (\texttt{namespace.re:} \texttt{resolve\_query}) is an editing-layer
+elaboration over this primitive, deferred here (\texttt{decisions.md}).
+\end{definition}
+
+\begin{definition}[Elaboration: surface $\to$ core]\label{def:elab}
+\src{resolver.re} Under a context $\Gamma$ (a list of bound names, innermost first),
+elaboration $\Gamma;\Names \vdash s \Rrightarrow t$ replaces each bound name by its de Bruijn
+index and each free name by a reference:
+\begin{mathpar}
+  \inferrule*[right=El-Bound]{\Gamma(i) = x}{\Gamma;\Names \vdash \sVar{x} \Rrightarrow \Var{i}}
+  \and
+  \inferrule*[right=El-Free]{x \notin \Gamma \\ \resolves{\Names}{x}{h}}
+            {\Gamma;\Names \vdash \sName{x} \Rrightarrow \tRef{h}}
+  \\
+  \inferrule*[right=El-Lam]{x{:}\Gamma;\Names \vdash s \Rrightarrow t}
+            {\Gamma;\Names \vdash \sLam{x}{s} \Rrightarrow \Lam{t}}
+  \and
+  \inferrule*[right=El-App]{\Gamma;\Names \vdash s \Rrightarrow t \\ \Gamma;\Names \vdash s' \Rrightarrow t'}
+            {\Gamma;\Names \vdash \App{s}{s'} \Rrightarrow \App{t}{t'}}
+\end{mathpar}
+Elaboration fails (``unbound name'') when a free name is unresolved. The result is name-free by
+construction, giving the substrate invariant as a typing fact, not a runtime assertion:
+\end{definition}
+
+\begin{proposition}[Names never enter the store]\label{prop:namefree}
+If $\Gamma;\Names \vdash s \Rrightarrow t$ then $t$ is a core term (\cref{def:core}), which has
+no name leaf. Hence every ingested definition is name-free.
+\end{proposition}
+
+\begin{definition}[Printing: core $\to$ surface]\label{def:print}
+\src{pretty.re} $\mathsf{print}_{\Names}(\Store,h)$ recovers a surface term: bound variables
+become fresh printed names; a child reference $\tRef{h'}$ becomes $\sName{x}$ where $x$ is the
+alphabetically-first name with $\Names(x)=h'$ (or the orphan form \cref{def:orphan}); the
+top-level hash is never itself replaced by a name.
+\end{definition}
+
+\begin{remark}[Round-trip]\label{rem:roundtrip}
+Elaboration and printing are inverse up to choice of names:
+$\Gamma;\Names \vdash \mathsf{print}_{\Names}(\Store,h) \Rrightarrow t$ recovers the core term
+$t = \reconstruct(\Store,h)$ whenever every reference in $t$ is currently named. The precise
+equivalence (bound-name choice $\times$ alias choice) is stated in
+\texttt{open-questions.md}.
+\end{remark}
+
+% =====================================================================
+\section{Part IV --- The evaluation cache}\label{sec:cache}
+
+Arbor's Attachment layer holds two kinds of data keyed to definitions: \emph{asserted} entries
+(human-authored, mutable --- the namespace) and \emph{derived} entries (computed by a known
+procedure, immutable for that procedure --- here, evaluation results). Modeling the cache is how
+we make ``already-evaluated terms are never re-evaluated'' a theorem rather than a hope.
+
+\begin{definition}[Evaluation cache]\label{def:cache}
+\src{attachment.re, eval.re} The cache is a finite partial function $\Cache : \Hash \pfn \Val$,
+a \emph{derived} aspect. Its discipline: an entry may be written only for a \emph{defined}
+evaluation, and once written is never overwritten.
+\begin{mathpar}
+  \inferrule*[right=Cache-sound]{h \in \dom(\Cache)}{\evals{\Store}{\tRef{h}}{\Cache(h)}}
+\end{mathpar}
+\end{definition}
+
+\begin{remark}[Why \textsf{StepLimit} is not cached]\label{rem:nostepcache}
+\texttt{p4} evaluates under a step budget and returns \textsf{Value}, \textsf{Stuck}, or
+\textsf{StepLimit}, and it deliberately never caches \textsf{StepLimit} \src{eval.re}. In our
+terms \textsf{StepLimit} is ``no derivation \emph{yet}'': it is not a defined result, so
+\textsc{Cache-sound} forbids storing it. Caching it would be unsound because a larger budget can
+turn it into a value; only defined ($\Downarrow$) results are stable
+(\cref{thm:stability},~\cref{cor:fuel}).
+\end{remark}
+
+% =====================================================================
+\section{Part V --- The edit calculus}\label{sec:edit}
+
+Edits are transitions on a configuration. Binding history is append-only, so we carry it
+explicitly.
+
+\begin{definition}[Binding history]\label{def:history}
+\src{namespace.re: history\_event, append\_history} $\Hist : \Name \pfn (\;(\Hash \cup
+\{\bot\}) \times \Time\;)^{*}$, newest event first. $(\mathsf{Some}\,h,\tau)$ is a bind/rebind to
+$h$ at time $\tau$; $(\bot,\tau)$ is an unbind tombstone. The current binding of $x$ is the head
+if it is $\mathsf{Some}$, else $x$ is unbound.
+\end{definition}
+
+\begin{definition}[Configuration]\label{def:config}
+$C = \Config{\Store}{\Names}{\Cache}{\Hist}$ with $\wf(\Store)$ and the history-coherence
+invariant (\cref{thm:histcoh}). Fresh timestamps $\tau$ are drawn monotonically; we leave the
+clock abstract.
+\end{definition}
+
+\subsection{Structural and naming edits}
+
+\begin{definition}[Core transitions]\label{def:transitions}
+\begin{mathpar}
+  \inferrule*[right=Ingest]{\ingest(\Store,t) = (\Store',\_)}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store'}{\Names}{\Cache}{\Hist}}
+  \and
+  \inferrule*[right=Eval]{\evals{\Store}{\tRef{h}}{\val} \\ h \notin \dom(\Cache)}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store}{\Names}{\upd{\Cache}{h}{\val}}{\Hist}}
+  \\
+  \inferrule*[right=Bind]{x \notin \dom(\Names)}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store}{\upd{\Names}{x}{h}}{\Cache}{\upd{\Hist}{x}{(\mathsf{Some}\,h,\tau){:}\Hist(x)}}}
+  \and
+  \inferrule*[right=Rebind]{\ }
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store}{\upd{\Names}{x}{h}}{\Cache}{\upd{\Hist}{x}{(\mathsf{Some}\,h,\tau){:}\Hist(x)}}}
+  \\
+  \inferrule*[right=Unbind]{x \in \dom(\Names)}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store}{\Names\setminus x}{\Cache}{\upd{\Hist}{x}{(\bot,\tau){:}\Hist(x)}}}
+\end{mathpar}
+$\bind$, $\rebind$, $\unbind$ touch only $\Names$ and $\Hist$; $\Store$ is untouched. Renaming is
+derived as $\unbind$ then $\bind$ \src{namespace.re: rename}.
+\end{definition}
+
+\begin{definition}[Orphans]\label{def:orphan}
+\src{namespace.re: reverse\_lookup\_with\_version} A hash $h$ is an \emph{orphan} if it appears
+in some $\Hist(x)$ but is not the current binding of any name. Its version is the $1$-indexed
+position of $h$ among the $\mathsf{Some}$ events of $\Hist(x)$, oldest first; the printer renders
+it $x(\mathsf{v}N)$.
+\end{definition}
+
+\subsection{Migration}
+
+Migration edits a definition and propagates the change to its callers under a chosen scope.
+The callers relation is the reverse of $\refs$; it is exactly the set migration may rewrite.
+
+\begin{definition}[Callers]\label{def:callers}
+\src{store.re: callers\_of, callers\_closure}
+$\callers(\Store,h) \defeq \{\, g \in \dom(\Store) \mid h \in \refs(\Store,g)\,\}$;
+$\callersstar(\Store,h)$ is its transitive closure (definitions reaching $h$ through a chain of
+references).
+\end{definition}
+
+\begin{definition}[Reference substitution]\label{def:substrefs}
+\src{follow\_clean.re: substitute\_in\_term} For a finite map $\rho : \Hash \pfn \Hash$,
+$\substrefs{\rho}{t}$ rewrites every $\tRef{h}$ in $t$ with $h \in \dom(\rho)$ to $\tRef{\rho(h)}$,
+leaving all else fixed.
+\end{definition}
+
+\begin{definition}[Scope filter]\label{def:strategy}
+\src{update\_strategy.re: strategy, filter} A strategy induces a predicate on caller hashes:
+\[
+  \Pin \mapsto \lambda g.\,\bot,\qquad
+  \Follow \mapsto \lambda g.\,\top,\qquad
+  \Explicit(S) \mapsto \lambda g.\,g \in S.
+\]
+These are three points in the design's two-axis space (\texttt{04}: \emph{scope} $\times$
+\emph{user-in-loop}); \Pin{} is the empty-scope instance of the same machinery, not a special
+case.
+\end{definition}
+
+\begin{definition}[Cascade]\label{def:cascade}
+\src{update\_strategy.re: cascade\_pairs} Given an edit of definition $g_{\mathrm{old}}$ to a new
+body ingested at $g_{\mathrm{new}}$, and a filter $p$, the cascade processes
+$\callersstar(\Store,g_{\mathrm{old}})$ in dependency order, accumulating a rewrite map
+$\rho$ initialized to $\{g_{\mathrm{old}}\mapsto g_{\mathrm{new}}\}$. For each caller $g$ with
+$p(g)$: let $g'$ be the hash of $\ingest(\substrefs{\rho}{\reconstruct(\Store,g)})$; if
+$\substrefs{\rho}{\cdot}$ changed the body, require the \textbf{gate} $\wf$ to hold of the
+rewritten definition (\cref{rem:gate}); on success extend $\rho$ with $g \mapsto g'$ and emit the
+pair $(g,g')$. The cascade \emph{aborts} if any in-scope caller fails the gate.
+\end{definition}
+
+\begin{remark}[The gate is a well-formedness gate]\label{rem:gate}
+\texttt{p11}'s cascade re-\emph{typechecks} each rewritten caller and aborts on the first
+ill-typed one \src{update\_strategy.re: Typecheck.check\_top}. Untyped, the gate is $\wf$:
+substituting one closed reference for another preserves closedness and, since $g_{\mathrm{new}}
+\in \dom(\Store)$, resolvability. So the gate is \emph{near-total} --- $\Follow$ essentially
+always succeeds here. That is the honest finding: the interesting failure modes of $\Follow$ are
+introduced by \emph{types}, motivating the typed successor (\texttt{open-questions.md}).
+\end{remark}
+
+\begin{definition}[Atomic multi-rebind and the migration transition]\label{def:migrate}
+\src{namespace.re: multi\_rebind; update\_strategy.re: apply\_with\_named} Let the cascade for
+$(x,g_{\mathrm{old}},g_{\mathrm{new}},\text{strat})$ succeed with pairs $P$ and final store
+$\Store'$ (which contains $g_{\mathrm{new}}$ and every emitted $g'$). Form the rebind bundle
+\[
+  U \;=\; \{(x,g_{\mathrm{new}})\} \;\cup\; \{\,(y,g') \mid (g,g') \in P,\ y \in \Names^{-1}(g)\,\}.
+\]
+$\multirebind$ validates $U$ (every target in $\dom(\Store')$) and \textbf{commits all-or-nothing}:
+\begin{mathpar}
+  \inferrule*[right=Migrate]
+    {\text{cascade succeeds}\ \Rightarrow\ (\Store',P) \\ \multirebind(\Names,\Hist,U) = (\Names',\Hist')}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store'}{\Names'}{\Cache}{\Hist'}}
+\end{mathpar}
+On a cascade or validation failure, $\Names$ and $\Hist$ are untouched; $\Store$ may retain the
+candidate hashes it accumulated (there is no orphan GC). Thus \textbf{only $\langle\Names,\Hist
+\rangle$ is transactional; $\Store$ is accumulate-only}.
+\end{definition}
+
+% =====================================================================
+\section{Metatheory}\label{sec:meta}
+
+We now state the guarantees. The first block (\crefrange{thm:alpha}{thm:wf}) concerns identity
+and the store; the second (\crefrange{thm:stability}{thm:migosc}) is the evaluation and
+migration payoff. Proof sketches indicate the eventual Agda obligations (\cref{sec:mech}).
+
+\begin{theorem}[Hashing collapses exactly $\alpha$-equivalence]\label{thm:alpha}
+For core terms $t,u$, ingesting yields the same hash iff $t = u$ (which, since core is de Bruijn,
+is $\alpha$-equivalence of the surface terms they elaborate from). Formally, with $h_t,h_u$ the
+roots of $\ingest(\Store,t),\ingest(\Store,u)$: $h_t = h_u \iff t = u$.
+\end{theorem}
+\begin{proof}[Proof sketch]
+$(\Leftarrow)$ $\ingest$ is a function. $(\Rightarrow)$ induction on $t$ using injectivity
+($\star$, \cref{def:hash}): equal root hashes force equal top nodes, hence equal child hashes,
+hence (IH) equal subterms. \cref{ex:alpha} instantiates it. \qed
+\end{proof}
+
+\begin{theorem}[No silent breakage]\label{thm:nsb}
+If $C = \Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store}{\Names'}{\Cache}{\Hist'}$
+by \textsc{Bind}, \textsc{Rebind}, or \textsc{Unbind}, then $\Store$ is unchanged, and therefore
+for every $h$, $\evals{\Store}{\tRef{h}}{\val}$ holds after the edit iff it held before. A name
+edit changes only \emph{which} hash a name resolves to, never what any referenced hash computes.
+\end{theorem}
+\begin{proof}[Proof sketch]
+The three rules (\cref{def:transitions}) modify only $\Names,\Hist$. $\Downarrow$
+(\cref{def:eval}) mentions only $\Store$ and a term. So its extension is literally unchanged.
+\qed
+\end{proof}
+
+\begin{example}[The \texttt{p3} pin test]\label{ex:nsb}
+Let $\mathit{zero},\mathit{succ}$ be defined; $\mathit{one} = \App{\tRef{h_{\mathit{succ}}}}
+{\tRef{h_{\mathit{zero}}}}$ at hash $h_1$; $\mathit{two} = \App{\tRef{h_{\mathit{succ}}}}
+{\tRef{h_1}}$ at hash $h_2$. Rebinding the name $\mathit{one}$ to any hash leaves $\Store(h_2)$
+--- and its child $\tRef{h_1}$ --- untouched, so $\mathit{two}$ still computes via the original
+$\mathit{one}$. This is \cref{thm:nsb} in miniature.
+\end{example}
+
+\begin{theorem}[Monotonicity and immutability]\label{thm:mono}
+Every transition has $\Store \subseteq \Store'$ (as partial functions), and no existing entry
+$h \mapsto n$ is ever overwritten.
+\end{theorem}
+\begin{proof}[Proof sketch]
+\textsc{Bind}/\textsc{Rebind}/\textsc{Unbind}/\textsc{Eval} leave $\Store$ fixed. $\ingest$ and
+the cascade only add entries, and each key is $\hashof{n}$ for the very node $n$ stored, so any
+collision on a key is with an identical node ($\star$). \qed
+\end{proof}
+
+\begin{theorem}[Well-formedness preservation]\label{thm:wf}
+If $\wf(\Store)$ and $C \steps C'$, then $\wf(\Store')$.
+\end{theorem}
+\begin{proof}[Proof sketch]
+$\ingest(t)$ for a closed $t$ adds exactly the nodes of $t$; structural children resolve by
+construction and references in $t$ point at pre-existing definitions (edit-time resolution
+guarantees this). The cascade adds $g_{\mathrm{new}}$ and rewritten callers, all closed
+(\cref{rem:gate}), whose references are old definitions or $g_{\mathrm{new}}$, all in
+$\Store'$. Name edits do not touch $\Store$. \qed
+\end{proof}
+
+\begin{theorem}[Evaluation stability under growth]\label{thm:stability}
+Suppose $\wf(\Store)$, $\Store \subseteq \Store'$, and $\wf(\Store')$. Then for every $h$,
+$\evals{\Store}{\tRef{h}}{\val}$ implies $\evals{\Store'}{\tRef{h}}{\val}$ (and, by determinism,
+the values agree).
+\end{theorem}
+\begin{proof}[Proof sketch]
+$\reconstruct$ and $\Downarrow$ read only entries at hashes reachable from $h$ (through structure
+and $\mathsf{ref}$-unfolding). All such entries lie in $\dom(\Store)$ and, by immutability
+(\cref{thm:mono}), are identical in $\Store'$. Replay the derivation. \qed
+\end{proof}
+
+\begin{corollary}[Cache soundness / no re-evaluation]\label{cor:cache}
+If \textsc{Cache-sound} holds for $C$ and $C \steps C'$, it holds for $C'$: a written entry
+$\Cache(h)=\val$ stays valid in every future store. Hence a definition is evaluated \emph{at
+most once} across the whole history --- the cache never needs invalidation.
+\end{corollary}
+\begin{proof}[Proof sketch]
+The only way $\Store$ grows is \textsc{Ingest}/\textsc{Migrate} (\cref{thm:mono}); apply
+\cref{thm:stability}. \textsc{Eval} adds a cache entry that is sound by its premise; no rule
+removes or overwrites a cache entry. \qed
+\end{proof}
+
+\begin{corollary}[Migration is incremental]\label{cor:incremental}
+After a \textsc{Migrate} step, every cache entry for a hash in the \emph{old} $\dom(\Store)$
+remains valid; the set of definitions that may require (re-)evaluation is contained in the
+newly-registered hashes ($g_{\mathrm{new}}$ and the rewritten callers).
+\end{corollary}
+\begin{proof}[Proof sketch]
+$\Store \subseteq \Store'$; \cref{cor:cache} preserves old entries. New behavior lives only at
+new hashes, which are exactly the ones added. \qed
+\end{proof}
+
+\begin{corollary}[Only divergence is non-cacheable]\label{cor:fuel}
+Model \texttt{p4}'s budget as $\mathsf{eval}_k$ with fuel $k$. Then $\mathsf{eval}_k(t)=\val
+\Rightarrow \mathsf{eval}_{k+1}(t)=\val$ (fuel-monotonicity), and $\mathsf{eval}_k(t)=\val$ for
+some $k$ iff $\evals{\Store}{t}{\val}$. So \textsf{StepLimit} (no $k$ succeeds \emph{yet}) is
+precisely the non-stable outcome that \cref{rem:nostepcache} forbids caching, while
+\textsf{Value}/\textsf{Stuck} are stable and cacheable.
+\end{corollary}
+
+\begin{theorem}[History coherence]\label{thm:histcoh}
+After any transition: $x \in \dom(\Names)$ with $\Names(x)=h$ iff the head of $\Hist(x)$ is
+$(\mathsf{Some}\,h,\_)$; and $x \notin \dom(\Names)$ iff $\Hist(x)$ is empty or has a $\bot$
+head.
+\end{theorem}
+\begin{proof}[Proof sketch]
+Immediate for each of \textsc{Bind}/\textsc{Rebind}/\textsc{Unbind}, which prepend the matching
+event; $\multirebind$ (\cref{def:migrate}) commits a batch of rebinds, each preserving the
+invariant. Induction on transitions. \qed
+\end{proof}
+
+\begin{theorem}[Migration atomicity and scope]\label{thm:migosc}
+For a \textsc{Migrate} step with strategy $\mathrm{strat}$:
+\begin{enumerate}[nosep,label=(\alph*)]
+  \item \emph{(Atomicity)} $\langle\Names,\Hist\rangle$ advances iff the entire in-scope cascade
+  passes the gate and $\multirebind$ validates; otherwise $\langle\Names,\Hist\rangle$ is
+  unchanged.
+  \item \emph{(Scope)} the rewritten definitions are exactly those callers $g \in
+  \callersstar(\Store,g_{\mathrm{old}})$ with $\mathrm{strat}$'s predicate true whose body
+  actually mentions a rewritten reference. Under $\Pin$ none are rewritten and
+  $g_{\mathrm{old}}$ becomes an orphan; under $\Follow$ all reachable named callers are; under
+  $\Explicit(S)$, those in $S$.
+  \item \emph{(Preservation)} $\wf(\Store')$ and \cref{thm:nsb} still hold: definitions that were
+  \emph{not} rewritten keep their original reference edges, so their meaning is unchanged.
+\end{enumerate}
+\end{theorem}
+\begin{proof}[Proof sketch]
+(a) is the all-or-nothing contract of $\multirebind$ (\cref{def:migrate}). (b) is the definition
+of the scope filter and cascade (\cref{def:strategy,def:cascade}). (c) combines \cref{thm:wf}
+with the observation that a non-rewritten definition's nodes are untouched
+(\cref{thm:mono}). \qed
+\end{proof}
+
+% =====================================================================
+\section{Mechanization roadmap}\label{sec:mech}
+
+The definitions above are shaped to transcribe into Agda with little reshaping; the plan lives in
+\texttt{formalism/agda/README.md}. In brief:
+\begin{itemize}[nosep]
+  \item \textbf{Intrinsic well-scoped syntax} $\Term : \mathbb{N} \to \mathsf{Set}$ (variables
+  $\mathsf{Fin}\,n$); closedness is the type $\Term\,0$ and $\alpha$-equivalence is definitional,
+  turning \cref{def:closed} and \cref{thm:alpha}'s left half into typing.
+  \item \textbf{$\Hash$ as an abstract record} bundling the type, $\hashof{\cdot}$, and the
+  injectivity assumption ($\star$) --- the paper's one axiom becomes one postulate. The
+  postulate-free alternative ($\Hash \defeq \Term$) is noted and rejected (it collapses $\mathsf{ref}$).
+  \item \textbf{Stores} $\Store,\Names,\Cache,\Hist$ as finite maps with decidable membership;
+  $\wf$ as a decidable predicate.
+  \item \textbf{Evaluation} as fuel-indexed $\mathsf{eval} : \mathbb{N} \to \Store \to \Term \to
+  \mathsf{Result}$ with fuel-monotonicity (\cref{cor:fuel}), bridging to the $\Downarrow$
+  relation.
+  \item \textbf{Transitions} as an inductive $\_\steps\_$; \crefrange{thm:alpha}{thm:migosc} as
+  \texttt{agda --safe} theorems. Suggested milestone: \crefrange{thm:alpha}{thm:wf} first, then
+  the evaluation/migration block.
+\end{itemize}
+
+\section*{Provenance}
+Every definition cites its prototype source in a margin tag. The two substrate design documents
+this formalism answers are \texttt{docs/design/03-content-addressing.md} (the $\mathsf{ref}$, no-dangle,
+and immutability invariants) and \texttt{docs/design/04-naming-layer.md} (the namespace,
+resolution, no-silent-breakage, and the two-axis update-strategy space). The prototypes are
+\texttt{p4-lambda-calculus} (Parts I--II, IV) and \texttt{p11-mint-threads} (Parts III, V).
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

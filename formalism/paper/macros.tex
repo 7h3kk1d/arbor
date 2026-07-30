@@ -1,0 +1,74 @@
+% Notation macros for arbor-core.
+% Kept in one place so the eventual Agda names can be diffed against these.
+
+% --- stores and configurations ---
+\newcommand{\Store}{\Sigma}                 % term store
+\newcommand{\Names}{N}                       % namespace
+\newcommand{\Cache}{E}                        % evaluation cache
+\newcommand{\Hist}{H}                         % binding history
+\newcommand{\Config}[4]{\langle #1,\, #2,\, #3,\, #4\rangle}
+\newcommand{\dom}{\operatorname{dom}}
+
+% --- hashing ---
+\newcommand{\Hash}{\mathbb{H}}               % the abstract type of hashes
+\newcommand{\hashof}[1]{\lceil #1 \rceil}    % hash of a node
+\newcommand{\Time}{\mathbb{T}}               % timestamps
+
+% --- terms (deep, de Bruijn) ---
+\newcommand{\Var}[1]{\mathsf{var}\,#1}
+\newcommand{\Lam}[1]{\lambda.\,#1}
+\newcommand{\App}[2]{#1\;#2}
+\newcommand{\tRef}[1]{\mathsf{ref}\,#1}
+
+% --- shallow nodes ---
+\newcommand{\nVar}[1]{\mathsf{Var}(#1)}
+\newcommand{\nLam}[1]{\mathsf{Lam}(#1)}
+\newcommand{\nApp}[2]{\mathsf{App}(#1,#2)}
+\newcommand{\nRef}[1]{\mathsf{Ref}(#1)}
+
+% --- surface terms ---
+\newcommand{\sVar}[1]{#1}
+\newcommand{\sLam}[2]{\lambda #1.\,#2}
+\newcommand{\sName}[1]{\mathsf{name}\,#1}
+
+% --- de Bruijn operations (p4 ast.re) ---
+\newcommand{\shift}[3]{\uparrow^{#1}_{#2}\!\left(#3\right)}   % shift by #1 above cutoff #2
+\newcommand{\subst}[3]{[#1 \mapsto #2]\,#3}
+\newcommand{\isclosed}[1]{\mathsf{closed}(#1)}
+
+% --- store operations ---
+\newcommand{\ingest}{\mathsf{ingest}}
+\newcommand{\reconstruct}{\mathsf{reconstruct}}
+\newcommand{\wf}{\mathsf{wf}}
+\newcommand{\refs}{\mathsf{refs}}
+\newcommand{\callers}{\mathsf{callers}}
+\newcommand{\callersstar}{\mathsf{callers}^{*}}
+
+% --- judgments ---
+\newcommand{\evals}[3]{#1 \vdash #2 \Downarrow #3}          % Sigma |- t \Downarrow v
+\newcommand{\resolves}[3]{#1 \vdash #2 \rightsquigarrow #3} % N |- x ~> h
+\newcommand{\elab}[4]{#1 \vdash #2 \Rrightarrow #3}         % N |- s => t (elaboration)
+
+% --- values ---
+\newcommand{\val}{v}
+
+% --- edit calculus ---
+\newcommand{\steps}{\longrightarrow}
+\newcommand{\bind}{\mathsf{bind}}
+\newcommand{\rebind}{\mathsf{rebind}}
+\newcommand{\unbind}{\mathsf{unbind}}
+\newcommand{\multirebind}{\mathsf{multi\_rebind}}
+\newcommand{\Pin}{\textsc{pin}}
+\newcommand{\Follow}{\textsc{follow}}
+\newcommand{\Explicit}{\textsc{explicit}}
+\newcommand{\Migrate}{\mathsf{migrate}}
+\newcommand{\substrefs}[2]{\{#1\}\,#2}       % ref-substitution application
+
+% --- misc ---
+\newcommand{\Name}{\mathsf{Name}}
+\newcommand{\Node}{\mathsf{Node}}
+\newcommand{\Term}{\mathsf{Term}}
+\newcommand{\Val}{\mathsf{Val}}
+\newcommand{\upd}[3]{#1[#2 \mapsto #3]}
+\newcommand{\pfn}{\rightharpoonup}           % partial function arrow
+\newcommand{\defeq}{\triangleq}
