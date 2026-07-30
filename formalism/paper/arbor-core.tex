@@ -164,14 +164,16 @@ Beta-contraction of $\App{(\Lam{t})}{v}$ is, in the TAPL convention,
 \subsection{Surface terms and $\alpha$-canonicity}
 
 \begin{definition}[Surface terms]\label{def:surface}
-\src{surface\_ast.re} Surface terms carry names and a $\sName{\cdot}$ leaf for free
-identifiers:
+\src{surface\_ast.re} Surface terms carry names, with a \emph{single} identifier leaf:
 \[
-  s \;::=\; \sVar{x} \;\mid\; \sLam{x}{s} \;\mid\; \App{s}{s'} \;\mid\; \sName{x}
+  s \;::=\; \sVar{x} \;\mid\; \sLam{x}{s} \;\mid\; \App{s}{s'}
   \qquad (x \in \Name).
 \]
-$\sVar{x}$ is a use of a $\lambda$-bound name; $\sName{x}$ is a free identifier to be resolved
-against the namespace (\cref{sec:naming}). Names occur \emph{only} in surface terms.
+An identifier may be a use of an enclosing $\lambda$-bound name or a free name to be resolved
+against the namespace (\cref{sec:naming}) --- the parser cannot tell which, and \texttt{p4}'s
+surface AST accordingly has one \texttt{Var(string)} constructor for both; the split is made at
+resolution time (\cref{def:elab}), innermost binder first. Names occur \emph{only} in surface
+terms.
 \end{definition}
 
 The core syntax \emph{is} the $\alpha$-canonical form: de Bruijn indices identify
@@ -333,8 +335,9 @@ Consequently $\Downarrow$ induces a partial function $\mathsf{eval} : \Store \ti
 \end{lemma}
 \begin{proof}[Proof sketch]
 The rules are syntax-directed: the shape of $t$ (and, for \textsc{E-Ref}, $\Store(h)$) selects
-at most one rule, and each premise is on a structurally-\,/\,unfolding-smaller term. Induction on
-the derivation. \qed
+at most one rule. The premises are \emph{not} structurally smaller (\textsc{E-App}'s contractum,
+\textsc{E-Ref}'s unfolding), so induct on the first \emph{derivation}, inverting the second at
+each step. \qed
 \end{proof}
 
 \begin{lemma}[Closed terms never get stuck at the head]\label{lem:closed-no-stuck}
@@ -376,13 +379,14 @@ elaboration over this primitive, deferred here (\texttt{decisions.md}).
 
 \begin{definition}[Elaboration: surface $\to$ core]\label{def:elab}
 \src{resolver.re} Under a context $\Gamma$ (a list of bound names, innermost first),
-elaboration $\Gamma;\Names \vdash s \Rrightarrow t$ replaces each bound name by its de Bruijn
-index and each free name by a reference:
+elaboration $\Gamma;\Names \vdash s \Rrightarrow t$ replaces each identifier by its de Bruijn
+index when $\lambda$-bound --- innermost binder wins --- and by a reference when free:
 \begin{mathpar}
-  \inferrule*[right=El-Bound]{\Gamma(i) = x}{\Gamma;\Names \vdash \sVar{x} \Rrightarrow \Var{i}}
+  \inferrule*[right=El-Bound]{i \text{ least with } \Gamma(i) = x}
+            {\Gamma;\Names \vdash \sVar{x} \Rrightarrow \Var{i}}
   \and
   \inferrule*[right=El-Free]{x \notin \Gamma \\ \resolves{\Names}{x}{h}}
-            {\Gamma;\Names \vdash \sName{x} \Rrightarrow \tRef{h}}
+            {\Gamma;\Names \vdash \sVar{x} \Rrightarrow \tRef{h}}
   \\
   \inferrule*[right=El-Lam]{x{:}\Gamma;\Names \vdash s \Rrightarrow t}
             {\Gamma;\Names \vdash \sLam{x}{s} \Rrightarrow \Lam{t}}
@@ -390,8 +394,11 @@ index and each free name by a reference:
   \inferrule*[right=El-App]{\Gamma;\Names \vdash s \Rrightarrow t \\ \Gamma;\Names \vdash s' \Rrightarrow t'}
             {\Gamma;\Names \vdash \App{s}{s'} \Rrightarrow \App{t}{t'}}
 \end{mathpar}
-Elaboration fails (``unbound name'') when a free name is unresolved. The result is name-free by
-construction, giving the substrate invariant as a typing fact, not a runtime assertion:
+The least-index premise makes shadowing unambiguous ($\lambda x.\lambda x.\,x$ elaborates only
+to $\Lam{\Lam{\Var{0}}}$), and the two identifier rules are disjoint, so elaboration is a
+partial \emph{function}. It fails (``unbound name'') when an identifier is neither
+$\lambda$-bound nor in the namespace. The result is name-free by construction, giving the
+substrate invariant as a typing fact, not a runtime assertion:
 \end{definition}
 
 \begin{proposition}[Names never enter the store]\label{prop:namefree}
@@ -415,19 +422,61 @@ extends $\Gamma$ by one. \qed
 \end{proof}
 
 \begin{definition}[Printing: core $\to$ surface]\label{def:print}
-\src{pretty.re} $\mathsf{print}_{\Names}(\Store,h)$ recovers a surface term: bound variables
-become fresh printed names; a child reference $\tRef{h'}$ becomes $\sName{x}$ where $x$ is the
-alphabetically-first name with $\Names(x)=h'$ (or the orphan form \cref{def:orphan}); the
-top-level hash is never itself replaced by a name.
+\src{pretty.re} Printing renders a core term back to surface syntax, choosing names as it goes.
+Under a context $\Delta$ (the printed names of enclosing binders, innermost first), the
+judgment $\Delta;\Names \vdash t \Lleftarrow s$ (``$t$ prints as $s$'') is the least relation
+closed under
+\begin{mathpar}
+  \inferrule*[right=P-Var]{i \text{ least with } \Delta(i) = x}
+            {\Delta;\Names \vdash \Var{i} \Lleftarrow \sVar{x}}
+  \and
+  \inferrule*[right=P-Ref]{x \notin \Delta \\ \resolves{\Names}{x}{h}}
+            {\Delta;\Names \vdash \tRef{h} \Lleftarrow \sVar{x}}
+  \\
+  \inferrule*[right=P-Lam]{x{:}\Delta;\Names \vdash t \Lleftarrow s}
+            {\Delta;\Names \vdash \Lam{t} \Lleftarrow \sLam{x}{s}}
+  \and
+  \inferrule*[right=P-App]{\Delta;\Names \vdash t \Lleftarrow s \\ \Delta;\Names \vdash t' \Lleftarrow s'}
+            {\Delta;\Names \vdash \App{t}{t'} \Lleftarrow \App{s}{s'}}
+\end{mathpar}
+For a stored hash, printing $h$ means printing $\reconstruct(\Store,h)$ under
+$\Delta = \emptyset$; the top-level hash is never itself replaced by a name. The judgment is
+deliberately a \emph{relation}: \textsc{P-Lam} may choose any binder name and \textsc{P-Ref}
+any alias, while the leaf side conditions --- least index at \textsc{P-Var}, $x \notin \Delta$
+at \textsc{P-Ref} --- silently reject capturing choices (a binder shadowing a name some subterm
+still needs kills that branch of the relation, never soundness). \texttt{pretty.re} is one
+deterministic refinement: a fresh-name supply for binders and the alphabetically-first alias
+for references. A reference that is unnamed but present in history renders as the orphan form
+$x(\mathsf{v}N)$ (\cref{def:orphan}) --- a display form, not surface syntax; printing is
+undefined at a hash with no name and no history.
 \end{definition}
 
-\begin{remark}[Round-trip]\label{rem:roundtrip}
-Elaboration and printing are inverse up to choice of names:
-$\Gamma;\Names \vdash \mathsf{print}_{\Names}(\Store,h) \Rrightarrow t$ recovers the core term
-$t = \reconstruct(\Store,h)$ whenever every reference in $t$ is currently named. The precise
-equivalence (bound-name choice $\times$ alias choice) is stated in
-\texttt{open-questions.md}.
-\end{remark}
+\begin{proposition}[Printing inverts to elaboration]\label{prop:print-elab}
+If $\Delta;\Names \vdash t \Lleftarrow s$ then $\Delta;\Names \vdash s \Rrightarrow t$:
+whatever rendering the printer chooses, re-resolving it recovers exactly the stored term.
+\end{proposition}
+\begin{proof}[Proof sketch]
+Induction on the print derivation; each \textsc{P} rule's side condition is precisely the
+matching \textsc{El} rule's premise (\textsc{P-Var}'s least index is \textsc{El-Bound}'s;
+\textsc{P-Ref}'s $x \notin \Delta$ selects \textsc{El-Free}). \qed
+\end{proof}
+
+\begin{proposition}[Elaboration round-trip, up to name choice]\label{prop:elab-print}
+Say $s \approx_{\Gamma,\Names} s'$ iff $s$ and $s'$ elaborate under $\Gamma;\Names$ to the same
+core term. If $\Gamma;\Names \vdash s \Rrightarrow t$ and every reference in $t$ has a name
+outside $\Gamma$, then some $s'$ has $\Gamma;\Names \vdash t \Lleftarrow s'$, and every such
+$s'$ satisfies $s \approx_{\Gamma,\Names} s'$. Concretely, $\approx$ is generated by exactly
+two moves: capture-avoiding renaming of a $\lambda$-binder, and swapping a free identifier for
+an alias ($\sVar{x} \leftrightarrow \sVar{y}$ when $\Names(x) = \Names(y)$).
+\end{proposition}
+\begin{proof}[Proof sketch]
+Existence: induction on $t$, choosing binder names away from the finitely many aliases the
+subterm's references need. Membership in $\approx$ is immediate from \cref{prop:print-elab}
+plus elaboration being a function (\cref{def:elab}). The two-move characterization is by
+induction on a pair of $\approx$-related terms: equal elaborations force equal shapes, and at
+an identifier leaf the only freedom is which name selected the same index (binder renaming) or
+the same hash (alias swap). \qed
+\end{proof}
 
 % =====================================================================
 \section{Part IV --- The evaluation cache}\label{sec:cache}
@@ -438,12 +487,21 @@ procedure, immutable for that procedure --- here, evaluation results). Modeling 
 we make ``already-evaluated terms are never re-evaluated'' a theorem rather than a hope.
 
 \begin{definition}[Evaluation cache]\label{def:cache}
-\src{attachment.re, eval.re} The cache is a finite partial function $\Cache : \Hash \pfn \Val$,
-a \emph{derived} aspect. Its discipline: an entry may be written only for a \emph{defined}
-evaluation, and once written is never overwritten.
+\src{attachment.re, eval.re} The cache is a finite partial function
+$\Cache : \Hash \pfn \Hash$, a \emph{derived} aspect mapping the hash of a term to the hash of
+its value, \emph{itself ingested into the store}. Both key and value are store terms --- the
+cache never touches surface syntax --- matching \texttt{p4}, whose cached aspect is hash-valued
+(\texttt{Eval\_value(Hash.t)}) and whose evaluator ingests each result
+(\texttt{reconstruct} $\to$ \texttt{beta} $\to$ \texttt{ingest}) and every intermediate
+reduct. Its discipline: an entry may be written only for a \emph{defined} evaluation, and once
+written is never overwritten.
 \begin{mathpar}
-  \inferrule*[right=Cache-sound]{h \in \dom(\Cache)}{\evals{\Store}{\tRef{h}}{\Cache(h)}}
+  \inferrule*[right=Cache-sound]
+    {h \in \dom(\Cache)}
+    {\evals{\Store}{\tRef{h}}{\reconstruct(\Store,\Cache(h))}}
 \end{mathpar}
+In particular $\Cache(h) \in \dom(\Store)$, and --- values being closed abstractions ---
+$\closedin{\Store}{\Cache(h)}$.
 \end{definition}
 
 \begin{remark}[Why \textsf{StepLimit} is not cached]\label{rem:nostepcache}
@@ -492,8 +550,10 @@ are coherent.
     {\isclosed{t} \\ \forall h' \in \refs(t).\ \closedin{\Store}{h'} \\ \ingest(\Store,t) = (\Store',\_)}
     {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store'}{\Names}{\Cache}{\Hist}}
   \and
-  \inferrule*[right=Eval]{\evals{\Store}{\tRef{h}}{\val} \\ h \notin \dom(\Cache)}
-    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store}{\Names}{\upd{\Cache}{h}{\val}}{\Hist}}
+  \inferrule*[right=Eval]{\evals{\Store}{\tRef{h}}{\val} \\ h \notin \dom(\Cache) \\
+                          \ingest(\Store,\val) = (\Store', h_{\val})}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store'}{\Names}{\upd{\Cache}{h}{h_{\val}}}{\Hist}}
   \\
   \inferrule*[right=Bind]{x \notin \dom(\Names) \\ \closedin{\Store}{h}}
     {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
@@ -532,8 +592,9 @@ and for the history case analysis.
 \begin{definition}[Orphans]\label{def:orphan}
 \src{namespace.re: reverse\_lookup\_with\_version} A hash $h$ is an \emph{orphan} if it appears
 in some $\Hist(x)$ but is not the current binding of any name. Its version is the $1$-indexed
-position of $h$ among the $\mathsf{Some}$ events of $\Hist(x)$, oldest first; the printer renders
-it $x(\mathsf{v}N)$.
+position of the \emph{first} occurrence of $h$ among the $\mathsf{Some}$ events of $\Hist(x)$,
+oldest first (a hash bound, unbound, and bound again re-renders as its first version ---
+\texttt{p11} takes the earliest match); the printer renders it $x(\mathsf{v}N)$.
 \end{definition}
 
 \subsection{Migration}
@@ -713,9 +774,10 @@ Every transition has $\Store \subseteq \Store'$ (as partial functions), and no e
 $h \mapsto n$ is ever overwritten.
 \end{theorem}
 \begin{proof}[Proof sketch]
-\textsc{Bind}/\textsc{Rebind}/\textsc{Unbind}/\textsc{Eval} leave $\Store$ fixed. $\ingest$
-and the migration rewrite only add entries, and each key is $\hashof{n}$ for the very node $n$
-stored, so any collision on a key is with an identical node ($\star$). \qed
+\textsc{Bind}/\textsc{Rebind}/\textsc{Unbind} leave $\Store$ fixed. \textsc{Ingest},
+\textsc{Eval} (which ingests the computed value), and the migration rewrite only add entries,
+and each key is $\hashof{n}$ for the very node $n$ stored, so any collision on a key is with
+an identical node ($\star$). \qed
 \end{proof}
 
 \begin{theorem}[Coherence preservation]\label{thm:wf}
@@ -724,12 +786,16 @@ If $C$ is coherent (\cref{def:config}) and $C \steps C'$, then $C'$ is coherent.
 \begin{proof}[Proof sketch]
 Clause by clause. \emph{$\wf$ (i)--(ii):} \textsc{Ingest}'s premises supply closedness of the
 new term's reference targets; its structural children are registered bottom-up, so
-$\reconstruct$ is defined on every new entry. The migration rewrite preserves both by
-construction (\cref{rem:gate}). Name edits do not touch $\Store$.
+$\reconstruct$ is defined on every new entry. \textsc{Eval} ingests a value that is closed
+(evaluation preserves closedness, \cref{lem:closed-no-stuck}) and whose references occur in
+terms already reachable in $\Store$, so their targets are closed by the old $\wf$ (ii). The
+migration rewrite preserves both by construction (\cref{rem:gate}). Name edits do not touch
+$\Store$.
 \emph{$\wf$ (iii):} no existing node changes (\cref{thm:mono}), and every newly added node's
-references point at pre-existing closed entries (\textsc{Ingest} premise) or at rewrites whose
-registration precedes their referrers' (\textsc{Migrate}); ordering new nodes by registration
-therefore extends any topological order of the old reference graph, so no cycle is created.
+references point at pre-existing closed entries (\textsc{Ingest} premise, \textsc{Eval}'s
+value) or at rewrites whose registration precedes their referrers' (\textsc{Migrate});
+ordering new nodes by registration therefore extends any topological order of the old
+reference graph, so no cycle is created.
 \emph{(b), (c):} \textsc{Bind}/\textsc{Rebind} add bindings and $\mathsf{Some}$ events only
 with $\closedin{\Store}{h}$; $\multirebind$'s targets are validated closed in $\Store'$;
 \textsc{Unbind} only removes a binding and appends $\bot$; closedness of an existing entry is
@@ -756,9 +822,11 @@ $\Cache(h)=\val$ stays valid in every future store. Hence a definition is evalua
 most once} across the whole history --- the cache never needs invalidation.
 \end{corollary}
 \begin{proof}[Proof sketch]
-The only way $\Store$ grows is \textsc{Ingest}/\textsc{Migrate} (\cref{thm:mono}); apply
-\cref{thm:stability}. \textsc{Eval} adds a cache entry that is sound by its premise; no rule
-removes or overwrites a cache entry. \qed
+The only ways $\Store$ grows are \textsc{Ingest}/\textsc{Eval}/\textsc{Migrate}
+(\cref{thm:mono}); apply \cref{thm:stability}, noting that
+$\reconstruct(\cdot,\Cache(h))$ at a stored hash never changes under growth
+(\cref{thm:mono}). \textsc{Eval} adds a cache entry that is sound by its premises (the value
+it ingested reconstructs to itself); no rule removes or overwrites a cache entry. \qed
 \end{proof}
 
 \begin{corollary}[Migration is incremental]\label{cor:incremental}

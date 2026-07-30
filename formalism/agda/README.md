@@ -41,7 +41,8 @@ T1–T8 (`thm:alpha`, `thm:nsb`, `thm:mono`, `thm:wf`, `thm:stability`, `thm:his
     weakening T2/T5. Kept out; see `../decisions.md`.
 
 - **Stores — finite maps with decidable membership.**
-  `Σ : Hash ⇀ Node`, `N : Name ⇀ Hash`, `E : Hash ⇀ Val`, `H : Name ⇀ List (Maybe Hash × Time)`.
+  `Σ : Hash ⇀ Node`, `N : Name ⇀ Hash`, `E : Hash ⇀ Hash` (cache values are ingested store
+  terms), `H : Name ⇀ List (Maybe Hash × Time)`.
   Start with association lists keyed by decidable equality (simplest proofs); move to
   `Data.AVL` only if membership/`wf` proofs get heavy. `wf Σ` as a decidable predicate
   (no dangling child, reference targets closed, reference graph acyclic — all decidable on
@@ -51,11 +52,19 @@ T1–T8 (`thm:alpha`, `thm:nsb`, `thm:mono`, `thm:wf`, `thm:stability`, `thm:his
 - **Evaluation — fuel-indexed, plus the relation.**
   ```
   data Result : Set where value stuck steplimit : Hash → Result
-  eval : ℕ → Σ → Term 0 → Result
+  eval : ℕ → Σ → Hash → Σ × Result   -- hash-level; ingests β-reducts and results, as p4 does
   ```
-  Prove **fuel-monotonicity** (`eval k = value v → eval (suc k) = value v`) — this is
-  Corollary `cor:fuel` and the formal reason `StepLimit` is uncacheable but `Value`/`Stuck` are.
-  Relate `eval` to an inductive `_⊢_⇓_` for the stability proofs (T5).
+  The inductive `_⊢_⇓_` stays term-level and pure (it never grows `Σ`); a soundness lemma links
+  the two, and `value`-results are exactly what the `Eval` transition writes into `E`. Prove
+  **fuel-monotonicity** (`eval k = value v → eval (suc k) = value v`) — this is Corollary
+  `cor:fuel` and the formal reason `StepLimit` is uncacheable but `Value`/`Stuck` are.
+
+- **Elaboration and printing — a pair of inductive judgments.**
+  `Γ;N ⊢ s ⇛ t` (a partial function: least-index bound rule, disjoint free rule) and
+  `Δ;N ⊢ t ⇚ s` (deliberately relational: any binder names, any aliases). Round-trip theorems:
+  print-then-elaborate is exact (paper's `prop:print-elab`); elaborate-then-print holds up to
+  `≈` = kernel of elaboration (`prop:elab-print`), characterized by binder renaming + alias
+  swap.
 
 - **Transitions — an inductive relation.**
   `data _⟶_ : Config → Config → Set` with one constructor per rule
@@ -88,7 +97,7 @@ agda/
   Arbor/Hash.agda          -- HashModel record
   Arbor/Store.agda         -- Node, Σ, ingest/reconstruct, wf
   Arbor/Eval.agda          -- eval (fueled) + _⊢_⇓_ + monotonicity
-  Arbor/Naming.agda        -- N, resolve, elaboration
+  Arbor/Naming.agda        -- N, resolve, elaboration, printing + round-trips
   Arbor/Cache.agda         -- E and its discipline
   Arbor/Edit.agda          -- Config, _⟶_, migration
   Arbor/Meta.agda          -- T1–T8

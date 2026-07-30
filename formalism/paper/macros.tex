@@ -28,9 +28,8 @@
 \newcommand{\nRef}[1]{\mathsf{Ref}(#1)}
 
 % --- surface terms ---
-\newcommand{\sVar}[1]{#1}
+\newcommand{\sVar}[1]{#1}                    % the single identifier leaf
 \newcommand{\sLam}[2]{\lambda #1.\,#2}
-\newcommand{\sName}[1]{\mathsf{name}\,#1}
 
 % --- de Bruijn operations (p4 ast.re) ---
 \newcommand{\shift}[3]{\uparrow^{#1}_{#2}\!\left(#3\right)}   % shift by #1 above cutoff #2
