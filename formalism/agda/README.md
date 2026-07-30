@@ -41,10 +41,13 @@ T1–T8 (`thm:alpha`, `thm:nsb`, `thm:mono`, `thm:wf`, `thm:stability`, `thm:his
     weakening T2/T5. Kept out; see `../decisions.md`.
 
 - **Stores — finite maps with decidable membership.**
-  `Σ : Hash ⇀ Node`, `N : Name ⇀ Hash`, `E : Hash ⇀ Val`, `H : Name ⇀ List (Maybe Hash × Time)`.
+  `Σ : Hash ⇀ Node`, `R : List Hash` (definition roots, `R ⊆ dom Σ`), `N : Name ⇀ Hash`,
+  `E : Hash ⇀ Val`, `H : Name ⇀ List (Maybe Hash × Time)`.
   Start with association lists keyed by decidable equality (simplest proofs); move to
-  `Data.AVL` only if membership/`wf` proofs get heavy. `wf Σ` as a decidable predicate
-  (no dangling child/ref, definitions closed).
+  `Data.AVL` only if membership/`wf` proofs get heavy. `wf Σ R` as a decidable predicate
+  (no dangling child, refs land in `R`, roots closed, reference graph acyclic — all four
+  decidable on finite maps). Configuration coherence (`wf`, `ran N ⊆ R`, history hashes in `R`)
+  likewise.
 
 - **Evaluation — fuel-indexed, plus the relation.**
   ```
@@ -57,8 +60,13 @@ T1–T8 (`thm:alpha`, `thm:nsb`, `thm:mono`, `thm:wf`, `thm:stability`, `thm:his
 
 - **Transitions — an inductive relation.**
   `data _⟶_ : Config → Config → Set` with one constructor per rule
-  (`Ingest`, `Eval`, `Bind`, `Rebind`, `Unbind`, `Migrate`). Theorems are then statements about
-  `_⟶_` (single step) and its reflexive-transitive closure (whole histories).
+  (`Ingest`, `Eval`, `Bind`, `Rebind`, `Unbind`, `Migrate`). Constructor premises carry the
+  paper's guards (`Ingest`: closedness — free with `Term 0` — plus `refs t ⊆ R`;
+  `Bind`/`Rebind`: `h ∈ R`); coherence preservation is then an induction over `_⟶_`. Theorems
+  are statements about `_⟶_` (single step) and its reflexive-transitive closure (whole
+  histories). The `Migrate` case needs the dependency order: topologically sort the in-scope
+  callers using `wf`'s acyclicity clause, and prove the cascade order-independent
+  (paper's `lem:cascade-order`) so the choice of sort is irrelevant.
 
 ## Proof staging
 

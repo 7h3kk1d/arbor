@@ -11,9 +11,11 @@ guarantees and why content-addressing earns its complexity.*
 
 ## What `arbor-core` covers
 
-One content-addressed **term store** `Σ`, one **namespace** `N` (name → hash), one derived
-**evaluation cache** `E`, and an **edit calculus** (bind / rebind / unbind / explicit
-migration) operating on the configuration `⟨Σ, N, E, H⟩` (`H` = append-only binding history).
+One content-addressed **term store** `Σ` with its set `R` of **definition roots** (the hashes
+registered as complete top-level definitions, as opposed to anonymous shared subterm nodes),
+one **namespace** `N` (name → hash), one derived **evaluation cache** `E`, and an **edit
+calculus** (bind / rebind / unbind / explicit migration) operating on the configuration
+`⟨Σ, R, N, E, H⟩` (`H` = append-only binding history).
 
 The document is built around two dual metatheorems, both consequences of one fact —
 `eval` is a pure function of `(Σ, hash)` and `Σ` is immutable and monotone:
@@ -42,7 +44,10 @@ cites its source of truth by path:
 Two deliberate generalizations of the prototypes are recorded in `decisions.md`: the formalism
 **reintroduces `Ref(hash)`** (which p4 elided by inlining), and **drops the mint/thread axis**
 (p10/p11) and **types** (p9 line) from this first artifact. The gate p11 implements as a
-typecheck becomes an untyped **well-formedness gate**.
+typecheck becomes an untyped **well-formedness gate**. A third block of commitments (2026-07-30,
+from the first design review) added **definition roots** `R`, premises on the
+`Ingest`/`Bind`/`Rebind` transitions, and a **ref-acyclicity** clause in `wf` — see
+`decisions.md`.
 
 ## Building the paper
 

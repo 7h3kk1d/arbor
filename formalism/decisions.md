@@ -138,3 +138,49 @@ names are opaque strings).
 **Alternatives.** Model `resolve_query` + `Ambiguous` as the substrate resolution — rejected:
 it is editing-layer per `04`, and a three-valued resolution complicates the elaboration
 round-trip without touching the headline theorems.
+
+---
+
+## 2026-07-30 — Definition roots, guarded transitions, ref-acyclicity (first review pass)
+
+A design review of the draft (before starting any successor artifact) found three interlocking
+gaps, now fixed in the paper. They share one root cause: dropping p11's `Named` wrapper sort
+left "definition" informal, and several statements quietly leaned on it.
+
+**1. Rooted store.** A store is now a pair `(Σ, R)` with `R ⊆ dom(Σ)` the **definition roots**.
+Previously `wf` was not actually a predicate on `Σ` (its closedness clause said "bound in `N`",
+crossing into the namespace), and `callers`/the cascade quantified over all of `dom(Σ)` — which,
+storage being shallow, sweeps in every anonymous open subterm node (`Var 1` under a `Lam` is an
+entry). `Ingest`/`Migrate` populate `R`; `wf`, `callers`, and the cascade are parameterized by
+it. p11 realizes `R` as the `Named_term`/`Named_type` sort (minus the mint); p4 leaves it
+implicit.
+
+**2. Guarded transitions + configuration coherence.** `Ingest` gains premises `closed(t)` and
+`refs(t) ⊆ R` — previously it had none, so ingesting `ref h₀` at a dangling `h₀` falsified
+wf-preservation as stated; the old proof sketch appealed to "edit-time resolution", an
+editing-layer fact that is now an actual lemma (elaboration produces closed terms with
+`refs ⊆ ran(N)`) feeding actual premises. `Bind`/`Rebind` gain `h ∈ R`: the namespace layer
+alone cannot check this (p11's `namespace.re` accepts any hash — validation happens one level
+up, in `multi_rebind`'s `target_exists` and the editor's resolve step); a config-level
+transition can state it directly. `Rebind` stays total in the name, faithful to p11's `rebind`
+(which also binds fresh names). New **coherence** invariant on configurations: `wf(Σ,R)`,
+`ran(N) ⊆ R`, history `Some`-hashes ⊆ `R`, history coherence, `Cache-sound`; preservation is
+now the T4 statement.
+
+**3. Ref-acyclicity as a `wf` clause.** Injectivity (★) alone is consistent with hash fixpoints
+(`hash(Ref h) = h`), and the old `wf` did not exclude reference cycles: `reconstruct` stops at
+`Ref` leaves, so only *structural* cycles were ruled out. A cyclic reference graph makes
+`callers*` cyclic, so migration's "dependency order" — previously used but never defined — need
+not exist. New `wf` clause (iv): the reference graph is acyclic. Dependency order is now defined
+(a topological sort of the in-scope callers closure, existence from (iv)), and the cascade
+result is proved order-independent (new lemma). The lemma matters because p11's
+`callers_closure` returns DFS *discovery* order, not dependency order — harmless in p11, whose
+references are deep structural containment substituted against a body-keyed mapping, but
+load-bearing here, where substitution rewrites shallow `Ref` leaves.
+
+**Alternatives.** (a) Derive the root set from the configuration (`ran(N)` ∪ ref-targets ∪
+history hashes) instead of carrying `R` — rejected: it leaves `Ingest` without a meaning
+("register a definition" is exactly what adds a root) and makes `wf`'s parameterization awkward
+to mechanize. (b) Keep `wf` weaker and prove acyclicity only as an invariant of reachable
+configurations — rejected: `wf` should be self-contained (a store either supports migration or
+does not), and preservation is provable anyway from `Ingest`'s new premises.
