@@ -14,6 +14,9 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
 - **Mint / thread identity.** The second identity axis (p10/p11): threads that survive content
   edits, `edit-of-X` vs. fresh ingest, `thread_of` grouping. Formalize the mint as orthogonal to
   the content hash and re-derive migration lineage from it (stronger than history-based lineage).
+  Also where **unit-scoped following** returns: arbor-core's migration is a whole-store
+  structural rewrite (decisions.md 2026-07-30) — per-unit intent (selective follow, lineage
+  through unnamed intermediates) is exactly what the mint adds back.
 - **Aspects in general.** Generalize `E` (derived) and `N` (asserted) to the full asserted/
   derived aspect store (`docs/design/02`); procedure identity as the cache key.
 - **Translation / multi-language.** `Definition` as a sum over languages; the "no cross-language

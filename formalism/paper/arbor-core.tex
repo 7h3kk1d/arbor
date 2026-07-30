@@ -60,13 +60,11 @@ This is the first artifact in a formalism developed the way the arbor prototypes
 content-addressing's payoff, not so much that types obscure it --- and model four pieces of
 substrate state:
 \begin{itemize}[nosep]
-  \item a content-addressed \textbf{term store} $\Store$ together with its set $\Roots$ of
-  \textbf{definition roots} (\cref{sec:store});
+  \item a content-addressed \textbf{term store} $\Store$ (\cref{sec:store});
   \item a \textbf{namespace} $\Names$ mapping names to hashes (\cref{sec:naming});
   \item a derived \textbf{evaluation cache} $\Cache$ (\cref{sec:cache});
-  \item an \textbf{edit calculus} of transitions on
-  $\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist}$, where $\Hist$ is an append-only binding
-  history (\cref{sec:edit}).
+  \item an \textbf{edit calculus} of transitions on $\Config{\Store}{\Names}{\Cache}{\Hist}$,
+  where $\Hist$ is an append-only binding history (\cref{sec:edit}).
 \end{itemize}
 
 \paragraph{Two theorems are the point.} The design's whole justification is packed into a dual
@@ -243,19 +241,21 @@ $\reconstruct(\Store,h)$ follows $\Store(h)$, recursing into $\nLam{}/\nApp{}$ c
 returning $\Var{i}$ / $\tRef{h'}$ unchanged; it is undefined on $h \notin \dom(\Store)$.
 \end{definition}
 
-\begin{definition}[Definition roots]\label{def:roots}
-\src{p11 definition.re: Named\_term / Named\_type} A \emph{rooted store} is a pair
-$(\Store, \Roots)$ with $\Roots \subseteq \dom(\Store)$. The hashes in $\Roots$ are the
-\emph{definitions}: complete top-level terms, registered as such by the edit calculus
-(\textsc{Ingest} and \textsc{Migrate}, \cref{sec:edit}). Every other entry of $\Store$ is an
-anonymous subterm node --- shared structure that need not be closed. Because storage is shallow,
-$\dom(\Store)$ inevitably contains such nodes (a bare $\nVar{1}$ under some $\nLam{}$ is an
-entry); $\Roots$ is what lets the metatheory quantify over \emph{definitions} without
-quantifying over every shared node. \texttt{p11} realizes the same distinction as a sort marker
-in the store --- the \texttt{Named\_term}/\texttt{Named\_type} wrappers, whose mint this
-artifact drops; \texttt{p4} leaves it implicit (a definition is whatever a name has been bound
-to).
-\end{definition}
+\begin{remark}[No definition sort]\label{rem:nosort}
+The store deliberately carries \emph{no} marker distinguishing ``definitions'' from shared
+subterm structure. Storage is shallow, so $\dom(\Store)$ contains every subterm of everything
+ingested (a bare $\nVar{1}$ under some $\nLam{}$ is an entry), and hash-equality is the only
+identity there is: a closed subterm that coincides with a deliberately-written term \emph{is}
+that term. What confers definition-hood is \emph{naming} --- binding a name to a closed stored
+hash (\textsc{Bind}, \cref{def:transitions}) is the only assertion that a hash is a unit of
+interest, and the namespace and history are where that assertion lives. \texttt{p11} instead
+marks definition-hood in the store itself (the \texttt{Named\_term}/\texttt{Named\_type}
+wrapper sort) --- but that marker carries a \emph{mint}, i.e.\ creation-identity: exactly the
+second identity axis this artifact defers. Importing the wrapper without its mint would smuggle
+a unit-of-intent into a model that cannot yet express intent; we decline, and migration is
+correspondingly a \emph{whole-store} rewrite (\cref{def:cascade}). See \texttt{decisions.md},
+2026-07-30.
+\end{remark}
 
 \begin{definition}[References]\label{def:refs}
 For a term $t$, $\refs(t) \defeq \{\, h \mid \tRef{h} \text{ occurs in } t\,\}$; for a stored
@@ -265,31 +265,36 @@ closure.
 \end{definition}
 
 \begin{definition}[Well-formedness]\label{def:wf}
-\src{03-content-addressing.md: ``hashes never dangle''} A rooted store is \emph{well-formed},
-$\wf(\Store,\Roots)$, iff:
+\src{03-content-addressing.md: ``hashes never dangle''} Write $\closedin{\Store}{h}$ for
+``$h \in \dom(\Store)$ and $\isclosed{\reconstruct(\Store,h)}$''. $\Store$ is
+\emph{well-formed}, $\wf(\Store)$, iff:
 \begin{enumerate}[nosep,label=(\roman*)]
   \item every $h \in \dom(\Store)$ has $\reconstruct(\Store,h)$ defined (every structural child
   resolves --- no dangle);
-  \item every $h \in \dom(\Store)$ has $\refs(\Store,h) \subseteq \Roots$ (references cite
-  definitions, never anonymous subterm nodes);
-  \item every $d \in \Roots$ has $\isclosed{\reconstruct(\Store,d)}$ (definitions are closed ---
-  the load-bearing \texttt{p4} invariant that, with (ii), lets a reference unfold with no
-  shifting);
+  \item every $h \in \dom(\Store)$ has $\closedin{\Store}{h'}$ for each
+  $h' \in \refs(\Store,h)$ (reference targets denote closed terms --- the load-bearing
+  \texttt{p4} invariant that lets \textsc{E-Ref} unfold with no shifting);
   \item the \emph{reference graph}
   $\{\,(h,h') \mid h \in \dom(\Store),\ h' \in \refs(\Store,h)\,\}$ is acyclic.
 \end{enumerate}
+Clause (ii) is not circular: whether $h'$ is closed depends only on
+$\reconstruct(\Store,h')$, which stops at $\tRef{}$ leaves --- a reference is closed regardless
+of its own target. Note that $\wf$ mentions only $\Store$: well-formedness is a property of the
+store alone.
 \end{definition}
 
 \begin{remark}[Why acyclicity must be stated]\label{rem:acyclic}
-Clause (iv) is not implied by the others. $\reconstruct$ stops at $\tRef{}$ leaves, so clause
+Clause (iii) is not implied by the others. $\reconstruct$ stops at $\tRef{}$ leaves, so clause
 (i) rules out \emph{structural} cycles (a cyclic $\nLam{}/\nApp{}$ chain leaves $\reconstruct$
 undefined) but says nothing about reference cycles: a store with $\Store(h) = \nRef{h}$ ---
-that is, $\hashof{\nRef{h}} = h$ --- satisfies (i)--(iii) with $h \in \Roots$, because
-injectivity ($\star$) alone is consistent with such a fixpoint. A concrete hash function makes
-the fixpoint unforgeable (one would need $h$ before computing it), but the abstract model must
-exclude it explicitly. Clause (iv) is what makes the callers relation well-founded, so that
-migration's dependency order exists (\cref{def:deporder}) and its cascade terminates; evaluation
-does not need it (\textsc{E-Ref} on a cyclic reference simply diverges).
+that is, $\hashof{\nRef{h}} = h$ --- satisfies (i)--(ii) (a reference leaf is closed no matter
+its target), because injectivity ($\star$) alone is consistent with such a fixpoint. A concrete
+hash function makes the fixpoint unforgeable (one would need $h$ before computing it), but the
+abstract model must exclude it explicitly. Clause (iii) is what makes the combined
+structural-and-reference graph well-founded, so that migration's whole-store rewrite is
+definable by recursion (\cref{def:cascade}) and sequential passes over it exist
+(\cref{def:deporder}); evaluation does not need it (\textsc{E-Ref} on a cyclic reference simply
+diverges).
 \end{remark}
 
 \subsection{Evaluation}
@@ -333,15 +338,14 @@ the derivation. \qed
 \end{proof}
 
 \begin{lemma}[Closed terms never get stuck at the head]\label{lem:closed-no-stuck}
-If $\wf(\Store,\Roots)$ and $\isclosed{t}$ then no evaluation position reached from $t$ has a
-free $\Var{}$ at its head; hence the missing $\Var$-rule loses no closed-term behavior.
+If $\wf(\Store)$ and $\isclosed{t}$ then no evaluation position reached from $t$ has a free
+$\Var{}$ at its head; hence the missing $\Var$-rule loses no closed-term behavior.
 \end{lemma}
 \begin{proof}[Proof sketch]
 $\mathsf{beta}$ preserves closedness (\cref{def:closed}, \cref{def:beta}), and so does
-reference unfolding: an unfolded target is in $\Roots$ by $\wf$ (ii), hence closed by $\wf$
-(iii). A closed weak-head normal form has an abstraction at its head. (Without the $\wf$
-premise the lemma is false --- unfolding a reference into an \emph{open} stored term would
-smuggle in a free variable.) \qed
+reference unfolding: the unfolded target is closed by $\wf$ (ii). A closed weak-head normal
+form has an abstraction at its head. (Without the $\wf$ premise the lemma is false ---
+unfolding a reference into an \emph{open} stored term would smuggle in a free variable.) \qed
 \end{proof}
 
 \begin{example}[Divergence]\label{ex:omega}
@@ -465,12 +469,14 @@ if it is $\mathsf{Some}$, else $x$ is unbound.
 \end{definition}
 
 \begin{definition}[Configuration and coherence]\label{def:config}
-$C = \Config{\Store}{\Roots}{\Names}{\Cache}{\Hist}$. $C$ is \emph{coherent} iff:
+$C = \Config{\Store}{\Names}{\Cache}{\Hist}$. $C$ is \emph{coherent} iff:
 \begin{enumerate}[nosep,label=(\alph*)]
-  \item $\wf(\Store,\Roots)$ (\cref{def:wf});
-  \item $\ran(\Names) \subseteq \Roots$ (every bound name denotes a definition);
-  \item every hash in a $\mathsf{Some}$ event of $\Hist$ lies in $\Roots$ (orphans remain
-  closed, reconstructible definitions --- what makes \cref{def:orphan}'s rendering meaningful);
+  \item $\wf(\Store)$ (\cref{def:wf});
+  \item $\closedin{\Store}{h}$ for every $h \in \ran(\Names)$ (a name may assert
+  definition-hood only of a closed stored term, \cref{rem:nosort});
+  \item $\closedin{\Store}{h}$ for every hash $h$ in a $\mathsf{Some}$ event of $\Hist$
+  (orphans remain closed, reconstructible terms --- what makes \cref{def:orphan}'s rendering
+  meaningful);
   \item history coherence (\cref{thm:histcoh}) and \textsc{Cache-sound} (\cref{def:cache}).
 \end{enumerate}
 Fresh timestamps $\tau$ are drawn monotonically; we leave the clock abstract. Every transition
@@ -483,44 +489,44 @@ are coherent.
 \begin{definition}[Core transitions]\label{def:transitions}
 \begin{mathpar}
   \inferrule*[right=Ingest]
-    {\isclosed{t} \\ \refs(t) \subseteq \Roots \\ \ingest(\Store,t) = (\Store',h)}
-    {\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-     \Config{\Store'}{\Roots \cup \{h\}}{\Names}{\Cache}{\Hist}}
+    {\isclosed{t} \\ \forall h' \in \refs(t).\ \closedin{\Store}{h'} \\ \ingest(\Store,t) = (\Store',\_)}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store'}{\Names}{\Cache}{\Hist}}
   \and
   \inferrule*[right=Eval]{\evals{\Store}{\tRef{h}}{\val} \\ h \notin \dom(\Cache)}
-    {\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-     \Config{\Store}{\Roots}{\Names}{\upd{\Cache}{h}{\val}}{\Hist}}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store}{\Names}{\upd{\Cache}{h}{\val}}{\Hist}}
   \\
-  \inferrule*[right=Bind]{x \notin \dom(\Names) \\ h \in \Roots}
-    {\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-     \Config{\Store}{\Roots}{\upd{\Names}{x}{h}}{\Cache}{\upd{\Hist}{x}{(\mathsf{Some}\,h,\tau){:}\Hist(x)}}}
+  \inferrule*[right=Bind]{x \notin \dom(\Names) \\ \closedin{\Store}{h}}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store}{\upd{\Names}{x}{h}}{\Cache}{\upd{\Hist}{x}{(\mathsf{Some}\,h,\tau){:}\Hist(x)}}}
   \and
-  \inferrule*[right=Rebind]{h \in \Roots}
-    {\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-     \Config{\Store}{\Roots}{\upd{\Names}{x}{h}}{\Cache}{\upd{\Hist}{x}{(\mathsf{Some}\,h,\tau){:}\Hist(x)}}}
+  \inferrule*[right=Rebind]{\closedin{\Store}{h}}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store}{\upd{\Names}{x}{h}}{\Cache}{\upd{\Hist}{x}{(\mathsf{Some}\,h,\tau){:}\Hist(x)}}}
   \\
   \inferrule*[right=Unbind]{x \in \dom(\Names)}
-    {\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-     \Config{\Store}{\Roots}{\Names\setminus x}{\Cache}{\upd{\Hist}{x}{(\bot,\tau){:}\Hist(x)}}}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store}{\Names\setminus x}{\Cache}{\upd{\Hist}{x}{(\bot,\tau){:}\Hist(x)}}}
 \end{mathpar}
-$\bind$, $\rebind$, $\unbind$ touch only $\Names$ and $\Hist$; $\Store$ and $\Roots$ are
-untouched. Renaming is derived as $\unbind$ then $\bind$ \src{namespace.re: rename}.
+$\bind$, $\rebind$, $\unbind$ touch only $\Names$ and $\Hist$; $\Store$ is untouched. Renaming
+is derived as $\unbind$ then $\bind$ \src{namespace.re: rename}.
 \end{definition}
 
 \begin{remark}[The new premises are load-bearing]\label{rem:premises}
 Three premises here go beyond what the prototype code checks at the same layer, and each is
-deliberate. \textsc{Ingest} requires a closed term whose references cite existing definitions:
-these are facts the editing layer establishes by construction (\cref{lem:elab-premises}), but
-they must be \emph{premises} of the transition or coherence preservation (\cref{thm:wf}) fails
---- ingesting $\tRef{h_0}$ for an unregistered $h_0$ would dangle, and an open definition would
-break reference unfolding (\cref{lem:closed-no-stuck}). \textsc{Bind}/\textsc{Rebind} require
-$h \in \Roots$: the namespace layer alone cannot check this (\texttt{p11}'s
-\texttt{namespace.re} accepts any hash), so the prototypes validate it one level up ---
-$\multirebind$'s \texttt{target\_exists} predicate \src{namespace.re: multi\_rebind} and the
-editor's resolution step; a transition on the whole configuration can state it directly.
-\textsc{Rebind} keeps no premise on $x$: like \texttt{p11}'s \texttt{rebind}, it also binds
-fresh names, so \textsc{Bind} is its first-bind special case, kept for readability and for the
-history case analysis.
+deliberate. \textsc{Ingest} requires a closed term whose references denote closed stored terms:
+facts the editing layer establishes by construction (\cref{lem:elab-premises}), but which must
+be \emph{premises} of the transition or coherence preservation (\cref{thm:wf}) fails ---
+ingesting $\tRef{h_0}$ for an unregistered $h_0$ would dangle, and a reference into an open
+subterm would break unfolding (\cref{lem:closed-no-stuck}). \textsc{Bind}/\textsc{Rebind}
+require $\closedin{\Store}{h}$ and nothing more: \emph{any} closed stored hash may be named,
+including one that only ever existed as a subterm of something else, because hash-equality is
+the only identity there is (\cref{rem:nosort}). The namespace layer alone cannot check even
+this (\texttt{p11}'s \texttt{namespace.re} accepts any hash), so the prototypes validate one
+level up --- $\multirebind$'s \texttt{target\_exists} predicate \src{namespace.re:
+multi\_rebind} and the editor's resolution step; a transition on the whole configuration states
+it directly. \textsc{Rebind} keeps no premise on $x$: like \texttt{p11}'s \texttt{rebind}, it
+also binds fresh names, so \textsc{Bind} is its first-bind special case, kept for readability
+and for the history case analysis.
 \end{remark}
 
 \begin{definition}[Orphans]\label{def:orphan}
@@ -532,18 +538,19 @@ it $x(\mathsf{v}N)$.
 
 \subsection{Migration}
 
-Migration edits a definition and propagates the change to its callers under a chosen scope.
-The callers relation is the reverse of $\refs$; it is exactly the set migration may rewrite.
+Migration edits a definition and propagates the change through the store under a chosen scope.
+Without mints there is no unit of intent to scope by (\cref{rem:nosort}): propagation is a
+\emph{whole-store} structural rewrite, and names simply follow their hashes.
 
 \begin{definition}[Callers]\label{def:callers}
 \src{store.re: callers\_of, callers\_closure}
-$\callers(\Store,\Roots,h) \defeq \{\, g \in \Roots \mid h \in \refs(\Store,g)\,\}$;
-$\callersstar(\Store,\Roots,h)$ is its transitive closure (definitions reaching $h$ through a
-chain of references). Callers range over $\Roots$, not $\dom(\Store)$: the store also holds
-every anonymous subterm node, and ``rewriting'' those independently of the definitions
-containing them would be meaningless. \texttt{p11} makes the same restriction one call later
---- its caller index tracks \emph{all} structural parents, and the cascade filters to
-\texttt{Named} definitions \src{update\_strategy.re: cascade\_pairs}.
+$\callers(\Store,h) \defeq \{\, g \in \dom(\Store) \mid h \in \refs(\Store,g)\,\}$;
+$\callersstar(\Store,h)$ is its transitive closure. Callers are an \emph{observation}, not a
+scoping device: migration below rewrites the whole store, and
+$\callersstar(\Store,g_{\mathrm{old}})$, together with the structure above those entries, is
+exactly the set it can change. \texttt{p11} instead \emph{scopes} its cascade, filtering its
+caller index to the \texttt{Named} sort \src{update\_strategy.re: cascade\_pairs} --- but that
+sort carries a mint, and unit-scoped following is mint-flavored behavior this artifact defers.
 \end{definition}
 
 \begin{definition}[Reference substitution]\label{def:substrefs}
@@ -552,94 +559,115 @@ $\substrefs{\rho}{t}$ rewrites every $\tRef{h}$ in $t$ with $h \in \dom(\rho)$ t
 leaving all else fixed.
 \end{definition}
 
-\begin{definition}[Scope filter]\label{def:strategy}
-\src{update\_strategy.re: strategy, filter} A strategy induces a predicate on caller hashes:
+\begin{definition}[Scope]\label{def:strategy}
+\src{update\_strategy.re: strategy, filter} A strategy induces a \emph{propagation scope}
+$P \subseteq \dom(\Store)$:
 \[
-  \Pin \mapsto \lambda g.\,\bot,\qquad
-  \Follow \mapsto \lambda g.\,\top,\qquad
-  \Explicit(S) \mapsto \lambda g.\,g \in S.
+  \Pin \mapsto \emptyset,\qquad
+  \Follow \mapsto \dom(\Store),\qquad
+  \Explicit(S) \mapsto S.
 \]
 These are three points in the design's two-axis space (\texttt{04}: \emph{scope} $\times$
 \emph{user-in-loop}); \Pin{} is the empty-scope instance of the same machinery, not a special
-case.
+case. The scope is consulted only where an edge \emph{crosses a reference} (\cref{def:cascade})
+or a \emph{name binding} (\cref{def:migrate}); structure always propagates.
+\end{definition}
+
+\begin{definition}[Migration rewrite]\label{def:cascade}
+\src{update\_strategy.re: cascade\_pairs; follow\_clean.re} Fix a \emph{seed}
+$g_{\mathrm{old}} \mapsto g_{\mathrm{new}}$ with $\closedin{\Store}{g_{\mathrm{old}}}$ and
+$\closedin{\Store}{g_{\mathrm{new}}}$ (the new body was ingested beforehand), and a scope $P$
+(\cref{def:strategy}). The rewrite $\rho : \dom(\Store) \to \Hash$ is defined by recursion:
+\[
+  \rho(g_{\mathrm{old}}) = g_{\mathrm{new}}, \qquad\text{otherwise}\quad
+  \rho(h) = \hashof{\rho^{\#}(\Store(h))},
+\]
+\[
+  \rho^{\#}(\nVar{i}) = \nVar{i}, \quad
+  \rho^{\#}(\nLam{c}) = \nLam{\rho(c)}, \quad
+  \rho^{\#}(\nApp{c_1}{c_2}) = \nApp{\rho(c_1)}{\rho(c_2)}, \quad
+  \rho^{\#}(\nRef{r}) = \nRef{\hat\rho(r)},
+\]
+where $\hat\rho(r) = \rho(r)$ if $r \in P \cup \{g_{\mathrm{old}}\}$ and $\hat\rho(r) = r$
+otherwise: structural edges always propagate, reference edges only into scope. The recursion is
+well-founded: structural edges terminate by $\wf$ (i), reference edges by $\wf$ (iii), and a
+mixed cycle projects (via $\reconstruct$, which folds structure into $\refs$) onto a
+reference-graph cycle, contradicting (iii). Every node in the image of $\rho^{\#}$ is
+registered; $\Store'$ is $\Store$ extended by them. An entry $h$ \emph{follows} iff
+$\rho(h) \neq h$ --- automatic bookkeeping, since an entry none of whose children or in-scope
+referents changed re-hashes to itself. The followers are exactly the entries reaching
+$g_{\mathrm{old}}$ through structure and scope-admitted references.
 \end{definition}
 
 \begin{definition}[Dependency order]\label{def:deporder}
-For finite $K \subseteq \Roots$, a \emph{dependency order} on $K$ is a linear order
+For finite $K \subseteq \dom(\Store)$, a \emph{dependency order} on $K$ is a linear order
 $g_1, \dots, g_k$ enumerating $K$ such that whenever $g_j$ transitively references $g_i$ (a
 path $g_j \to \cdots \to g_i$ in the reference graph) with $g_i, g_j \in K$, then $i < j$ ---
-callees before callers. By $\wf$ clause (iv) a dependency order always exists (any topological
-sort of the acyclic reference graph restricted to $K$); without (iv) it need not
+referents before referrers. By $\wf$ clause (iii) a dependency order always exists (any
+topological sort of the acyclic reference graph restricted to $K$); without (iii) it need not
 (\cref{rem:acyclic}).
 \end{definition}
 
-\begin{definition}[Cascade]\label{def:cascade}
-\src{update\_strategy.re: cascade\_pairs} Given an edit of definition
-$g_{\mathrm{old}} \in \Roots$ to a new body ingested at $g_{\mathrm{new}}$ (satisfying the
-\textsc{Ingest} premises), and a filter $p$, the cascade fixes a dependency order
-(\cref{def:deporder}) on $\callersstar(\Store,\Roots,g_{\mathrm{old}})$ and processes it in
-that order, accumulating a rewrite map $\rho$ initialized to
-$\{g_{\mathrm{old}}\mapsto g_{\mathrm{new}}\}$. For each caller $g$ with $p(g)$: let $g'$ be
-the hash of $\ingest(\substrefs{\rho}{\reconstruct(\Store,g)})$; if $\substrefs{\rho}{\cdot}$
-changed the body, require the \textbf{gate} to hold of the rewritten definition
-(\cref{rem:gate}); on success extend $\rho$ with $g \mapsto g'$ and emit the pair $(g,g')$. The
-cascade \emph{aborts} if any in-scope caller fails the gate. Dependency order is what makes
-$\rho$ complete at each step: every in-scope definition that $g$ directly references has
-already been processed, so no rewritten caller is left citing a stale sibling. (\texttt{p11}'s
-\texttt{callers\_closure} returns DFS \emph{discovery} order, which is not a dependency order;
-its cascade tolerates this because \texttt{p11} has no $\nRef{}$ --- references there are deep
-structural containment, and its substitution is keyed on $g_{\mathrm{old}}$'s body from the
-start. With shallow $\nRef{}$ rewriting, the order is load-bearing.)
-\end{definition}
-
-\begin{lemma}[The cascade is order-independent]\label{lem:cascade-order}
-The final rewrite map $\rho$, the emitted pairs $P$, and the resulting store extension are the
-same for every choice of dependency order.
+\begin{lemma}[Sequential passes compute $\rho$]\label{lem:cascade-order}
+Let $K = \{h \mid \rho(h) \neq h\}$. Processing $K$ in \emph{any} dependency order
+(\cref{def:deporder}) --- rewriting each entry's reconstruction with the substitution
+accumulated so far (\cref{def:substrefs}, seeded with
+$g_{\mathrm{old}} \mapsto g_{\mathrm{new}}$) and re-ingesting --- computes exactly $\rho$ on
+$K$, independent of the order chosen. This is the bridge to \texttt{p11}'s implementation,
+whose \texttt{cascade\_pairs} is such a pass. (\texttt{p11} runs it in DFS \emph{discovery}
+order, which is not a dependency order; it tolerates this only because \texttt{p11} has no
+$\nRef{}$ --- references there are deep structural containment, and its substitution is keyed
+on $g_{\mathrm{old}}$'s body from the start. With shallow $\nRef{}$ rewriting, the order
+matters.)
 \end{lemma}
 \begin{proof}[Proof sketch]
-By $\wf$ (iv) the reference graph restricted to the in-scope callers is well-founded, so the
-cascade's result has an order-free characterization by recursion on it: for in-scope $g$,
-$\rho(g)$ is the root hash of
-$\ingest(\substrefs{\rho \restriction \refs(\Store,g)}{\reconstruct(\Store,g)})$, where
-$\rho$ restricted to $\refs(\Store,g)$ is determined by the same recursion on $g$'s in-scope
-referents together with the fixed seed $g_{\mathrm{old}} \mapsto g_{\mathrm{new}}$
-(out-of-scope referents never enter $\dom(\rho)$). Any dependency-order pass computes exactly
-this fixpoint. \qed
+Well-founded induction along the reference order: when $g$ is processed, every in-scope
+referent $r$ with $\rho(r) \neq r$ has already been processed, so the accumulated substitution
+agrees with $\hat\rho$ on $\refs(\Store,g)$; re-ingesting the rewritten reconstruction then
+registers node-for-node the $\rho^{\#}$-image of $g$'s structure. \qed
 \end{proof}
 
-\begin{remark}[The gate is a well-formedness gate]\label{rem:gate}
+\begin{remark}[The untyped gate is total]\label{rem:gate}
 \texttt{p11}'s cascade re-\emph{typechecks} each rewritten caller and aborts on the first
-ill-typed one \src{update\_strategy.re: Typecheck.check\_top}. Untyped, the gate is exactly the
-\textsc{Ingest} premises for the rewritten body: closedness, and references citing definitions
-(counting the pairs emitted so far as definitions). Both hold by construction ---
-$\substrefs{\rho}{\cdot}$ replaces closed references by closed references, and every rewrite
-target is $g_{\mathrm{new}}$ or a previously emitted $g'$. So the gate is \emph{near-total} ---
-$\Follow$ essentially always succeeds here. That is the honest finding: the interesting failure
-modes of $\Follow$ are introduced by \emph{types}, motivating the typed successor
+ill-typed one \src{update\_strategy.re: Typecheck.check\_top}. The untyped analogue of that
+gate --- each rewritten entry is closed where its original was, and its references denote
+closed stored terms --- holds \emph{by construction}: $\rho^{\#}$ preserves every node's shape,
+$\hat\rho$ replaces closed targets by their rewrites (and rewriting preserves closedness, since
+only reference targets change), and referents are registered before their referrers. So
+untyped migration \emph{cannot fail}: $\Follow$ always succeeds, and the abort path of
+\cref{def:migrate} is vacuous in this instance. The atomicity contract is stated anyway,
+because it is what the typed successor's gate needs --- there a rewritten caller may genuinely
+no longer typecheck. That is the honest finding: \emph{all} interesting failure modes of
+$\Follow$ are introduced by \emph{types}, motivating the typed successor
 (\texttt{open-questions.md}).
 \end{remark}
 
 \begin{definition}[Atomic multi-rebind and the migration transition]\label{def:migrate}
-\src{namespace.re: multi\_rebind; update\_strategy.re: apply\_with\_named} Let the cascade for
-$(x,g_{\mathrm{old}},g_{\mathrm{new}},\text{strat})$ succeed with pairs $P$ and final store
-$\Store'$ (which contains $g_{\mathrm{new}}$ and every emitted $g'$). Form the rebind bundle
+\src{namespace.re: multi\_rebind; update\_strategy.re: apply\_with\_named} Let $\rho$ be the
+migration rewrite for $(g_{\mathrm{old}} \mapsto g_{\mathrm{new}}, P)$, $\Store'$ its extended
+store, and $x_0$ the edited name ($\Names(x_0) = g_{\mathrm{old}}$). Names follow their
+hashes, guarded by the same scope:
 \[
-  U \;=\; \{(x,g_{\mathrm{new}})\} \;\cup\; \{\,(y,g') \mid (g,g') \in P,\ y \in \Names^{-1}(g)\,\}.
+  U \;=\; \{(x_0, g_{\mathrm{new}})\} \;\cup\;
+  \{\,(y, \rho(\Names(y))) \mid y \in \dom(\Names),\ \Names(y) \in P,\
+     \rho(\Names(y)) \neq \Names(y)\,\}.
 \]
-$\multirebind$ validates $U$ (every target in $\Roots'$) and \textbf{commits all-or-nothing}:
+Under \Follow{} this rebinds every name whose meaning changed --- including aliases of
+$g_{\mathrm{old}}$, which \texttt{p11} also rebinds (its wrapper is itself a caller of the
+edited body, so \texttt{names\_of} sweeps the aliases in); under \Pin{} only $x_0$ moves, also
+as in \texttt{p11}. $\multirebind$ validates $U$ (every target $\closedin{\Store'}{\cdot}$ ---
+automatic here, \cref{rem:gate}) and \textbf{commits all-or-nothing}:
 \begin{mathpar}
   \inferrule*[right=Migrate]
-    {\text{cascade succeeds}\ \Rightarrow\ (\Store',P) \\
-     \Roots' = \Roots \cup \{g_{\mathrm{new}}\} \cup \{\,g' \mid (g,g') \in P\,\} \\
+    {\Names(x_0) = g_{\mathrm{old}} \\ \closedin{\Store}{g_{\mathrm{new}}} \\
+     \rho,\ \Store' \text{ as in \cref{def:cascade}} \\
      \multirebind(\Names,\Hist,U) = (\Names',\Hist')}
-    {\Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-     \Config{\Store'}{\Roots'}{\Names'}{\Cache}{\Hist'}}
+    {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
+     \Config{\Store'}{\Names'}{\Cache}{\Hist'}}
 \end{mathpar}
-On a cascade or validation failure, $\Names$ and $\Hist$ are untouched; $\Store$ and $\Roots$
-may retain the candidate hashes they accumulated (there is no orphan GC; in \texttt{p11} the
-candidates are already-registered \texttt{Named} wrappers --- closed definitions, so retaining
-them as roots is harmless). Thus \textbf{only $\langle\Names,\Hist\rangle$ is transactional;
-$\Store$ and $\Roots$ are accumulate-only}.
+On a validation failure, $\Names$ and $\Hist$ are untouched; $\Store$ may retain the candidate
+hashes it accumulated (there is no orphan GC). Thus \textbf{only $\langle\Names,\Hist\rangle$
+is transactional; $\Store$ is accumulate-only}.
 \end{definition}
 
 % =====================================================================
@@ -661,8 +689,7 @@ hence (IH) equal subterms. \cref{ex:alpha} instantiates it. \qed
 \end{proof}
 
 \begin{theorem}[No silent breakage]\label{thm:nsb}
-If $C = \Config{\Store}{\Roots}{\Names}{\Cache}{\Hist} \steps
-\Config{\Store}{\Roots}{\Names'}{\Cache}{\Hist'}$
+If $C = \Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store}{\Names'}{\Cache}{\Hist'}$
 by \textsc{Bind}, \textsc{Rebind}, or \textsc{Unbind}, then $\Store$ is unchanged, and therefore
 for every $h$, $\evals{\Store}{\tRef{h}}{\val}$ holds after the edit iff it held before. A name
 edit changes only \emph{which} hash a name resolves to, never what any referenced hash computes.
@@ -682,40 +709,40 @@ $\mathit{one}$. This is \cref{thm:nsb} in miniature.
 \end{example}
 
 \begin{theorem}[Monotonicity and immutability]\label{thm:mono}
-Every transition has $\Store \subseteq \Store'$ (as partial functions) and
-$\Roots \subseteq \Roots'$, and no existing entry $h \mapsto n$ is ever overwritten.
+Every transition has $\Store \subseteq \Store'$ (as partial functions), and no existing entry
+$h \mapsto n$ is ever overwritten.
 \end{theorem}
 \begin{proof}[Proof sketch]
-\textsc{Bind}/\textsc{Rebind}/\textsc{Unbind}/\textsc{Eval} leave $\Store$ and $\Roots$ fixed.
-$\ingest$ and the cascade only add entries, and each key is $\hashof{n}$ for the very node $n$
-stored, so any collision on a key is with an identical node ($\star$). \textsc{Ingest} and
-\textsc{Migrate} only ever enlarge $\Roots$. \qed
+\textsc{Bind}/\textsc{Rebind}/\textsc{Unbind}/\textsc{Eval} leave $\Store$ fixed. $\ingest$
+and the migration rewrite only add entries, and each key is $\hashof{n}$ for the very node $n$
+stored, so any collision on a key is with an identical node ($\star$). \qed
 \end{proof}
 
 \begin{theorem}[Coherence preservation]\label{thm:wf}
 If $C$ is coherent (\cref{def:config}) and $C \steps C'$, then $C'$ is coherent.
 \end{theorem}
 \begin{proof}[Proof sketch]
-Clause by clause. \emph{$\wf$ (i)--(iii):} \textsc{Ingest}'s premises supply closedness of the
-new root and $\refs(t) \subseteq \Roots$; its structural children are registered bottom-up, so
-$\reconstruct$ is defined on every new entry. The cascade adds only bodies passing the gate,
-which is those same premises (\cref{rem:gate}). Name edits do not touch $\Store,\Roots$.
-\emph{$\wf$ (iv):} no existing node changes (\cref{thm:mono}), and every newly added node's
-references lie in the pre-existing $\Roots$ (\textsc{Ingest} premise) or in
-$\{g_{\mathrm{new}}\} \cup$ previously-emitted rewrites (\textsc{Migrate}); ordering new nodes
-by registration therefore extends any topological order of the old reference graph, so no cycle
-is created. \emph{(b), (c):} \textsc{Bind}/\textsc{Rebind} add bindings and $\mathsf{Some}$
-events only with $h \in \Roots$; $\multirebind$'s targets are validated in $\Roots'$;
-\textsc{Unbind} only removes a binding and appends $\bot$. \emph{(d):} \cref{thm:histcoh} and
-\cref{cor:cache}. Note where the old hand-wave went: the \textsc{Ingest} case no longer appeals
-to ``edit-time resolution'' --- that fact is now \cref{lem:elab-premises}, and here it is simply
-a premise. \qed
+Clause by clause. \emph{$\wf$ (i)--(ii):} \textsc{Ingest}'s premises supply closedness of the
+new term's reference targets; its structural children are registered bottom-up, so
+$\reconstruct$ is defined on every new entry. The migration rewrite preserves both by
+construction (\cref{rem:gate}). Name edits do not touch $\Store$.
+\emph{$\wf$ (iii):} no existing node changes (\cref{thm:mono}), and every newly added node's
+references point at pre-existing closed entries (\textsc{Ingest} premise) or at rewrites whose
+registration precedes their referrers' (\textsc{Migrate}); ordering new nodes by registration
+therefore extends any topological order of the old reference graph, so no cycle is created.
+\emph{(b), (c):} \textsc{Bind}/\textsc{Rebind} add bindings and $\mathsf{Some}$ events only
+with $\closedin{\Store}{h}$; $\multirebind$'s targets are validated closed in $\Store'$;
+\textsc{Unbind} only removes a binding and appends $\bot$; closedness of an existing entry is
+stable because $\reconstruct$ at a stored hash never changes (\cref{thm:mono}). \emph{(d):}
+\cref{thm:histcoh} and \cref{cor:cache}. Note where the old hand-wave went: the \textsc{Ingest}
+case no longer appeals to ``edit-time resolution'' --- that fact is now
+\cref{lem:elab-premises}, and here it is simply a premise. \qed
 \end{proof}
 
 \begin{theorem}[Evaluation stability under growth]\label{thm:stability}
-Suppose $\wf(\Store,\Roots)$, $\Store \subseteq \Store'$, $\Roots \subseteq \Roots'$, and
-$\wf(\Store',\Roots')$. Then for every $h$, $\evals{\Store}{\tRef{h}}{\val}$ implies
-$\evals{\Store'}{\tRef{h}}{\val}$ (and, by determinism, the values agree).
+Suppose $\wf(\Store)$, $\Store \subseteq \Store'$, and $\wf(\Store')$. Then for every $h$,
+$\evals{\Store}{\tRef{h}}{\val}$ implies $\evals{\Store'}{\tRef{h}}{\val}$ (and, by
+determinism, the values agree).
 \end{theorem}
 \begin{proof}[Proof sketch]
 $\reconstruct$ and $\Downarrow$ read only entries at hashes reachable from $h$ (through structure
@@ -736,8 +763,8 @@ removes or overwrites a cache entry. \qed
 
 \begin{corollary}[Migration is incremental]\label{cor:incremental}
 After a \textsc{Migrate} step, every cache entry for a hash in the \emph{old} $\dom(\Store)$
-remains valid; the set of definitions that may require (re-)evaluation is contained in the
-newly-registered hashes ($g_{\mathrm{new}}$ and the rewritten callers).
+remains valid; the set of terms that may require (re-)evaluation is contained in the
+newly-registered hashes ($g_{\mathrm{new}}$ and the $\rho$-image).
 \end{corollary}
 \begin{proof}[Proof sketch]
 $\Store \subseteq \Store'$; \cref{cor:cache} preserves old entries. New behavior lives only at
@@ -764,26 +791,27 @@ invariant. Induction on transitions. \qed
 \end{proof}
 
 \begin{theorem}[Migration atomicity and scope]\label{thm:migosc}
-For a \textsc{Migrate} step with strategy $\mathrm{strat}$:
+For a \textsc{Migrate} step with scope $P$:
 \begin{enumerate}[nosep,label=(\alph*)]
-  \item \emph{(Atomicity)} $\langle\Names,\Hist\rangle$ advances iff the entire in-scope cascade
-  passes the gate and $\multirebind$ validates; otherwise $\langle\Names,\Hist\rangle$ is
-  unchanged.
-  \item \emph{(Scope)} the rewritten definitions are exactly those callers $g \in
-  \callersstar(\Store,\Roots,g_{\mathrm{old}})$ with $\mathrm{strat}$'s predicate true whose
-  body actually mentions a rewritten reference --- independently of the dependency order chosen
-  (\cref{lem:cascade-order}). Under $\Pin$ none are rewritten and $g_{\mathrm{old}}$ becomes an
-  orphan; under $\Follow$ all reachable named callers are; under $\Explicit(S)$, those in $S$.
-  \item \emph{(Preservation)} $\wf(\Store',\Roots')$ and \cref{thm:nsb} still hold: definitions
-  that were \emph{not} rewritten keep their original reference edges, so their meaning is
-  unchanged.
+  \item \emph{(Atomicity)} $\langle\Names,\Hist\rangle$ advances iff $\multirebind$ validates;
+  otherwise it is unchanged. (In this untyped instance validation cannot fail,
+  \cref{rem:gate}; the contract is stated for the typed successor's gate.)
+  \item \emph{(Scope)} the rewritten entries are exactly those with $\rho(h) \neq h$: the
+  entries reaching $g_{\mathrm{old}}$ through structure and scope-admitted reference
+  crossings. The rebound names are $x_0$ plus every name bound in scope whose hash changed.
+  Under $\Pin$ nothing is rewritten and $g_{\mathrm{old}}$ becomes an orphan; under $\Follow$
+  everything reaching $g_{\mathrm{old}}$ follows, names and aliases included; under
+  $\Explicit(S)$, propagation crosses references (and name bindings) only into $S$. All of it
+  is order-free by construction (\cref{def:cascade}); sequential implementations agree
+  (\cref{lem:cascade-order}).
+  \item \emph{(Preservation)} $\wf(\Store')$ and \cref{thm:nsb} still hold: entries that were
+  \emph{not} rewritten keep their original reference edges, so their meaning is unchanged.
 \end{enumerate}
 \end{theorem}
 \begin{proof}[Proof sketch]
-(a) is the all-or-nothing contract of $\multirebind$ (\cref{def:migrate}). (b) is the definition
-of the scope filter and cascade (\cref{def:strategy,def:cascade}). (c) combines \cref{thm:wf}
-with the observation that a non-rewritten definition's nodes are untouched
-(\cref{thm:mono}). \qed
+(a) is the all-or-nothing contract of $\multirebind$ (\cref{def:migrate}). (b) unfolds
+\cref{def:cascade,def:strategy,def:migrate}. (c) combines \cref{thm:wf} with the observation
+that a non-rewritten entry's nodes are untouched (\cref{thm:mono}). \qed
 \end{proof}
 
 % =====================================================================
@@ -798,9 +826,11 @@ The definitions above are shaped to transcribe into Agda with little reshaping; 
   \item \textbf{$\Hash$ as an abstract record} bundling the type, $\hashof{\cdot}$, and the
   injectivity assumption ($\star$) --- the paper's one axiom becomes one postulate. The
   postulate-free alternative ($\Hash \defeq \Term$) is noted and rejected (it collapses $\mathsf{ref}$).
-  \item \textbf{Stores} $\Store,\Names,\Cache,\Hist$ as finite maps with decidable membership,
-  $\Roots$ as a finite set; $\wf$ as a decidable predicate (acyclicity of the finite reference
-  graph, clause (iv), is decidable) and configuration coherence (\cref{def:config}) likewise.
+  \item \textbf{Stores} $\Store,\Names,\Cache,\Hist$ as finite maps with decidable membership;
+  $\wf$ as a decidable predicate (target-closedness and acyclicity of the finite reference
+  graph are both decidable) and configuration coherence (\cref{def:config}) likewise. The
+  migration rewrite $\rho$ is total recursion on the acyclic combined graph --- mechanize it
+  with fuel bounded by $|\dom(\Store)|$ or by well-founded recursion on topological rank.
   \item \textbf{Evaluation} as fuel-indexed $\mathsf{eval} : \mathbb{N} \to \Store \to \Term \to
   \mathsf{Result}$ with fuel-monotonicity (\cref{cor:fuel}), bridging to the $\Downarrow$
   relation.

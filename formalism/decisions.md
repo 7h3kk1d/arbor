@@ -184,3 +184,48 @@ history hashes) instead of carrying `R` — rejected: it leaves `Ingest` without
 to mechanize. (b) Keep `wf` weaker and prove acyclicity only as an invariant of reachable
 configurations — rejected: `wf` should be self-contained (a store either supports migration or
 does not), and preservation is provable anyway from `Ingest`'s new premises.
+
+---
+
+## 2026-07-30 — No definition sort: names confer definition-hood; migration is a whole-store rewrite
+
+Supersedes the "rooted store" commitment of the previous entry (same day), after working the
+design through concrete cascade examples. The guarded-transitions and ref-acyclicity
+commitments stand, reworked to fit.
+
+**The stance.** In a mint-free artifact there is no "unit of intent": a name is a label used to
+match λ-terms in the store, and hash-equality is the only identity. So (a) the store carries
+**no definition sort** — an explicit root set `R` is provenance identity, i.e. a degenerate
+mint, and p11's `Named` wrapper (which the previous entry cited as precedent) carries a mint
+for exactly this reason; (b) **naming a closed stored term is what treats it as defined** —
+`Bind`/`Rebind` require only `closed_Σ(h)`, so any closed stored hash may be named, including
+one that only ever existed as a subterm; (c) **migration propagates structurally**: updating
+`Z → Z'` rewrites every store entry reaching `Z` (scope-guarded at reference crossings and
+name bindings), and names simply follow their hashes. Unit-scoped following returns with the
+mint successor.
+
+**What changed in the paper.** `wf(Σ)` is again a predicate on the store alone: (i) reconstruct
+defined, (ii) reference targets closed (directly the E-Ref soundness condition; not circular —
+a target's closedness ignores the target's own refs), (iii) reference graph acyclic. Config
+back to `⟨Σ, N, E, H⟩`; coherence requires name and history hashes closed. The cascade is
+replaced by a **whole-store rewrite `ρ`**, defined by recursion on the combined
+structural+reference graph (acyclic by (i)+(iii); mixed cycles project to reference cycles) —
+order-free by construction, so the dependency-order machinery survives only as the
+sequential-pass lemma bridging to p11's implementation. Strategies become propagation scopes
+(`Pin ↦ ∅`, `Follow ↦ dom(Σ)`, `Explicit(S) ↦ S`) consulted at reference crossings and at name
+bindings. Two faithfulness dividends: under Follow, aliases of the edited definition now
+rebind (p11 does this too, via its wrapper-as-caller path; the pre-review `U` missed them),
+and under Pin only the edited name moves, as in p11.
+
+**Findings worth keeping.**
+- The untyped gate is *total*, not just near-total: rewriting preserves closedness and
+  registers referents before referrers, so `Follow` cannot fail and migration atomicity is
+  vacuous here. The contract is stated anyway — it is what the typed successor's gate needs.
+- Alternatives visited and rejected on the way: **bare closedness as the definition sort**
+  (every `Ref` stub and anonymous closed fragment becomes a "definition"; callers/cascade
+  bookkeeping fills with junk pairs) and **"ever named" (`ran(N)` ∪ history) as cascade scope**
+  (Follow silently under-propagates through orphaned intermediates: the rewritten orphan is
+  never named, so a *second* migration pins at it — lineage through unnamed intermediates is
+  mint-shaped state). The whole-store rewrite has neither problem; its cost is that "what was
+  migrated" is characterized structurally (`ρ(h) ≠ h`) rather than as a list of user-facing
+  units — the honest cost, since units do not exist at this rung.
