@@ -32,7 +32,7 @@ Items worth reading rather than merely citing are marked **[Priority read]** inl
 
 ## Theme map
 
-- `01-content-addressing.md` — Merkle DAGs, IPFS/IPLD, Nix and Guix, Software Heritage and the intrinsic/extrinsic identifier distinction, hash-consing modulo an equivalence, hashing modulo α-equivalence, and the finding that Unison has no publication.
+- `01-content-addressing.md` — why content-address at all rather than mint everything; Merkle DAGs, IPFS/IPLD, Nix and Guix; the Software Heritage identifier papers read in full (intrinsic identifiers, DIO vs. IDO, the six mechanisms, the canonical-representation precondition); hash-consing modulo an equivalence; hashing modulo α-equivalence; minting prior art and the coincidental-convergence hazard; and the finding that Unison has no publication.
 - `02-structure-editors.md` — the full Hazel line with DOIs, the earlier structure-editor tradition, MPS and the language workbenches, and the recent counterargument to storing only structure. The citation layer under `../design/07-hazel-substrate.md`.
 - `03-modules-abstraction.md` — the p12–p17 line: existentials, translucent sums, Leroy, F-ing Modules, F-zip and open existentials, generativity and type stamps, records and labels. Contains **the Sewell cluster**, the survey's most consequential find.
 - `04-incrementality.md` — build systems, self-adjusting and demand-driven computation, Nominal Adapton and the names/hashes parallel, incremental type checking, and the granularity gap arbor cannot reach.
