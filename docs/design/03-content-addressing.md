@@ -6,6 +6,25 @@
 
 Pin down how definitions are identified, how they reference each other, and how their hashes are grounded at the leaves. This doc covers only the hashing substrate. Caching of derived associated data is in `02-definitions-and-derived-data.md`; translation-specific caching is in `05-translation.md`.
 
+## Why content addressing (added 2026-08-03)
+
+This doc previously documented *how* we hash without ever arguing *why* — a gap worth closing, since minting (`10-minted-identity.md`) makes "issue a fresh key for every definition and keep a `key → data` map" a live alternative that is simpler, never collides, and solves lineage for free.
+
+Content addressing buys four things a minted-key map cannot, all consequences of one property — **the identity is derivable by anyone, from the thing itself, without asking permission**:
+
+- **Verification without trust.** A recipient can recompute the hash and check it, so the *store* need not be trusted: any mirror, peer, or agent can serve a definition. A `key → data` map requires trusting whoever holds the map.
+- **Agreement without coordination.** Two parties who independently write the same definition arrive at the same name having never communicated; under minting they get different names and can never discover the match. Worth stating precisely because it is easy to misattribute to immutability: an append-only minted store is fully immutable and does not converge at all.
+- **Cache keys that are theorems.** Same hash implies same content implies same derived result, which is what makes the eval-stability property in `02-definitions-and-derived-data.md` provable rather than engineered. Under minting, "these two keys denote equal content" is a separate fact someone must establish and maintain.
+- **Immutability as arithmetic, not policy.** Content cannot change without the name changing. An append-only discipline over minted keys gets the same effect, but a discipline can be violated where hashing cannot.
+
+Deduplication is the benefit most often cited and the least load-bearing for us — decisive at archive scale, near-irrelevant at ours.
+
+**The converse is equally real, and is why `10-minted-identity.md` exists.** Every property above is about *sameness*, none about *identity through time*. Stable identity across edits, deliberate distinctness of coincidentally-equal definitions, and "this moved" are all things content addressing cannot express and minting gives away. So the two mechanisms answer different questions and a serious store needs both layers — as Git, Nix, IPFS, Perkeep, and Software Heritage all do. Our unusual choice is *placement*: the mint sits inside the hashed bytes, in the same node as semantic content, where Perkeep uses separate content-free identity blobs and Git keeps refs outside the object store entirely. Tracked in `open-questions.md` §"Minted identity".
+
+The hard limit is **self-reference**: content addressing cannot name a thing that refers to itself, since the name depends on content that depends on the name. That is exactly the "Mutual recursion canonicalization" sub-question below, and it is not a local wrinkle — Nix meets the same wall with self-referential store paths and concedes its hash-rewriting workaround is only a heuristic. Unison's answer is available to us and not to Nix: make the recursive group one addressable unit with intra-group references by index, which works because our contents are structured syntax rather than opaque bytes.
+
+Sources and the fuller argument: `../related-work/01-content-addressing.md` §"Why content-address at all, rather than mint everything?".
+
 ## Identity
 
 A definition is identified by its hash alone. We treat cryptographic hash collisions as impossible in practice.

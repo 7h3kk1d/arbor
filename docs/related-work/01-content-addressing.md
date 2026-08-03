@@ -8,6 +8,42 @@ This is arbor's foundation and the theme where prior art is densest, best-engine
 
 The one rigorous technical result for that canonicalization is Maziarz et al. below. The most important negative finding in the whole survey also lives here: **Unison, the system arbor is closest to, has no peer-reviewed publication at all.**
 
+## Why content-address at all, rather than mint everything?
+
+`../design/03-content-addressing.md` documents *how* arbor hashes and never argues *why* — it has no rationale section. The question is sharp: if minting is available, why not issue a fresh key for every definition and keep a `key → data` map? That is simpler, it never collides, and it solves lineage for free. What does hashing buy that a UUID map cannot?
+
+**Four things, and they are all consequences of one property: the identity is derivable by anyone, from the thing itself, without asking permission.**
+
+- **Verification without trust.** RFC 062 puts it in one line: *"Content-addressed paths on the other hand don't need a signature: if `/nix/store/123-foo` is content-addressed, then `123` is supposed to be a hash of the content of the path, and that can be easily checked."* A `key → data` map requires trusting whoever holds the map. Hashing makes the *store* untrusted — any mirror, any peer, any agent can serve a definition and you can check it yourself. RFC 062 draws the consequence explicitly: *"several users can share the same Nix store, but have each a different trust relation to it."* For arbor this is what makes a shared commons possible without a central authority, and what stops an agent misrepresenting what a definition contains.
+- **Agreement without coordination.** Two parties who independently produce the same definition arrive at the same name, having never communicated. Under minting they get *different* names for the same thing and can never discover the match. **This is the load-bearing property for arbor's agentic claim, and it is worth being precise that it belongs to content addressing rather than to immutability** — an append-only UUID store is perfectly immutable and does not converge at all. "Immutability prevents collisions" is really *convergence without coordination*.
+- **Cache keys that are theorems rather than conventions.** Same hash implies same content implies same derived result; that is eval-stability, and it is free. Under minting, "these two keys denote equal content" is a separate fact somebody has to establish and maintain. Nix is the worked example of paying that price: input-addressing means a cosmetic change to a low-level dependency gives every downstream path a new name even when outputs are byte-identical, and RFC 062's build cutoffs exist to recover what content addressing would have given for nothing. Its dedup mechanism is stated the same way — *"if `drv` and `drv'` only differ because one depends on `dep` and the other on `dep'`, but `dep` and `dep'` are content-addressed and have the same output hash, then `resolved(drv)` and `resolved(drv')` will be equal."*
+- **Immutability that is arithmetic rather than policy.** You cannot alter content without altering the name. A UUID map can achieve the same by append-only discipline — but discipline is a policy that can be violated, misconfigured, or raced, where hashing makes it a property of the numbers.
+
+**Deduplication is the benefit most often cited and the least important one here.** It is decisive at Software Heritage's scale (16B+ files) and near-irrelevant at arbor's. Convergence and cache-keys-as-theorems are what actually carry the design.
+
+### What content addressing cannot do, and why every system layers
+
+Every benefit above is about *sameness*. None is about *identity through time*. That is exactly the list minting gets for free: stable identity across edits (arbor's mint-thread), deliberate distinctness of coincidentally-equal things (arbor's mint), the ability to say "this moved" (Grove's objection — a hash cannot express a move), and privacy (a hash is a confirmation oracle: anyone can test whether you hold specific content).
+
+So the answer to *why not mint everything* is that you would lose verification, convergence, and free cache keys — and the answer to *why not hash everything* is that you would lose lineage, deliberate distinctness, and movement. **Empirically nobody chooses.** Every deployed system in this file runs both layers:
+
+- Git — content-addressed objects, mutable refs.
+- Nix — hashed store paths, mutable profiles and generations.
+- IPFS — CIDs, IPNS.
+- Perkeep — content-addressed blobs, permanodes, signed claims.
+- Software Heritage — intrinsic SWHIDs, extrinsic origins and snapshots.
+- arbor — hashes, the namespace, and mints.
+
+The intrinsic/extrinsic axis from Di Cosmo, Gruenpeter & Zacchiroli is this same distinction. **Extrinsic identity is not a competitor to content addressing; it is the layer you are forced to build on top of it**, because the four properties above are purchased precisely by giving up identity-through-time. Where arbor is unusual is *placement*: it puts extrinsic identity inside the intrinsic layer, in the same node as semantic content, where Perkeep keeps identity in separate content-free blobs and Git keeps refs entirely outside the object store. That is the real divergence, and `../design/open-questions.md:80` is where it is tracked.
+
+### The hard limit: self-reference
+
+The deepest constraint is one Nix documents honestly. Content addressing cannot name a thing that refers to itself, because the name depends on the content which depends on the name. Nix meets this as self-referential store paths, patches around it by building at a magic placeholder path and rewriting hashes afterward, and admits the fix is partial: hash rewriting *"is only a heuristic and there is no way to truly ensure that we don't leak a self-reference."*
+
+**arbor hits the same wall**, recorded at `../design/open-questions.md:46` as "Mutual recursion canonicalization." It is the same problem, and the standard answer is already available from Unison: break the cycle by making the recursive group a single addressable unit, with intra-group references by index rather than by hash. That converts a self-referential object into a closed one, which is exactly the move Nix cannot make because its outputs are opaque bytes rather than structured syntax.
+
+Relatedly, RFC 062 names the causal constraint behind Nix's default: *"we can't know the output paths of a derivation before building it."* You cannot address by content something that does not exist yet, so input-addressing is a workaround for needing a name *before* the content. arbor mostly escapes this because its definitions are source rather than build outputs — it names things that already exist. The one place it resurfaces is naming what has not been written yet, and p8/p9's answer is worth noticing as a genuinely different one: a bare `Hole` has a *constant* hash, so all holes are the same thing. Nix needed a placeholder to be unique; arbor makes placeholders identical.
+
 ## Merkle structures and the store/name split
 
 - **Ralph C. Merkle (CRYPTO '87) — "A Digital Signature Based on a Conventional Encryption Function."** LNCS 293, pp. 369–378, Springer 1988. DOI [10.1007/3-540-48184-2_32](https://doi.org/10.1007/3-540-48184-2_32). `[verified]` The hash-tree construction; the canonical citation for "a node's identity is the hash of its children's identities." Note the *tree* here is authentication machinery — cite Merkle for hash-linking and Benet for the DAG generalization arbor actually uses.
