@@ -38,6 +38,11 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
   evaluator is total" (`eval.re`). Since stored defs are closed (`Term 0`), does `Stuck` ever
   actually arise? If provably never, drop it from the modeled result and simplify T5/T6; if it
   can arise via a malformed store, keep it and let `wf` rule it out. Decide during the proofs.
+  — *Answered 2026-08-05, and the answer is "yes, it can"*: a well-formed store can hold an
+  entry that reconstructs to an open term (storage is shallow), so `Stuck` is reachable from
+  `ref h` unless h's target is known closed. That is exactly the counterexample refuting
+  `lem:closed-no-stuck` as first stated (`agda/Arbor/Core/Counterexamples.agda`). `wf` alone
+  does *not* rule it out; the closedness premise on `Eval` does. `Stuck` stays in `Result`.
 - **`multi_rebind` atomicity vs. `Σ` accumulation.** p11 registers candidate new hashes into
   `Σ` *before* `multi_rebind` may abort, so a failed cascade leaves dead hashes in `Σ` while
   `⟨N,H⟩` is untouched (`update_strategy.re`). The paper models `Σ` as strictly accumulating and
@@ -72,12 +77,112 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
   continue-the-refactor UX wants per-name witnesses (expected vs. actual type at the failing
   position). Editing-layer elaboration over the same dry run, or part of the report?
 
+## Questions raised by the mechanization (2026-08-05)
+
+- **Should `wf` gain a hash-keyed clause?** `thm:mono`'s proof argues "each key is ⌈n⌉ for the
+  very node n stored, so any collision on a key is with an identical node" — which presupposes
+  that a stored entry sits at its own hash. No clause of `def:wf` says so. The Agda development
+  isolates it as `HashKeyed` and carries it as a *configuration coherence* clause rather than a
+  store one, since `ingest` and the rewrite are the only things that establish it. Options: add
+  it as `wf` clause (0); leave it in coherence; or make it unstatable by construction (a
+  `Store` that pairs each entry with a proof it is keyed by its hash). The third is tempting and
+  would delete the invariant, but it changes `def:store`.
+- **`thm:stability` is stated with two unnecessary premises.** `wf(Σ)` and `wf(Σ′)` are not used:
+  the proof needs only `Σ ⊆ Σ′`. Keep the paper's form (harmless, and the premises may become
+  load-bearing in a rung where evaluation reads more of the store), or weaken the paper to what
+  is true? Leaning: weaken it, and note the strengthening explicitly — it makes the dependency
+  on immutability-alone clearer, which is the theorem's whole point.
+- **Two lemmas the paper uses without stating.** `ingest-⇝` (reconstructing an ingested term
+  returns it) is leaned on by `Cache-sound`'s premise and by `lem:cascade-order`'s re-ingestion
+  step; `elab-func` (elaboration is a partial function) is *claimed* in `def:elab`'s prose but
+  never numbered. Both are now proved. Should they be numbered lemmas in the paper?
+- **Statable-only-after-construction statements.** `lem:cascade-order` and `thm:migosc` clause
+  (b) quantify over the *construction* of ρ, not over its specification, so they have no Agda
+  type until M3. `Meta.agda` marks them `[deferred, M3]` rather than giving weaker types that
+  would read as coverage. Is that the right convention for the label mirror, or should the paper
+  state them in a construction-independent way?
+
+## Questions raised by Milestone 2 (2026-08-05)
+
+- **Should `lem:closed-no-stuck`'s repair be a `wf` clause instead?** The lemma now takes "t's
+  references denote closed terms" as a premise. The alternative — a `wf` clause "every stored
+  hash reconstructs to a closed term" — is *false* for shallow storage, since `dom(Σ)` contains
+  open subterm nodes. A third option: distinguish, inside `wf`, the hashes that are
+  reference-*targets* (which clause (ii) already forces closed) from arbitrary stored hashes, and
+  restrict evaluation to the former. That is close to reintroducing a definition sort, which
+  `decisions.md` 2026-07-30 rejected as mint-flavored — worth re-examining when mints arrive,
+  since the mint successor may want exactly this distinction.
+- **Does `Eval`'s new closedness premise belong on `Ingest` too?** `Ingest` already requires its
+  term's references closed, so ingest is fine. But nothing stops a *name* being bound to a hash
+  whose reconstruction is open — coherence (b) requires `closed_Σ(h)`, which does rule it out.
+  So the invariant holds; the question is whether the three places that now each carry a
+  closedness side condition (`Ingest`, `Bind`/`Rebind`, `Eval`) should be factored into one
+  notion. Leaning: yes, name it, once the typed rung shows whether the typed analogue factors
+  the same way.
+- **ρ's accessibility-proof dependence.** Defined by `Acc` recursion, ρ takes an accessibility
+  proof, so `ρ h` is only a function up to an irrelevance lemma (`rho h a₁ ≡ rho h a₂`, by
+  double `Acc` induction). Alternatives: make the store's finiteness give a fuel bound and define
+  ρ by fuel instead (simpler, but reintroduces the fuel/relation split the development otherwise
+  avoids); or use `Acc`-irrelevance from a propositional-truncation argument. Decide when M3
+  starts.
+- **Finiteness as a separate predicate vs. part of `def:store`.** The paper says Σ is a *finite*
+  partial function, but only migration and the decidability propositions use finiteness. The
+  mechanization will add `Finite σ` (support list + completeness) as a separate record assumed
+  where needed. Should the paper follow suit and say explicitly which results need finiteness?
+  Leaning: yes — it is a real dividing line, and it is where `arbor-stlc`'s decidability results
+  sit too.
+
 ## Mechanization questions (Agda)
 
 - **Store representation.** `Data.AVL` map vs. association list vs. a function with a finiteness
   proof. Trade-off: decidable membership + `wf` decidability vs. proof ergonomics.
+  — *Closed 2026-08-05*: a bare function `Hash → Maybe Node` with decidable key equality.
+  Inclusion then reads exactly as `thm:mono`/`thm:stability` state it, and the two halves of
+  `thm:mono` collapse into one. Finiteness deferred to M3, where the rewrite must enumerate
+  `dom(Σ)`; a `support` field joins the record then. See `decisions.md` 2026-08-05.
 - **Intrinsic vs. extrinsic scoping.** Intrinsic `Term : ℕ → Set` (vars `Fin n`) gives
   closedness and α for free but complicates `shift`/`subst` with `Fin` arithmetic; extrinsic
   `Term` + a separate `wf`/closedness predicate is closer to the p4 code. Lean: intrinsic.
+  — *Closed 2026-08-05, against the lean*: **extrinsic**. Shallow storage puts open subterm
+  nodes in `dom(Σ)` (`rem:nosort`), so `reconstruct` returns open terms and an indexed `Term`
+  would force a level existential into its codomain — one that is not canonical, since
+  `var 5` inhabits `Term 6`, `Term 7`, … . α stays definitional regardless (it comes from de
+  Bruijn, not the indexing). See `decisions.md` 2026-08-05.
 - **How much to mechanize first.** T1–T4 (identity, no-silent-breakage, monotonicity, wf) are the
   natural first milestone; T5–T8 (eval stability, migration) are the second. Confirm staging.
+  — *Closed 2026-08-05, restaged*: the T-numbering is retired (it appears in neither paper;
+  paper labels are the only names now). M1 is `thm:alpha`, `thm:nsb`, `thm:mono`,
+  `thm:stability`, `cor:cache` plus `lem:determinism`, `lem:elab-premises`,
+  `prop:print-elab` — i.e. **both** headline theorems, not one, because `thm:stability` needs
+  only reconstruction-monotonicity while `thm:wf` needs the whole acyclicity argument. `thm:wf`
+  moves to M2 with the safety lemmas; migration is M3. See `agda/README.md`.
+
+## The M3 wall (2026-08-05)
+
+ρ is defined (`agda/Arbor/Core/Rewrite.agda`); registering its image and proving
+`wf(Σ′)` are not. The blocker is specific and worth stating precisely, because it is a
+fact about content-addressing rather than a proof-engineering annoyance.
+
+**ρ is not injective.** Two distinct entries can rewrite to the same hash — that *is*
+content-addressing, and `thm:alpha` is the same phenomenon read positively. So
+`wf` clause (iii) does not transfer along ρ: a cycle among ρ-images need not pull back
+to a cycle in Σ, which is what an injective map would guarantee. The paper's argument is
+the registration **order** ("ordering new nodes by registration extends any topological
+order of the old reference graph", `thm:wf`'s sketch), so the fold that registers the
+image has to run in a dependency order (`def:deporder`) and the acyclicity proof has to
+read that order back out. That is exactly `lem:cascade-order`'s machinery, which is why
+the two should land together rather than in sequence.
+
+Open sub-questions:
+
+- Is there a formulation that avoids the order argument entirely? Candidate: prove
+  acyclicity of Σ′ by exhibiting a *rank* function (e.g. reference-graph depth in Σ,
+  transported along ρ) and showing every Σ′-edge strictly decreases it. This would need
+  ρ-images of distinct-rank entries to stay distinct, which is not obvious — but it would
+  replace a global order with a local decrease, which mechanizes far better.
+- Does the paper's `def:cascade` need `Finite Σ` stated as a premise? It quantifies over
+  `dom(Σ)` and registers an image, both of which need enumeration. Currently finiteness is
+  implicit in "finite partial function" and never invoked.
+- Should `def:deporder` and `lem:cascade-order` be promoted from "bridge to p11's
+  implementation" to load-bearing parts of the construction? On the evidence above they
+  are load-bearing, not a bridge.

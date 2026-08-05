@@ -325,15 +325,41 @@ each step. \qed
 \end{proof}
 
 \begin{lemma}[Closed terms never get stuck at the head]\label{lem:closed-no-stuck}
-If $\wf(\Store)$ and $\isclosed{t}$ then no evaluation position reached from $t$ has a free
-$\Var{}$ at its head; hence the missing $\Var$-rule loses no closed-term behavior.
+Suppose $\wf(\Store)$, $\isclosed{t}$, and --- the premise \cref{rem:nostuck-gap} shows to be
+indispensable --- every $h \in \refs(t)$ has $\closedin{\Store}{h}$. Then no evaluation
+position reached from $t$ has a free $\Var{}$ at its head; hence the missing $\Var$-rule loses
+no closed-term behavior. Concretely, if $\evals{\Store}{t}{\val}$ then $\val$ is closed
+\emph{and} every $h \in \refs(\val)$ has $\closedin{\Store}{h}$.
 \end{lemma}
 \begin{proof}[Proof sketch]
 $\mathsf{beta}$ preserves closedness (\cref{def:closed}, \cref{def:beta}), and so does
-reference unfolding: the unfolded target is closed by $\wf$ (ii). A closed weak-head normal
-form has an abstraction at its head. (Without the $\wf$ premise the lemma is false ---
-unfolding a reference into an \emph{open} stored term would smuggle in a free variable.) \qed
+reference unfolding: the unfolded target is closed by the new premise, and \emph{its}
+references are closed by $\wf$ (ii) --- which is the only place clause (ii) is used. A closed
+weak-head normal form has an abstraction at its head. The reference clause has to travel in
+the conclusion as well as the hypothesis, because the \textsc{E-App} case contracts against a
+value obtained from the function position and needs that value's references. \qed
 \end{proof}
+
+\begin{remark}[Why the reference premise cannot be dropped]\label{rem:nostuck-gap}
+Stated with only $\wf(\Store)$ and $\isclosed{t}$ --- as this lemma was in the first version of
+this paper --- the claim is \emph{false}, and the Agda development refutes it
+(\texttt{Arbor/Core/Counterexamples.agda}). The gap: $\isclosed{\tRef{h}}$ holds for
+\emph{every} $h$, since a reference carries no free variable (\cref{def:closed}), while $\wf$
+constrains only the references \emph{of stored entries}. Nothing forces a stored hash to
+reconstruct to a closed term, and nothing can: storage is shallow, so $\dom(\Store)$ is full of
+open subterm nodes by design (\cref{rem:nosort}).
+
+For a counterexample take $\Store = \{\,\hashof{\nVar 5} \mapsto \nVar 5,\;
+\hashof{\nLam{\hashof{\nVar 5}}} \mapsto \nLam{\hashof{\nVar 5}}\,\}$. Nothing in it has a
+reference, so clauses (ii) and (iii) are vacuous, and both entries reconstruct, so (i) holds:
+$\wf(\Store)$. Yet with $h = \hashof{\nLam{\hashof{\nVar 5}}}$ we have $\isclosed{\tRef{h}}$
+and $\evals{\Store}{\tRef{h}}{\Lam{\Var 5}}$, whose value is open.
+
+The repair is the premise above. It is not a new burden: it is exactly \textsc{Ingest}'s second
+premise and coherence clause (b), so it is available at every point the lemma is invoked ---
+once \textsc{Eval} carries $\closedin{\Store}{h}$, which is why \cref{def:transitions} states
+it (\cref{rem:eval-premise}).
+\end{remark}
 
 \begin{example}[Divergence]\label{ex:omega}
 Let $\delta = \Lam{\App{\Var 0}{\Var 0}}$ and $\Omega = \App{\delta}{\delta}$, both closed.
@@ -525,7 +551,8 @@ are coherent.
     {\isclosed{t} \\ \forall h' \in \refs(t).\ \closedin{\Store}{h'} \\ \ingest(\Store,t) = (\Store',\_)}
     {\Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store'}{\Names}{\Cache}{\Hist}}
   \and
-  \inferrule*[right=Eval]{\evals{\Store}{\tRef{h}}{\val} \\ h \notin \dom(\Cache) \\
+  \inferrule*[right=Eval]{\closedin{\Store}{h} \\ \evals{\Store}{\tRef{h}}{\val} \\
+                          h \notin \dom(\Cache) \\
                           \ingest(\Store,\val) = (\Store', h_{\val})}
     {\Config{\Store}{\Names}{\Cache}{\Hist} \steps
      \Config{\Store'}{\Names}{\upd{\Cache}{h}{h_{\val}}}{\Hist}}
@@ -550,6 +577,16 @@ $\closedin{\Store}{h}$ and nothing more --- \emph{any} closed stored hash may be
 (\cref{rem:nosort}). \textsc{Rebind} also binds fresh names, as in \texttt{p11};
 \textsc{Bind} is its first-bind special case.
 \end{definition}
+
+\begin{remark}[\textsc{Eval}'s closedness premise]\label{rem:eval-premise}
+$\closedin{\Store}{h}$ on \textsc{Eval} was absent from the first version of this paper, and its
+absence broke \cref{thm:wf}: that proof's \textsc{Eval} case appeals to
+\cref{lem:closed-no-stuck} to know the ingested value is closed, and the lemma needs $h$'s
+target to be closed (\cref{rem:nostuck-gap}) --- which no other premise of the rule supplies.
+It costs nothing operationally: \texttt{p4} evaluates \emph{definitions}, and a named hash is
+closed by coherence clause (b), so every \textsc{Eval} an editor would perform already
+satisfies it. Found while mechanizing; see \texttt{formalism/decisions.md}.
+\end{remark}
 
 \begin{definition}[Orphans]\label{def:orphan}
 \src{namespace.re: reverse\_lookup\_with\_version} A hash $h$ is an \emph{orphan} if it appears
@@ -727,7 +764,9 @@ $h \mapsto n$ is ever overwritten.
 \textsc{Bind}/\textsc{Rebind}/\textsc{Unbind} leave $\Store$ fixed. \textsc{Ingest},
 \textsc{Eval} (which ingests the computed value), and the migration rewrite only add entries,
 and each key is $\hashof{n}$ for the very node $n$ stored, so any collision on a key is with
-an identical node ($\star$). \qed
+an identical node ($\star$) --- a step that presupposes the store \emph{is} keyed by hash,
+which no clause of \cref{def:wf} states and which the mechanization therefore carries as a
+further coherence clause (\cref{sec:mech}). \qed
 \end{proof}
 
 \begin{theorem}[Coherence preservation]\label{thm:wf}
@@ -736,9 +775,9 @@ If $C$ is coherent (\cref{def:config}) and $C \steps C'$, then $C'$ is coherent.
 \begin{proof}[Proof sketch]
 Clause by clause. \emph{$\wf$ (i)--(ii):} \textsc{Ingest}'s premises supply closedness of the
 new term's reference targets; its structural children are registered bottom-up, so
-$\reconstruct$ is defined on every new entry. \textsc{Eval} ingests a value that is closed
-(evaluation preserves closedness, \cref{lem:closed-no-stuck}) and whose references occur in
-terms already reachable in $\Store$, so their targets are closed by the old $\wf$ (ii). The
+$\reconstruct$ is defined on every new entry. \textsc{Eval} ingests a value that is closed, and whose
+references denote closed terms, by \cref{lem:closed-no-stuck} --- applicable exactly because
+the rule now carries $\closedin{\Store}{h}$ (\cref{rem:eval-premise}). The
 migration rewrite preserves both by construction (\cref{rem:gate}). Name edits do not touch
 $\Store$.
 \emph{$\wf$ (iii):} no existing node changes (\cref{thm:mono}), and every newly added node's
@@ -833,27 +872,63 @@ that a non-rewritten entry's nodes are untouched (\cref{thm:mono}). \qed
 % =====================================================================
 \section{Mechanization roadmap}\label{sec:mech}
 
-The definitions above are shaped to transcribe into Agda with little reshaping; the plan lives in
-\texttt{formalism/agda/README.md}. In brief:
+The development lives in \texttt{formalism/agda/} (Agda 2.7.0, \texttt{agda-stdlib} 2.1) and is
+checked with \texttt{agda -{}-safe}: no postulates, no termination pragmas, no unsolved metas.
+Fifteen of this paper's seventeen numbered statements are discharged ---
+\crefrange{lem:determinism}{thm:migosc} except the two migration items below, together with
+\cref{thm:alpha,thm:nsb,thm:mono,thm:wf,thm:stability,cor:cache,cor:fuel,thm:histcoh,cor:incremental};
+\cref{prop:namefree} holds by construction. What remains is the construction of $\rho$ itself:
+\cref{thm:migosc} is currently discharged from a \emph{specification} record that any rewrite
+must satisfy, and \cref{lem:cascade-order} is not yet statable, since it quantifies over a
+sequential pass that does not exist until $\rho$ is constructed. \texttt{make status} reports
+this per label; \texttt{make labels} checks that no statement here lacks a counterpart there.
+
+Four transcription choices are worth recording; the rest, with rationale, is in
+\texttt{formalism/decisions.md} (2026-08-05) and \texttt{formalism/agda/README.md}.
 \begin{itemize}[nosep]
-  \item \textbf{Intrinsic well-scoped syntax} $\Term : \mathbb{N} \to \mathsf{Set}$ (variables
-  $\mathsf{Fin}\,n$); closedness is the type $\Term\,0$ and $\alpha$-equivalence is definitional,
-  turning \cref{def:closed} and \cref{thm:alpha}'s left half into typing.
-  \item \textbf{$\Hash$ as an abstract record} bundling the type, $\hashof{\cdot}$, and the
-  injectivity assumption ($\star$) --- the paper's one axiom becomes one postulate. The
-  postulate-free alternative ($\Hash \defeq \Term$) is noted and rejected (it collapses $\mathsf{ref}$).
-  \item \textbf{Stores} $\Store,\Names,\Cache,\Hist$ as finite maps with decidable membership;
-  $\wf$ as a decidable predicate (target-closedness and acyclicity of the finite reference
-  graph are both decidable) and configuration coherence (\cref{def:config}) likewise. The
-  migration rewrite $\rho$ is total recursion on the acyclic combined graph --- mechanize it
-  with fuel bounded by $|\dom(\Store)|$ or by well-founded recursion on topological rank.
-  \item \textbf{Evaluation} as fuel-indexed $\mathsf{eval} : \mathbb{N} \to \Store \to \Term \to
-  \mathsf{Result}$ with fuel-monotonicity (\cref{cor:fuel}), bridging to the $\Downarrow$
-  relation.
-  \item \textbf{Transitions} as an inductive $\_\steps\_$; \crefrange{thm:alpha}{thm:migosc} as
-  \texttt{agda --safe} theorems. Suggested milestone: \crefrange{thm:alpha}{thm:wf} first, then
-  the evaluation/migration block.
+  \item \textbf{Extrinsic scoping.} $\Term$ is not indexed by a scope level;
+  \cref{def:closed} is transcribed as the inductive relation it already is, and closedness
+  travels as an explicit proof. An intrinsic $\Term : \mathbb{N} \to \mathsf{Set}$ founders on
+  shallow storage: $\dom(\Store)$ holds \emph{open} subterm nodes (\cref{rem:nosort}), so
+  $\reconstruct$ would have to return a level existential, and the level is not canonical.
+  $\alpha$-equivalence is definitional either way --- that is de Bruijn, not the indexing --- so
+  \cref{thm:alpha}'s $(\Leftarrow)$ half is still a congruence. The price is that
+  ``$\mathsf{beta}$ preserves closedness'' becomes an explicit lemma rather than a typing fact.
+  \item \textbf{$\Hash$ as a record parameter, not a postulate.} The type, $\hashof{\cdot}$, and
+  ($\star$) are fields of a record the development is parameterized over, so the paper's one
+  axiom is an assumption discharged at instantiation rather than a hole in the logic. The record
+  is parameterized over the \emph{entry functor} --- $\Node$ mentions $\Hash$, so sibling fields
+  would be circular. $\Hash \defeq \Node$-as-a-free-type is exhibited as a consistency witness
+  (it makes ($\star$) hold by constructor injectivity), which is what keeps the proved theorems
+  from being vacuous; it remains rejected as the \emph{representation}, since interning collapses
+  $\mathsf{ref}$.
+  \item \textbf{The partial functions of this paper are relations.} $\reconstruct$ is an
+  inductive judgment with a functionality lemma, as $\Downarrow$ and printing already are, and
+  $\rho$ will be. As functions they would need termination arguments that do not hold of an
+  arbitrary $\Store$ --- structural children may loop; that a stored hash reconstructs is
+  precisely what $\wf$ (i) \emph{asserts}, so a definition may not assume it. The fueled
+  $\mathsf{eval} : \mathbb{N} \to \Store \to \Term \to \mathsf{Result}$ is separate and total,
+  and \cref{cor:fuel} relates the two.
+  \item \textbf{Stores as functions into $\mathsf{Maybe}$}, keyed by decidable equality.
+  Inclusion is then pointwise implication, which is how \cref{thm:mono,thm:stability} are
+  stated, and \cref{thm:mono}'s two halves become one. Finiteness is not assumed at all yet; it
+  enters when $\rho$ must enumerate $\dom(\Store)$.
 \end{itemize}
+
+\paragraph{What mechanizing changed in this paper.} Four gaps, all now fixed above.
+\cref{lem:closed-no-stuck} was \emph{false} as first stated and is refuted by a machine-checked
+counterexample (\cref{rem:nostuck-gap}); repairing it forced a closedness premise onto
+\textsc{Eval} (\cref{rem:eval-premise}), without which \cref{thm:wf} does not hold.
+\cref{thm:mono}'s proof tacitly assumes the store is keyed by hash, which no clause of
+\cref{def:wf} provides; the development carries it as an extra coherence clause.
+\cref{thm:stability}'s two $\wf$ premises turn out unnecessary --- replaying the derivation needs
+$\Store \subseteq \Store'$ and nothing more. And \cref{prop:elab-print}'s side condition is
+redundant, since an elaboration derivation already witnesses it; that matters because with
+$\Name$ abstract there is no fresh-name supply, so the sketch's ``choosing binder names'' cannot
+be carried out --- but the printer can simply return the surface term it started from. Two
+lemmas the paper used without stating are also now named: that re-reconstructing an ingested
+term returns it, and that elaboration is a partial function. All are tracked in
+\texttt{formalism/open-questions.md}.
 
 \section*{Provenance}
 Every definition cites its prototype source in a margin tag. The two substrate design documents

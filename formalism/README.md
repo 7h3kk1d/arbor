@@ -7,8 +7,9 @@ The second, `arbor-stlc`, adds simple types as a delta document over it.
 
 This directory is a first-class, *enduring* artifact (like `docs/design/`), distinct from the
 disposable `prototypes/`. Where a design doc argues in prose and a prototype demonstrates in
-code, the formalism states — precisely, and eventually machine-checked — *what the substrate
-guarantees and why content-addressing earns its complexity.*
+code, the formalism states — precisely, and increasingly machine-checked — *what the substrate
+guarantees and why content-addressing earns its complexity.* Both of `arbor-core`'s headline
+theorems are now proved in Agda; see [Mechanization](#mechanization).
 
 ## What `arbor-core` covers
 
@@ -71,6 +72,43 @@ total** (same type at the seed ⟹ empty residual under every scope), and the **
 (decidable ahead of time, but *not* stable under store growth — exposing an unsound cache in
 p11's `follow-clean:v1`). Sources: `decisions.md` 2026-07-30 (arbor-stlc entry).
 
+## Mechanization
+
+`arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **15 of the
+paper's 17 statements**, including both headline theorems — *no silent breakage* and
+*evaluation stability* — plus coherence preservation, history coherence, α-collapse,
+monotonicity, cache soundness, incrementality, the fuel/⇓ bridge, and the naming
+round-trips. M3 is under way: **ρ itself is now defined** (well-founded recursion on
+the reference graph, with `def:cascade`'s seed clause proved), and what remains is
+registering its image and re-establishing `wf` for the rewritten store — the latter
+blocked on the fact that ρ is not injective, so acyclicity does not transfer along it
+and the registration order has to be made explicit. `arbor-stlc` is M4.
+
+Mechanizing turned up four gaps in the paper, now fixed there: `lem:closed-no-stuck`
+was **false** as stated (there is a machine-checked counterexample), which in turn
+forced a missing closedness premise onto the `Eval` transition; `thm:mono` tacitly
+assumed the store is keyed by hash; and two hypotheses elsewhere are redundant.
+
+The whole library checks under `agda --safe` with **no postulates**: the paper's one axiom
+(★) is a field of a record the development is parameterized over, and a consistency witness
+for that record is exhibited, so no proved statement is vacuous. Statements not yet proved
+are named types with no inhabitant, which is why a green build cannot be mistaken for a
+complete one — and why nothing can quietly lean on an unproved lemma.
+
+```sh
+cd formalism/agda
+make check     # agda --safe Everything.agda
+make status    # proved / open / deferred, per paper label
+make labels    # paper labels with no counterpart in the Agda sources
+```
+
+`make labels` is the anti-drift check: it diffs the paper's `\label{}`s against `(label)`
+mentions in the Agda sources. It exists because the two artifacts had drifted badly —
+`agda/README.md` sat unchanged across the whole `arbor-stlc` landing, and both it and
+`decisions.md` went on indexing theorems as `T1`–`T8`, a numbering neither paper uses.
+Paper labels are now the only names. See `agda/README.md` for the status table and the
+representation choices, and `decisions.md` 2026-08-05 for why each was made.
+
 ## Building the paper
 
 Requires a TeX distribution with `latexmk`.
@@ -95,6 +133,11 @@ formalism/
     arbor-stlc.tex     # second artifact: the STLC rung, a delta over arbor-core
     macros.tex         # notation (shared; arbor-stlc additions are additive)
     references.bib     # bibliography
+  scripts/
+    check-labels.sh    # paper \label{} <-> Agda (label) mirror check
+    status.sh          # proved / open / deferred, per paper label
   agda/
-    README.md          # mechanization roadmap (no code yet)
+    README.md          # status table, representation choices, milestones
+    Everything.agda    # the --safe check target
+    Arbor/             # Prelude, Hash, NodeSig + Core/ (the untyped λ instance)
 ```

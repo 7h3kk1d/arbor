@@ -7,6 +7,9 @@ _opam/
 # Generated JS bundles (produced by scripts/build-web.sh)
 prototypes/*/public/*.js
 
+# Agda interface files (_build/ is already covered above)
+*.agdai
+
 # Editor / OS
 .DS_Store
 *.swp

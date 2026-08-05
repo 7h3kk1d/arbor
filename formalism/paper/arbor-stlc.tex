@@ -658,10 +658,23 @@ new type costs exactly the followers --- and the residual says which of them nee
 \end{center}
 
 \section{Mechanization note}\label{sec:mech}
-Mechanization of this rung is deferred; the intended shape is a second Agda development
-depending on the \arborcore{} library, with the reuse boundary (parameterizing the store
-over an abstract node signature) recorded when that work begins. Nothing in
-\texttt{formalism/agda/} changes with this document.
+Mechanization of this rung is deferred until \arborcore{}'s well-formedness and migration
+milestones land, but the reuse boundary this note previously left open is now decided
+(\texttt{formalism/decisions.md} 2026-08-05). It is
+\texttt{formalism/agda/Arbor/NodeSig.agda}: everything \arborcore{} says about the store
+\emph{as a graph} --- $\wf$, callers, the rewrite $\rho$ --- reaches an entry only through its
+structural children, its reference children, and a map over both, so those are the fields of a
+record, and the untyped node is its first instance. This rung's two-sorted $\Entry$
+(\cref{def:entry}) is a second instance rather than a fork: type entries are reference-free, so
+they are isolated vertices of the reference graph (\cref{def:reconstruct}) and the graph-layer
+proofs apply unchanged.
+
+Deliberately \emph{not} generic: the configuration and the transition relation, because this rung
+adds a \textsc{TypeOf} transition. The typing judgment, $\TyOf$, the residual, and the clean
+oracle are new work either way. Two of this document's results are already anticipated in the
+\arborcore{} development --- \cref{lem:ty-stable} is the typed twin of a reconstruction-
+monotonicity lemma proved there, and \cref{thm:typeof-stable} of \coreref{cor:cache} --- so the
+aspect-stability half of this rung should be short once the store layer is instantiated.
 
 \section*{Provenance}
 The type system, values, and evaluator follow
