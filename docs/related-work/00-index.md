@@ -41,6 +41,8 @@ Items worth reading rather than merely citing are marked **[Priority read]** inl
 - `07-commons.md` — the two PROPL papers, the hypertext and personal-computing lineage, notebook computing and its empirical critiques, and what the published commons vision does *not* contain.
 - `08-agentic-vc.md` — agent platforms, the merge-conflict-ML line and its ceilings, the surveys, and the three 2026 preprints that force arbor to restate its claims.
 - `09-scid.md` — what SCID actually is, the real ancestry (Linton, Masterscope, the image tradition, ENVY), the code-as-facts query line, and **substrates** as the current named programme.
+- `10-malleable-tooling.md` *(sourced 2026-08-06)* — first coverage of the interface layer: moldable development and Glamorous Toolkit (a methodology with papers, an artifact without one), the tailorable-systems lineage from EMACS and Buttons through end-user software engineering, and the current malleable-software wave; the moldable-views-over-an-immutable-store observation.
+- `11-benchmarks-and-evaluation.md` *(sourced 2026-08-06)* — the four genres of PL benchmark and challenge (workbench task assignments, metatheory challenge problems, performance suites, environment-evaluation frameworks), the lesson that challenges outlive task-suite websites, and the finding that no benchmark exists for program stores or term-manipulation toolkits.
 
 ## Priority reads
 
