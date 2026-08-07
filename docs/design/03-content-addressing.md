@@ -21,7 +21,7 @@ Deduplication is the benefit most often cited and the least load-bearing for us 
 
 **The converse is equally real, and is why `10-minted-identity.md` exists.** Every property above is about *sameness*, none about *identity through time*. Stable identity across edits, deliberate distinctness of coincidentally-equal definitions, and "this moved" are all things content addressing cannot express and minting gives away. So the two mechanisms answer different questions and a serious store needs both layers — as Git, Nix, IPFS, Perkeep, and Software Heritage all do. Our unusual choice is *placement*: the mint sits inside the hashed bytes, in the same node as semantic content, where Perkeep uses separate content-free identity blobs and Git keeps refs outside the object store entirely. Tracked in `open-questions.md` §"Minted identity".
 
-The hard limit is **self-reference**: content addressing cannot name a thing that refers to itself, since the name depends on content that depends on the name. That is exactly the "Mutual recursion canonicalization" sub-question below, and it is not a local wrinkle — Nix meets the same wall with self-referential store paths and concedes its hash-rewriting workaround is only a heuristic. Unison's answer is available to us and not to Nix: make the recursive group one addressable unit with intra-group references by index, which works because our contents are structured syntax rather than opaque bytes.
+The hard limit is **self-reference**: content addressing cannot name a thing that refers to itself, since the name depends on content that depends on the name. That is exactly the "Mutual recursion canonicalization" sub-question below, and it is not a local wrinkle — Nix meets the same wall with self-referential store paths and concedes its hash-rewriting workaround is only a heuristic. What is available to us and not to Nix is that our contents are **structured syntax rather than opaque bytes**, which admits more than one way out: make the recursive group one addressable unit with intra-group references by index (Unison's), or close the cycle with a binder in the object language and project the members out (a fixpoint over a product, positional or labeled). All three are worked through in §"Mutual recursion: three ways to close the cycle" below; none is chosen.
 
 Sources and the fuller argument: `../related-work/01-content-addressing.md` §"Why content-address at all, rather than mint everything?".
 
@@ -79,11 +79,13 @@ Following the procedure-identity decision from `02-definitions-and-derived-data.
 
 **Do not adopt (current phase):**
 
-- **Automatic migration UX (`update`, `patch`, etc.).** When a definition changes, Unison helps users systematically move callers to the new hash. We have no equivalent. Callers remain pinned until an editing action explicitly rebinds them.
+- **Automatic migration UX.** When a definition changes, Unison helps users systematically move callers to the new hash. We have no equivalent. Callers remain pinned until an editing action explicitly rebinds them. *(Description corrected 2026-08-07 from a source read. This used to say "`update`, `patch`, etc.," but Unison's reified-edit machinery — `Patch`, `TermEdit`, `propagate` — was **deleted** in May 2025. What ships now is different: diff two namespaces at their lowest common ancestor, query a dependents index for what is affected, then **render those dependents back to source, re-parse, and re-typecheck** — its own code calls this "the world's weirdest implementation of AST substitution." Notably, that method is correct only if printing and re-parsing preserves hashes, which is `formalism/`'s `prop:print-elab`. See `../systems/unison/04-caching-update-merge.md` §"Update" and `../systems/unison/05-deletions.md` §"Patches and propagate".)*
 - **Shared codebases and distribution.** Unison's networked code-sharing model is out of scope (non-goal in `00-overview.md`).
 - **Their specific codebase representation** (base-32 textual hashes, wire format, `.u` file convention). Implementation choices we'll make independently when we get to the tech stack.
 
 The "no silent breakage" property is what we get from the substrate alone: a call resolves to exactly the definition it referenced at authoring time, or the reference is dead in a visible way. Bulk-update and refactoring UX is additive, handled by the naming layer and interfaces.
+
+**Sourcing.** This section cited nothing until 2026-08-07; it now rests on a source read of the implementation, pinned to a commit, in `../systems/unison/`. Note one adopted item where the two systems in fact diverge: Unison's hash-based references are **hash-transparent** — a reference node contributes the referent's hash directly, so inlining is identity-preserving and `y = x` *is* `x` — whereas `formalism/`'s `Ref(hash)` has its own encoding. Both keep the indirection; only the hashing differs. `../systems/unison/02-store-and-hashing.md` §"Reference transparency".
 
 ## Hash representation
 
@@ -93,6 +95,8 @@ Specifics (algorithm choice, encoding, length) are not locked in. Constraints:
 - Collision-resistant enough that accidental collisions are impossible in practice.
 
 Anything else is deferred. During bootstrap, if we need to change the representation, we accept full state rebuilds. We are not designing migration machinery for this phase.
+
+**Prior art for the post-bootstrap version of this question** *(added 2026-08-07)*. Unison never rebuilds; it **versions the hash function inside its own input**. Every hash begins with a version token (`hashingVersion = Tag 2`), so bumping the version necessarily changes every hash and old and new can coexist in one table without colliding — and a `hash_object(hash_id, object_id, hash_version)` indirection lets several hashes name the same stored object, so references minted under an old scheme keep resolving. The type-level counterpart is that the *hashed* representation lives in its own frozen package that must never change, injected into the storage layer as a `HashHandle` value so the store has no compile-time dependency on it at all. None of this changes the stance above — full rebuilds remain the accepted bootstrap answer — but it is the shape the mature answer takes, and it is cheaper to know about before the format is load-bearing than after. `../systems/unison/02-store-and-hashing.md` §"Versioning", `../systems/unison/01-organization.md` §"Fact 2".
 
 ## Threads under exploration
 
@@ -127,6 +131,125 @@ Newtypes (distinct identity for an isomorphic carrier) remain a separate concept
 - `02-definitions-and-derived-data.md` — `Type_of(...)` aspect-value shape is the touch point.
 - `01-language-model.md` — content-addressed types nudge gently toward Option C (shared core IR) by giving types a canonical form independent of any specific term language.
 
+### Mutual recursion: three ways to close the cycle
+
+*(Opened 2026-08-07. Until then the open sub-question below recorded only Unison's approach and called it "the standard answer," which foreclosed a choice never actually made. **Revised the same day** — the first draft of this section claimed a labeled-record bundle made "the ordering problem disappear." That was wrong, and working out the positional-tuple variant is what showed it. See §"Correction" at the end. Nothing is chosen here.)*
+
+The problem from §"Why content-address at all" restated: content addressing cannot name a thing that refers to itself. `even` calls `odd` and `odd` calls `even`, so neither hash can be computed first. **All three options convert the self-referential group into a closed object; they differ in *where* the closing happens and in *what the residual ambiguity costs*.**
+
+#### What the ordering problem actually is
+
+Worth naming before comparing, because it is not an artifact of any one encoding.
+
+Every approach must eventually answer: **which member is which?** The members of a recursive group are distinguished only by their positions in a cycle of references. To give them stable identities you need a canonical order, and the order has to be a function of content alone — names cannot enter the store (`04-naming-layer.md`; `arbor-core.tex` `prop:namefree`).
+
+Three properties are wanted, and they are not jointly free:
+
+1. **Determinism** — the same input always yields the same hashes.
+2. **Presentation-independence** — writing the group in a different order yields the *same* hashes. This is the α-equivalence argument applied to groups, and it is why source order is not an acceptable answer.
+3. **Totality** — the procedure never fails.
+
+The standard technique gets 1 and 2: hash each member in an environment where every intra-group reference is replaced by one indistinguishable marker, then sort by that hash. It gets 3 only when those hashes are distinct. **When two members are structurally identical modulo intra-group references, their hashes collide and the order is underdetermined.**
+
+That failure is not fixable by a cleverer hash. Canonically ordering a recursive group is **graph canonization** — assigning canonical indices to the vertices of a labeled digraph — and the erase-and-sort trick is one round of the same colour-refinement idea that graph-isomorphism algorithms use, with the same known incompleteness. *(Stated as reasoning, not from a citation; `../related-work/01-content-addressing.md` has no entry for this and probably should.)*
+
+So **every** option below faces the same ambiguity. What differs is where it lands and what happens when it bites.
+
+#### Option A — the component, closed in the hasher
+
+Unison's. Hash the whole strongly-connected group as one object and address a member by position: `Reference = (Hash, Pos)`. Intra-group references become indices rather than hashes. The recursion is broken inside the hashing algorithm, which carries a "cycle frame" environment in which every member resolves to the same de Bruijn index — that is the erase step, and sorting the resulting hashes is the canonical permutation. Details in `../systems/unison/02-store-and-hashing.md` §"Components".
+
+**Cost 1: the store's type changes.** `Σ : Hash ⇀ Node` becomes `Σ : Hash ⇀ Node⁺`, and *every* reference in the system becomes a pair. That reaches `wf`'s no-dangle clause, `callers_of`, the migration rewrite, the namespace's codomain, and `thm:alpha` — see `formalism/open-questions.md`.
+
+**Cost 2: on collision it refuses.** `Pos` is externally visible — it is in every reference and in every namespace binding — so Unison must commit to an index per member and will not guess. Hence `IncompleteElementOrderingError` and the instruction to perturb a definition by hand (unisonweb/unison#2787).
+
+#### Option B1 — a fixpoint over a positional tuple
+
+Close the cycle with a binder in the *object language* instead. Bundle the members into one ordinary definition, and make each member a separate ordinary definition that projects out of it.
+
+```
+bundle = fix (\self -> ( \n -> if n == 0 then true  else snd self (n-1)     -- even
+                       , \n -> if n == 0 then false else fst self (n-1) ))  -- odd
+even = fst bundle
+odd  = snd bundle
+```
+
+The move is that **`self` is a bound variable, not a hash reference.** The bundle's body is closed, so it hashes like any other term; `even` and `odd` are unremarkable definitions containing a `Ref` and a projection.
+
+**This is the cheapest option in machinery.** p17 already has `Node.Pair`/`Fst`/`Snd` and `Tnode.Product` (`prototypes/p17-translucent-modules/src/node.re:25-27`, `tnode.re:14`). Nothing is minted. The only addition is a `Fix` node with a CBV-safe reduction rule — p4 records that the Y combinator diverges under CBV (`docs/prototypes/p4-lambda-calculus/decisions.md`), so this cannot be encoded and needs a real node. `Product` is binary, so an *n*-member group nests; fix the nesting shape by convention (right-nested) and it contributes nothing to the hash.
+
+**`Σ : Hash ⇀ Node` is unchanged.** A hash still names one node; a reference is still a hash. Nothing in `arbor-core.tex`'s configuration or metatheory changes shape.
+
+**And the collision case degrades instead of failing.** This is the part that only became clear on working it through, and it is the strongest thing in favour of the bundle encodings.
+
+Take the fully symmetric group — the one that defeats Option A:
+
+```
+f = \n -> if n == 0 then 0 else g (n-1)
+g = \n -> if n == 0 then 0 else f (n-1)
+```
+
+Order the tuple `[f, g]` and you get `(λn.… snd self …, λn.… fst self …)`. Now order it `[g, f]`: slot 0 is `g`'s body, and `g` references `f`, which now sits at index 1, so slot 0 becomes `λn.… snd self …`. Slot 1 is `f`'s body referencing `g` at index 0, so `λn.… fst self …`. **The tuple is identical.** Renumbering the projections exactly undoes the permutation, so a group automorphism acts trivially on the bundle: *the bundle's hash is canonical regardless of which order you picked.*
+
+The ambiguity does not vanish, though — it **moves to the projections**. Under `[f, g]` we get `f = fst bundle`; under `[g, f]`, `f = snd bundle`. Those are different definitions with different hashes. So presentation-independence is genuinely lost for the members in exactly the symmetric case.
+
+But look at what a wrong guess *costs*. `fst bundle` and `snd bundle` here are structurally distinct and **observationally identical** — both are the same countdown function. So the consequence is a *coincidental non-collapse*: two hashes for one behaviour, the dual of the coincidental-convergence hazard `10-minted-identity.md` exists to handle. The store stays coherent, `wf` still holds, evaluation is unaffected, and nothing needs to refuse. Compare Option A, where the same input is rejected outright.
+
+That is `feedback_visible_breakage`'s posture — commit and report, don't gate — applied to canonicalization. The substrate picks (source order is fine, since the bundle is invariant anyway), and the editing layer can surface "this group has a symmetry; the member/slot assignment was arbitrary" if anyone cares.
+
+**Where B1 is genuinely weaker.** Presentation-independence for members is lost whenever the group has a nontrivial automorphism. Two people writing the same symmetric group in different orders get different hashes for `f`, which then do not deduplicate and do not share derived aspects. Rare, harmless when it happens, but real.
+
+#### Option B2 — a fixpoint over a labeled record
+
+Same construction, with p16/p17's records instead of tuples:
+
+```
+bundle = fix (\self -> { even = \n -> if n == 0 then true  else self#odd  (n-1)
+                       , odd  = \n -> if n == 0 then false else self#even (n-1) })
+even   = bundle#even
+odd    = bundle#odd
+```
+
+`Tnode.Record` and `Node.Record_lit` canonicalize by **sorted label hash**, so field order carries no information (`tnode.re:98-102`), and members are distinguished by *label* rather than by position — including when their bodies are byte-identical.
+
+**This restores presentation-independence in the symmetric case** — `bundle#even` is `bundle#even` regardless of how the source was written, because the projection names a label, not a slot.
+
+**But it does not make canonicalization content-total, and the first draft of this section was wrong to say so.** It replaces a *content-derived* order with a *minted* one. Labels are bare mints (`11-label-sort.md`), so the identity that resolves the ambiguity is precisely the part of the hash that is not a function of content. Worse, the guarantee is only as good as **label stability**: `bundle#even` is stable across two authorings only if both resolve the name `even` to the *same* label. Per p16 that happens by "an already-bound field name reuses its label" — a **name-keyed mint lookup**, which is structurally the same mechanism as Unison's `loadUniqueTypeGuid` and inherits the same exposure (`../systems/unison/04-caching-update-merge.md` §"Minting": recovered by name, arbitrary tiebreak when the name is conflicted, extra machinery to survive merge).
+
+So B2 does not eliminate the problem. It **converts a canonicalization question into a mint-stability question** — which may well be the better trade, since arbor has an explicit *edit-of-X* gesture and Unison does not, but it is a trade and not a dissolution.
+
+#### Side by side
+
+| | A — component | B1 — positional bundle | B2 — labeled bundle |
+|---|---|---|---|
+| Store type `Σ` | `Hash ⇀ Node⁺`; refs become pairs | **unchanged** | **unchanged** |
+| Recursion closed in | the hashing algorithm | a binder in the object language | a binder in the object language |
+| New machinery | SCC + cycle env in the hasher; pair-keyed refs everywhere | `Fix` node (+ p17's `Pair`/`Fst`/`Snd`) | `Fix` node (+ p17's records/labels) |
+| Mints | none | **none** | one label per member |
+| Member identity | position in a canonical order | position in the tuple | its label |
+| Determinism | ✓ | ✓ | ✓ |
+| Presentation-independence | ✓ where total | ✓ except under automorphism | ✓ *if labels are stable* |
+| Totality | ✗ — refuses on collision | ✓ — arbitrary but harmless pick | ✓ — via a mint, not via content |
+| Cost of the bad case | ingest rejected | two hashes for one behaviour | mint-stability exposure, name-keyed |
+| Editing one member | rehashes the whole group | rehashes the whole bundle | rehashes the whole bundle |
+
+Three things the table should not be read as hiding.
+
+- **The dependency coarsening is identical in all three.** Editing any member changes every member's identity. None is finer-grained than the others, and none avoids the fact that a recursive group is one unit of change.
+- **A leans on machinery arbor does not have; B1 and B2 lean on machinery arbor does.** `Pair`/`Fst`/`Snd`, records, labels, and projection are all built and exercised in p16/p17; nothing in any prototype has a component-shaped store.
+- **B1 is the only option that needs no mint**, which makes it the one that keeps a recursive group a purely structural object. If the mint-vs-canonicalization trade is the crux — and it looks like it is — B1 and B2 are the two ends of it, and A is the version that refuses to make the trade at all.
+
+#### Correction
+
+The first draft of this section (2026-08-07, earlier the same day) said a labeled-record bundle made "the ordering problem disappear" and "dissolved the partiality problem outright," and dismissed the positional variant as simply reinheriting Option A's problem. Both halves were wrong, and in opposite directions:
+
+- **B2 does not dissolve the problem**; it relocates it from content-canonicalization to name-keyed mint stability.
+- **B1 does not reinherit Option A's problem** in the form that matters. The bundle's hash is invariant under group automorphisms, so the collision case leaves only an arbitrary-but-behaviour-preserving choice of which projection is which — a coincidental non-collapse, not a hard failure.
+
+The net effect is that the positional variant is *more* attractive than the first draft suggested, not less, and the real fork is **mint versus a rare loss of presentation-independence** rather than "totality versus mints."
+
+**Not chosen.** No prototype has needed recursion (`prototype-findings.md` §"Mutual recursion canonicalization"), so this stays a thread. The point of writing it down now is that the open sub-question below previously named exactly one option and called it standard, which foreclosed a choice arbor has not actually made. Evaluating B properly wants a prototype with `Fix` plus the existing record machinery; recorded in `../systems/unison/10-followups.md`.
+
 ## Non-goals (current phase)
 
 - **Migration machinery.** Automatically moving callers when a definition changes.
@@ -138,7 +261,7 @@ Newtypes (distinct identity for an isomorphic carrier) remain a separate concept
 
 Tracked in `open-questions.md` under "Content addressing."
 
-- **Mutual recursion canonicalization.** When a language introduces mutually recursive definitions, we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point; not urgent until a language introduces recursion.
+- **Mutual recursion canonicalization.** When a language introduces mutually recursive definitions, the substrate needs a way to close the cycle. Not urgent until a language introduces recursion. **Three options, worked through above in §"Mutual recursion: three ways to close the cycle" (2026-08-07); none chosen.** *(A) Unison's component: hash the group as one object, address members by index. Costs a change to the store's type — `Σ : Hash ⇀ Node⁺`, every reference a pair — and **refuses** when two members are structurally identical modulo intra-group references (`IncompleteElementOrderingError`, unisonweb/unison#2787). (B1) A fixpoint over a **positional tuple**, members as projections: `Σ` unchanged, no mints, reuses p17's `Pair`/`Fst`/`Snd`; the bundle's hash is invariant under group automorphisms, so the bad case costs only an arbitrary-but-behaviour-preserving choice of which projection is which. (B2) The same over a **labeled record**: restores presentation-independence in that case, but by converting canonicalization into name-keyed mint stability, not by dissolving it. The real fork is **a mint versus a rare loss of presentation-independence**; ordering a recursive group is graph canonization, so no cleverer hash rescues (A). This bullet previously named only (A) and called it "a known starting point," which foreclosed a choice not actually made. See `../systems/unison/02-store-and-hashing.md` §"Components".)*
 - **Holes and incomplete programs.** If the substrate eventually hashes incomplete programs (Hazel-style editing workflows), how do holes participate in the canonical form? Unique hole identities, wildcards that make hash matching a subsumption relation, or something else?
 - **Cross-version primitive aliasing.** If `int:add:v1` and `int:add:v2` differ only cosmetically, callers of v1 are orphaned. Is there an aliasing story, or is this just accepted cost of the manual-version discipline?
 - **Hashing types as well as terms.** Whether to promote types to first-class content-addressed objects — making type aliasing a free consequence of the namespace and changing how type-valued aspects are shaped. Sharpened above under *Threads under exploration*.
