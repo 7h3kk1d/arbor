@@ -77,4 +77,7 @@ Step in slowly. When in doubt, prefer the narrow, concrete implementation over t
 - `open-questions.md` — running list; items graduate to docs or decisions as they resolve.
 - `prototype-findings.md` — stocktake across the prototype series: recurring patterns, single-prototype experiments, and shapes left open. Observational, not prescriptive.
 
-Alongside this directory: `../related-work/00-index.md` — themed index of the literature this design already sits next to, with verification tags, a ranked priority-read list, and recorded negative findings. Backward-looking; complements `07-hazel-substrate.md`'s forward-looking sourcing farm.
+Alongside this directory:
+
+- `../related-work/00-index.md` — themed index of the literature this design already sits next to, with verification tags, a ranked priority-read list, and recorded negative findings. Backward-looking; complements `07-hazel-substrate.md`'s forward-looking sourcing farm.
+- `../systems/00-index.md` — source-level reads of other implementations, pinned to a commit rather than cited to a DOI. Exists because several of the systems this design is closest to have no publication at all, so the source is the only citable artifact. First read: `../systems/unison/`.

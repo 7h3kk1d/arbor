@@ -32,6 +32,8 @@ Substrate design lives in `docs/design/` and endures across prototypes. Seventee
 docs/
   design/                     # Substrate-level ideas — enduring across all prototypes
   related-work/               # Themed literature index (00-index.md is the entry point)
+  systems/                    # Source-level reads of other implementations (00-index.md is the entry point)
+    unison/                   # Unison, read in source @ db60ce2 (2026-08-07)
   prototypes/
     p1-arithmetic/            # Scope + decisions + open-questions per prototype
     p2-structural-sharing/
@@ -84,7 +86,9 @@ To orient before modifying:
 
 Other design docs (`01–05`, `07`, `09–12`) are topic-specific and read on demand. `docs/design/07-hazel-substrate.md` is the sourcing farm for Hazel-related reuse and research lines, including Grove (POPL 2025) as the foundation for eventual collaborative editing.
 
-`docs/related-work/` is the themed literature index — nine theme files plus `00-index.md`, which carries the verification convention, a ranked priority-read list, cross-theme citation corrections, and recorded negative findings. Backward-looking (what arbor's claims already sit next to), where `07-hazel-substrate.md` is forward-looking (what arbor might consume). Consult it before making a novelty or positioning claim; add to it rather than re-deriving citations.
+`docs/related-work/` is the themed literature index — eleven theme files plus `00-index.md`, which carries the verification convention, a ranked priority-read list, cross-theme citation corrections, and recorded negative findings. Backward-looking (what arbor's claims already sit next to), where `07-hazel-substrate.md` is forward-looking (what arbor might consume). Consult it before making a novelty or positioning claim; add to it rather than re-deriving citations.
+
+`docs/systems/` holds source-level reads of other implementations, pinned to a commit rather than cited to a DOI, with their own evidence tags (`[source-verified]`, `[verified by absence]`, `[historical — removed in …]`, `[unread]`). It exists because several systems arbor is closest to have no publication, so the source is the only citable artifact. `docs/systems/unison/` is the first: eight files covering Unison's organization, store and hashing, namespace and history, caching/update/merge, **what Unison deleted**, PL notes, and the mapping onto arbor's formal objects. Consult `unison/07-arbor-mapping.md` before making a claim about how arbor differs from Unison; several long-standing claims in `docs/design/` were wrong until 2026-08-07.
 
 ## Conventions
 
