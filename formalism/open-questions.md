@@ -338,3 +338,36 @@ the substance of the rung.
 A third possibility, if the answer is "neither yet": mechanize arbor-stlc's *aspect* half
 first (`lem:ty-stable`, `thm:typeof-stable`, `cor:aspect-agree`), which are the typed twins
 of lemmas already proved and which need the store layer only as a parameter.
+
+## The Term-as-signature refactor: spike results (2026-08-07)
+
+Before committing to it, the shape was spiked (signature fixpoint, `⇝` relationally, `⇝-func`,
+`ingest`, `substRefsD` with its membership plumbing). All of it typechecks under `--safe`.
+Three things the spike settled:
+
+- **Two position counts, not one.** A node's children are all hashes; a term's *structural*
+  children recurse while its *reference* children stay hashes. So the signature carries
+  `sArity` and `rArity` separately, and `Node H` is the shape with both filled by `H` while
+  `Term` is the shape with structural positions recursive. That is the store's shallow/deep
+  split, expressed once.
+- **Arities, not position types.** With `SPos s → Term` the functionality of reconstruction
+  needs function extensionality to equate two children-*functions*, and `--safe` does not
+  provide it. `Vec Term (sArity s)` keeps equality structural and the proof goes through.
+- **It is shorter, not longer, where it matters.** `⇝-func` is 8 lines generically against ~30
+  concretely, because the 16-case absurdity explosion (every pair of distinct constructors)
+  collapses into one shape-equality step. That was the opposite of the expectation.
+
+**The open question is the paper, not the proofs.** `def:core` is four constructors, and the
+mechanization currently matches it one for one — which is the artifact's main virtue. A
+signature fixpoint either drags the paper with it, making `def:core` markedly worse to read,
+or opens a presentation gap between paper and mechanization. The second is survivable and
+documentable (it is a *presentation* gap, not a content one — the instance is provably the
+same datatype), but it is the cost the "share the store layer between rungs" benefit has to
+beat, and it should be decided deliberately rather than by drift. Leaning: keep the paper as
+it is, state the correspondence explicitly, and have the core instance carry a comment showing
+the four shapes.
+
+What stays concrete either way: everything about *binders*. Scoping (`⊢ₙ`), `shift`, `subst`,
+`beta` and their lemmas are language-layer and the signature does not model binding. That also
+means the generic store layer must take `Closed` as a parameter, since `wf` clause (ii) is
+stated in terms of it.
