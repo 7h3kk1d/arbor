@@ -371,3 +371,28 @@ What stays concrete either way: everything about *binders*. Scoping (`⊢ₙ`), 
 `beta` and their lemmas are language-layer and the signature does not model binding. That also
 means the generic store layer must take `Closed` as a parameter, since `wf` clause (ii) is
 stated in terms of it.
+
+## Does the two-sorted rung fit the generic layer? (spiked 2026-08-07)
+
+Asked because the ordering mattered: with the Core instantiation parked half-done, building
+arbor-stlc first would have been costly if it forced a change to `Sig`. Spiked rather than
+guessed, and the answer is that **it fits unchanged**.
+
+- **`Sig` needs no sort index.** Both sorts are shapes over the same hash space — which is the
+  paper's own position, since `def:entry` has one injective ⌈·⌉ over the whole sum and derives
+  the sorts' disjointness as *a corollary, not an axiom*. Nine shapes: seven term, two type.
+- **Sort discipline is a predicate, not an index** (`IsTm`/`IsTy`). This is a presentational
+  divergence from `def:reconstruct`, which folds sort discipline into *definedness* by giving
+  `reconstruct` and `reconstructTy` separate partial functions. One relation plus a predicate
+  says the same thing; worth a remark in the rung rather than a silent change.
+- **"Type entries are isolated vertices of the reference graph"** (`def:reconstruct`) holds by
+  construction: the type shapes have reference arity zero, so `refsT` on a well-sorted type is
+  `[]` by induction, and they have no callers without anything being assumed.
+- **Closedness stays one predicate over both sorts.** A type has no variables, so it is closed
+  at every level; the generic store layer's `Closed` parameter does not need splitting.
+
+Consequence for sequencing: finishing the Core instantiation and building `Arbor/Stlc/` are
+independent, so neither makes the other harder. What remains of the Core instantiation is
+mostly *not* store-layer work — `Eval`, `Naming`, `Cache`, `History`, `Config` barely touch the
+generic machinery — so it validates little about the generic layer and is grind for
+single-source-of-truth. The parked branch is `formalism-core-instantiation`.
