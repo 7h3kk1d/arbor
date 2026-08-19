@@ -25,9 +25,9 @@ open import Data.List.Membership.Propositional using (_∈_)
 open import Data.Maybe.Base using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_; ∃-syntax; proj₁; proj₂)
 open import Induction.WellFounded using (Acc; acc)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Relation.Nullary.Decidable.Core using (yes; no)
+open import Relation.Nullary.Decidable.Core using (Dec; yes; no)
 
 ------------------------------------------------------------------------
 -- Finiteness, as a separate assumption
@@ -70,21 +70,58 @@ module Rho (σ : Store) (wf : WF σ) (gold gnew : Hash) (sc : Scope) where
   guarded : Hash → Bool
   guarded r = sc r ∨ ⌊ r ≟ gold ⌋
 
+  -- Both the seed decision and the store lookup are ARGUMENTS, not `with`
+  -- scrutinees. A `with` here compiles to an opaque generated function, and
+  -- every property of ρ below would then be an ill-typed with-abstraction —
+  -- which is exactly what happened on the first attempt. Passing `σ h` together
+  -- with a proof that it is `σ h` is the inspect idiom, done by hand.
   mutual
     rho : (h : Hash) → Acc _≺_ h → Hash
-    rho h a with h ≟ gold
-    ... | yes _ = gnew
-    ... | no  _ with σ h in look
-    ...   | nothing = h                     -- off dom(Σ): ρ is the identity
-    ...   | just n  = rhoAt h a (WF.recon-total wf (n , look))
+    rho h a = rhoDec h a (h ≟ gold) (σ h) refl
 
-    -- Rewrite h's reconstruction, then re-hash. Registration of the image is
-    -- the part that still needs Finite σ; see below.
+    rhoDec : (h : Hash) → Acc _≺_ h → Dec (h ≡ gold) →
+             (m : Maybe (Node Hash)) → σ h ≡ m → Hash
+    rhoDec h a (yes _) _        _    = gnew          -- the seed
+    rhoDec h a (no _)  nothing  _    = h             -- off dom(Σ): identity
+    rhoDec h a (no _)  (just n) look = rhoAt h a (WF.recon-total wf (n , look))
+
+    -- Rewrite h's reconstruction, then re-hash. ρ̂ is the guard on each
+    -- reference leaf; structure is carried by substRefsD, which is why no
+    -- combined-graph recursion is needed.
     rhoAt : (h : Hash) → Acc _≺_ h → Recon σ h → Hash
-    rhoAt h (acc rs) (t , d) = hashOf (substRefsD t step)
+    rhoAt h (acc rs) (t , d) =
+      hashOf (substRefsD t (λ r m → if guarded r then rho r (rs (t , d , m)) else r))
+
+  -- ρ is a function, not merely a recipe
+  --
+  -- rhoAt takes an accessibility proof, so before any property of ρ's *values*
+  -- can be stated, the value has to be shown independent of which proof was
+  -- supplied. Acc is propositional up to funext, which --safe does not give us;
+  -- this double induction establishes the instance that is needed without it.
+  -- Note where substRefsD-cong is used: the two step functions agree only
+  -- pointwise, never definitionally.
+  mutual
+    rho-irr : ∀ h (a₁ a₂ : Acc _≺_ h) → rho h a₁ ≡ rho h a₂
+    rho-irr h a₁ a₂ = rhoDec-irr h a₁ a₂ (h ≟ gold) (σ h) refl
+
+    rhoDec-irr : ∀ h (a₁ a₂ : Acc _≺_ h) (dec : Dec (h ≡ gold))
+                 (m : Maybe (Node Hash)) (look : σ h ≡ m) →
+                 rhoDec h a₁ dec m look ≡ rhoDec h a₂ dec m look
+    rhoDec-irr h a₁ a₂ (yes _) _        _    = refl
+    rhoDec-irr h a₁ a₂ (no _)  nothing  _    = refl
+    rhoDec-irr h a₁ a₂ (no _)  (just n) look =
+      rhoAt-irr h a₁ a₂ (WF.recon-total wf (n , look))
+
+    rhoAt-irr : ∀ h (a₁ a₂ : Acc _≺_ h) (R : Recon σ h) →
+                rhoAt h a₁ R ≡ rhoAt h a₂ R
+    rhoAt-irr h (acc rs₁) (acc rs₂) (t , d) = cong hashOf (substRefsD-cong t agree)
       where
-      step : ∀ r → r ∈ refsT t → Hash
-      step r mem = if guarded r then rho r (rs (t , d , mem)) else r
+      agree : ∀ r (m : r ∈ refsT t) →
+              (if guarded r then rho r (rs₁ (t , d , m)) else r)
+            ≡ (if guarded r then rho r (rs₂ (t , d , m)) else r)
+      agree r m with guarded r
+      ... | false = refl
+      ... | true  = rho-irr r (rs₁ (t , d , m)) (rs₂ (t , d , m))
 
   -- ρ as a function on hashes, using wf (iii) to supply accessibility.
   ρ : Hash → Hash
@@ -122,6 +159,17 @@ module Rho (σ : Store) (wf : WF σ) (gold gnew : Hash) (sc : Scope) where
 --    that order back out. That is the same machinery lem:cascade-order is
 --    about, which is why open-questions.md predicts the two landing together.
 --
--- Also unresolved: ρ takes an accessibility proof, so it is a function only up
--- to `rho h a₁ ≡ rho h a₂`, provable by double Acc induction but not yet done.
--- Nothing above depends on it; the first proof about ρ's *values* will.
+-- Resolved since: ρ's independence from the accessibility proof (`rho-irr`), so
+-- it is a function and not merely a recipe; `substRefsD-cong`, which that needs;
+-- and `substRefsD-refs`, which says every reference of a rewritten term is the
+-- image of a reference of the original — the provenance fact clause (iii) will
+-- turn on.
+--
+-- Next step, and the one that turns ρ from a recursion into an equation:
+--
+--     ρ-at : ¬ (h ≡ gold) → σ ⊢ h ⇝ t →
+--            ρ h ≡ hashOf (substRefsD t (λ r _ → if guarded r then ρ r else r))
+--
+-- All three ingredients are now present (rho-irr to discharge the accessibility
+-- proof, ⇝-func to identify the reconstruction, substRefsD-cong to move between
+-- the step functions). Everything downstream cites this rather than rho.

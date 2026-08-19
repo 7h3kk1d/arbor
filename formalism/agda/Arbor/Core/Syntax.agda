@@ -30,12 +30,13 @@ module Arbor.Core.Syntax (Hash : Set) where
 open import Data.Empty using (⊥-elim)
 open import Data.List.Base using (List; []; _∷_; _++_; length)
 open import Data.List.Membership.Propositional using (_∈_)
-open import Data.List.Relation.Unary.Any using (here)
+open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.List.Membership.Propositional.Properties using (∈-++⁻; ∈-++⁺ˡ; ∈-++⁺ʳ)
 open import Data.Nat.Base using (ℕ; zero; suc; _+_; _≤_; _<_; pred; z≤n; s≤s)
 open import Data.Nat.Properties
   using (_≤?_; ≤-refl; ≤-trans; ≤-antisym; ≤-pred; <-irrefl; <⇒≤; <⇒≢; ≰⇒>; +-comm)
   renaming (_≟_ to _≟ℕ_)
+open import Data.Product using (Σ; _,_; ∃)
 open import Data.Sum.Base using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
@@ -125,6 +126,37 @@ substRefsD (lam t)   f = lam (substRefsD t f)
 substRefsD (app t u) f = app (substRefsD t (λ r m → f r (∈-++⁺ˡ m)))
                              (substRefsD u (λ r m → f r (∈-++⁺ʳ (refsT t) m)))
 substRefsD (ref h)   f = ref (f h (here refl))
+
+-- Two facts about substRefsD the migration rewrite needs.
+--
+-- The congruence is what makes the rewrite well defined at all: ρ is built by
+-- well-founded recursion, so its step function is only determined up to the
+-- accessibility proof handed to it, and the two agree only pointwise.
+substRefsD-cong : ∀ t {f g : ∀ r → r ∈ refsT t → Hash} →
+                  (∀ r m → f r m ≡ g r m) → substRefsD t f ≡ substRefsD t g
+substRefsD-cong (var i)   eq = refl
+substRefsD-cong (lam t)   eq = cong lam (substRefsD-cong t eq)
+substRefsD-cong (app t u) eq =
+  cong₂ app (substRefsD-cong t (λ r m → eq r (∈-++⁺ˡ m)))
+            (substRefsD-cong u (λ r m → eq r (∈-++⁺ʳ (refsT t) m)))
+substRefsD-cong (ref h)   eq = cong ref (eq h (here refl))
+
+-- And every reference of the rewritten term is the image of a reference of the
+-- original. This is the provenance fact the acyclicity half of thm:migosc needs:
+-- an edge out of a rewritten entry cannot point anywhere the original did not.
+substRefsD-refs : ∀ t {f : ∀ r → r ∈ refsT t → Hash} {r′} →
+                  r′ ∈ refsT (substRefsD t f) →
+                  ∃ λ r → Σ (r ∈ refsT t) (λ m → f r m ≡ r′)
+substRefsD-refs (var i)   ()
+substRefsD-refs (lam t)   mem = substRefsD-refs t mem
+substRefsD-refs (app t u) {f} mem
+  with ∈-++⁻ (refsT (substRefsD t (λ r m → f r (∈-++⁺ˡ m)))) mem
+... | inj₁ m₁ with substRefsD-refs t m₁
+...   | (r , mr , eq) = r , ∈-++⁺ˡ mr , eq
+substRefsD-refs (app t u) {f} mem | inj₂ m₂ with substRefsD-refs u m₂
+...   | (r , mr , eq) = r , ∈-++⁺ʳ (refsT t) mr , eq
+substRefsD-refs (ref h)   {f} (here refl) = h , here refl , refl
+substRefsD-refs (ref h)   (there ())
 
 -- Surface terms (def:surface) are deliberately NOT here: they mention Name,
 -- and this module's parameter list is the mechanized form of prop:namefree.

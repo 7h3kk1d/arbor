@@ -207,8 +207,23 @@ transition, so abstracting there would buy nothing.
     where the paper needs it; a dependent
     `substRefsD : (t : Term) → (∀ r → r ∈ refsT t → Hash) → Term`, so the
     recursive call at a reference is justified by the membership proof that
-    makes its target a predecessor; and **ρ itself**, by `Acc` recursion on
-    `Store.Acyclic`, with `def:cascade`'s seed clause discharged.
+    makes its target a predecessor; **ρ itself**, by `Acc` recursion on
+    `Store.Acyclic`, with `def:cascade`'s seed clause discharged; and
+    **`rho-irr`**, ρ's independence from the accessibility proof handed to it —
+    without which ρ is a recipe rather than a function and no property of its
+    *values* is statable. `Acc` is propositional only up to funext, which
+    `--safe` does not provide, so this is a double `Acc` induction resting on
+    `substRefsD-cong` (the two step functions agree only pointwise).
+
+    Also `substRefsD-refs`: every reference of a rewritten term is the image of
+    a reference of the original. That is the provenance fact clause (iii) turns
+    on — an edge out of a rewritten entry cannot point anywhere the original
+    did not.
+
+    One transcription note worth keeping: ρ takes the seed decision and the
+    store lookup as *arguments* rather than `with`-scrutinees. A `with` compiles
+    to an opaque generated function, and every property of ρ then becomes an
+    ill-typed with-abstraction — which is what happened on the first attempt.
 
     Worth noting how ρ became definable: the paper defines it "by recursion on
     the combined structural+reference graph", but separating the halves avoids
@@ -230,9 +245,11 @@ transition, so abstracting there would buy nothing.
        reference graph"), so the fold in (1) has to run in a dependency order
        (`def:deporder`) and the proof has to read that order back out. That is
        the same machinery `lem:cascade-order` is about; the two land together.
-    3. *Accessibility irrelevance.* ρ takes an `Acc` proof, so it is a function
-       only up to `rho h a₁ ≡ rho h a₂` (double `Acc` induction). Nothing so far
-       needs it; the first proof about ρ's *values* will.
+    3. *The defining equation.* `ρ-at : ¬ (h ≡ gold) → σ ⊢ h ⇝ t →
+       ρ h ≡ hashOf (substRefsD t (λ r _ → if guarded r then ρ r else r))` —
+       what turns ρ from a recursion into an equation, and what everything
+       downstream should cite instead of `rho`. All three ingredients are now
+       in place: `rho-irr`, `⇝-func`, `substRefsD-cong`.
 - **M4 — arbor-stlc.** A second `NodeSig` instance, then typing, Θ, the
   residual, and the clean oracle.
 
