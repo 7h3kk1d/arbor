@@ -570,3 +570,31 @@ which `--safe` does not provide.
 it is a separate `Finite` record — a change to `def:store` would have rippled through every
 proof in the development for the sake of one fold. Whether the paper should say explicitly
 which results need finiteness is in `open-questions.md`.
+
+---
+
+## 2026-08-07 — Retracting the reuse-boundary decision
+
+The 2026-08-05 entry recorded, as commitment 6, that the arbor-stlc reuse boundary "is
+decided now" and is `agda/Arbor/NodeSig.agda`. **That was premature and is retracted.**
+
+The record exists and `Arbor/Core/Node.agda` instantiates it. Nothing consumes it. Found by
+grepping for its uses while planning M4, after three documents had already asserted it —
+`decisions.md`, `agda/README.md`, and `paper/arbor-stlc.tex` §"Mechanization note", all now
+corrected.
+
+The reason it went unused is the part worth keeping. Every graph-layer lemma in the
+development reaches an entry through the reconstruction judgment `σ ⊢ h ⇝ t`, whose
+right-hand side is a deep *term*. So the proofs are shaped by the term language, not by the
+node signature: `NodeSig` abstracts the wrong thing. An abstraction over `⇝` itself — with
+`⇝-func`, `⇝-mono` and `⇝-∈dom` as fields — would be consumed by `acyclic-transfer`,
+`⊑-edges`, `update-dom` and callers.
+
+The methodological lesson is the one this whole line was set up to enforce, turned on itself:
+a design decision recorded before any code consumed it drifted from the code exactly as the
+papers had drifted from the mechanization. The label-check script catches paper-vs-Agda
+drift; it does not catch a decisions-log claim about the Agda's internal structure. Whether
+that wants a check of its own — dead-code detection over the library — is worth a thought.
+
+M4's shape is consequently open again; the options and their costs are in
+`open-questions.md`.

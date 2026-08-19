@@ -184,17 +184,32 @@ Recorded with rationale in `../decisions.md` (2026-08-05). In brief:
   `Hash : Set` and `hash : Node → Hash` as fields is circular, since a node's
   children are hashes. `data Node (H : Set)` breaks the knot.
 
-## The reuse boundary for arbor-stlc
+## The reuse boundary for arbor-stlc — declared, but not yet real
 
-`arbor-stlc.tex` §"Mechanization note" asked for this decision to be recorded
-when the work began; it is `Arbor/NodeSig.agda`. Everything the paper says about
-the store *as a graph* — `wf`, callers, the migration rewrite — touches an entry
-only through its structural children, its reference children, and a map over
-both. So that is a record, and `Arbor.Core.Node` instantiates it. arbor-stlc's
-two-sorted entry (`def:entry`) becomes a second instance rather than a fork.
+`arbor-stlc.tex` asked for this decision to be recorded when the work began, and
+`decisions.md` 2026-08-05 recorded it as `Arbor/NodeSig.agda`. **That was
+premature.** The record exists and `Arbor/Core/Node.agda` instantiates it, but
+nothing consumes it: every graph-layer lemma routes through `σ ⊢ h ⇝ t`, whose
+right-hand side is a deep `Term`, so the proofs are shaped by the term language
+and not by the node signature. Abstracting nodes was the wrong axis.
 
-`Config` and `_⟶_` are deliberately **not** generic: arbor-stlc adds a `TypeOf`
-transition, so abstracting there would buy nothing.
+What is genuinely shared: `Arbor.Prelude` and `Arbor.Hash`, both already
+parameterized. What could be shared with a modest abstraction over `⇝` rather
+than over nodes: the purely graph-theoretic lemmas — `acyclic-transfer`,
+`⊑-edges`, `update-dom`, callers. What is term-recursive and will otherwise be
+written twice: `ingest`, the `ingest-*` family, and most of `Preservation`.
+
+So M4 has two shapes, and the choice is open:
+
+1. **Refactor `Term` as the fixpoint of a functor first**, then share the bulk.
+   Highest payoff, and it would make `NodeSig` real — but it touches every proof
+   in the development, and the M1–M3 results would all need re-checking.
+2. **Write `Arbor/Stlc/` as a parallel hierarchy**, sharing only Prelude, Hash,
+   and (with the `⇝` abstraction) the graph lemmas. Duplicates perhaps 60% of
+   the store layer, but leaves 17 proved statements untouched.
+
+Recorded in `../open-questions.md`. Config and the transition relation are
+deliberately not generic either way: arbor-stlc adds a `TypeOf` transition.
 
 ## Milestones
 

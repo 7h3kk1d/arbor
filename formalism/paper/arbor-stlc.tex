@@ -658,23 +658,30 @@ new type costs exactly the followers --- and the residual says which of them nee
 \end{center}
 
 \section{Mechanization note}\label{sec:mech}
-Mechanization of this rung is deferred until \arborcore{}'s well-formedness and migration
-milestones land, but the reuse boundary this note previously left open is now decided
-(\texttt{formalism/decisions.md} 2026-08-05). It is
-\texttt{formalism/agda/Arbor/NodeSig.agda}: everything \arborcore{} says about the store
-\emph{as a graph} --- $\wf$, callers, the rewrite $\rho$ --- reaches an entry only through its
-structural children, its reference children, and a map over both, so those are the fields of a
-record, and the untyped node is its first instance. This rung's two-sorted $\Entry$
-(\cref{def:entry}) is a second instance rather than a fork: type entries are reference-free, so
-they are isolated vertices of the reference graph (\cref{def:reconstruct}) and the graph-layer
-proofs apply unchanged.
+Mechanization of this rung has not begun; \arborcore{} is mechanized through its migration
+milestone (\coreref{sec:mech}). The reuse boundary this note originally deferred was recorded
+as decided in \texttt{formalism/decisions.md} (2026-08-05), naming
+\texttt{formalism/agda/Arbor/NodeSig.agda} --- a record abstracting an entry's structural
+children, its reference children, and a map over both. \textbf{That was premature, and the
+correction is worth stating because it changes what this rung costs.} The record exists and the
+untyped node instantiates it, but nothing in the development consumes it: every graph-layer
+lemma routes through the reconstruction judgment $\Store \vdash h \rightsquigarrow t$, whose
+right-hand side is a \emph{deep term}, so the proofs are shaped by the term language and not by
+the node signature. Abstracting nodes was the wrong axis.
 
-Deliberately \emph{not} generic: the configuration and the transition relation, because this rung
-adds a \textsc{TypeOf} transition. The typing judgment, $\TyOf$, the residual, and the clean
-oracle are new work either way. Two of this document's results are already anticipated in the
-\arborcore{} development --- \cref{lem:ty-stable} is the typed twin of a reconstruction-
-monotonicity lemma proved there, and \cref{thm:typeof-stable} of \coreref{cor:cache} --- so the
-aspect-stability half of this rung should be short once the store layer is instantiated.
+What is genuinely shared, then, is the finite-map layer and the hash model --- both already
+parameterized --- and, with a modest abstraction over $\rightsquigarrow$ rather than over
+nodes, the purely graph-theoretic lemmas ($\wf$'s acyclicity transfer, callers, the
+edge-restriction lemma). The ingest and well-formedness machinery is term-recursive and will be
+written twice unless $\Term$ is first refactored as the fixpoint of a functor, which
+\arborcore{} does not currently do. Two honest options, neither yet chosen: refactor first and
+share the bulk, or write this rung as a parallel hierarchy and share only the layers named
+above. The choice is recorded as open in \texttt{formalism/open-questions.md}.
+
+Independent of it, two of this document's results are already anticipated in the \arborcore{}
+development --- \cref{lem:ty-stable} is the typed twin of a reconstruction-monotonicity lemma
+proved there, and \cref{thm:typeof-stable} of \coreref{cor:cache} --- so the aspect-stability
+half of this rung should be short once the store layer exists in either form.
 
 \section*{Provenance}
 The type system, values, and evaluator follow

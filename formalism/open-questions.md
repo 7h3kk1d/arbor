@@ -308,3 +308,33 @@ Open sub-questions:
 - Should `def:deporder` and `lem:cascade-order` be promoted from "bridge to p11's
   implementation" to load-bearing parts of the construction? On the evidence above they
   are load-bearing, not a bridge.
+
+## The arbor-stlc reuse boundary is still open (2026-08-07)
+
+`decisions.md` 2026-08-05 §6 recorded the boundary as decided — `agda/Arbor/NodeSig.agda`,
+a record over an entry's structural children, reference children, and a map over both.
+**Retracted.** The record is instantiated by the untyped node and consumed by nothing.
+The reason is worth keeping: every graph-layer lemma in the development routes through the
+reconstruction judgment `σ ⊢ h ⇝ t`, whose right-hand side is a deep *term*, so the proofs
+are shaped by the term language, not by the node signature. Abstracting nodes was the wrong
+axis; abstracting over `⇝` (with `⇝-func`, `⇝-mono`, `⇝-∈dom` as fields) would be consumed.
+
+That leaves M4 with two shapes, and the choice is genuinely open:
+
+- **Refactor `Term` as the fixpoint of a functor**, then share the store layer between the
+  rungs. Highest payoff and it would make a node-level signature real — but it touches every
+  proof, and the seventeen discharged statements would all need re-checking. Note this is not
+  merely an engineering question: it would make the *paper's* `Term` a fixpoint too, or else
+  put a visible gap between paper and mechanization where there is currently none.
+- **A parallel `Arbor/Stlc/` hierarchy**, sharing `Prelude`, `Hash`, and — with the modest
+  `⇝` abstraction — the graph lemmas. Duplicates maybe 60% of the store layer but leaves
+  M1–M3 untouched.
+
+Worth noting which parts are duplicated under the second option, since it bears on how much
+the first is worth: `ingest` and its four `ingest-*` lemmas, and most of `Preservation`. The
+typing judgment, Θ, the residual and the clean oracle are new work either way, and they are
+the substance of the rung.
+
+A third possibility, if the answer is "neither yet": mechanize arbor-stlc's *aspect* half
+first (`lem:ty-stable`, `thm:typeof-stable`, `cor:aspect-agree`), which are the typed twins
+of lemmas already proved and which need the store layer only as a parameter.

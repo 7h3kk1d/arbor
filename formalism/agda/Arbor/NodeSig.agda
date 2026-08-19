@@ -15,9 +15,19 @@
 -- turns on (def:cascade): structural edges always propagate, reference edges
 -- only into scope. Hence mapE takes two functions.
 --
--- Config and the transition relation are deliberately *not* generic:
--- arbor-stlc adds a TypeOf transition, so abstracting there would buy
--- nothing.
+-- STATUS (2026-08-07): NOT LOAD-BEARING. Arbor.Core.Node instantiates this
+-- record and nothing consumes it. The intent above was right about which
+-- operations the graph layer needs, and wrong about the axis to abstract on:
+-- every graph-layer lemma in the development routes through the reconstruction
+-- judgment σ ⊢ h ⇝ t, whose right-hand side is a deep TERM, so the proofs are
+-- shaped by the term language rather than by the node signature. Abstracting
+-- over ⇝ (with ⇝-func, ⇝-mono, ⇝-∈dom as fields) would be consumed; abstracting
+-- over nodes is not.
+--
+-- Kept, unused, because it records the operations correctly and because the
+-- choice between refactoring Term as a functor fixpoint and writing arbor-stlc
+-- as a parallel hierarchy is still open (../../open-questions.md). Deleted if
+-- that choice goes the second way.
 ------------------------------------------------------------------------
 
 module Arbor.NodeSig where
