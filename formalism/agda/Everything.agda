@@ -62,3 +62,5 @@ import Arbor.Stlc.Syntax
 import Arbor.Stlc.Params
 import Arbor.Stlc.Store
 import Arbor.Stlc.Typing
+import Arbor.Stlc.Eval
+import Arbor.Stlc.Safety

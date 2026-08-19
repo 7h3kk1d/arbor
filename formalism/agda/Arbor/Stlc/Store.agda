@@ -34,7 +34,9 @@ open import Arbor.Stlc.Syntax Hash public using
   ; IsTy; ty-bool; ty-arr; IsTm; tm-var; tm-lam; tm-app; tm-true; tm-false
   ; tm-if; tm-ref; ty-no-refs
   ; _⊢_; s-var; s-lam; s-app; s-true; s-false; s-if; s-ref; s-bool; s-arr
-  ; Closed; ty-scoped )
+  ; Closed; ty-scoped
+  ; ↑; ↓; [_↦_]_; beta; ↑-id; ↓-id; subst-id; ty-↑; ty-↓; ty-subst
+  ; subst-var-hit; subst-var-miss; ↓-var-lo )
 
 ------------------------------------------------------------------------
 -- The two definitions that mention binding
