@@ -77,6 +77,91 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
   continue-the-refactor UX wants per-name witnesses (expected vs. actual type at the failing
   position). Editing-layer elaboration over the same dry run, or part of the report?
 
+## Divergences from Unison (source read 2026-08-07)
+
+From reading the Unison implementation at commit `db60ce2` — notes in `docs/systems/unison/`,
+mapping onto these objects in `docs/systems/unison/07-arbor-mapping.md`. Unison is the closest
+existing system to this model and has no publication, so these are the only points of external
+comparison available. **Questions, not defects on either side**; each names a fork where the two
+systems chose differently and this paper has not said why.
+
+- **Is `Σ : Hash ⇀ Node` the right key type?** Unison hashes a whole strongly-connected
+  *component*, so a definition is `(Hash, Pos)` (`codebase2/core/U/Codebase/Reference.hs:114-119`).
+  That is what mutual recursion costs, and it is a change to the *type* of the store, not to the
+  canonicalizer: `wf`'s no-dangle clause, `callers_of`, ρ, and `thm:alpha` all move. Worse, their
+  canonical cycle ordering is **partial** — structurally identical members leave the order
+  underdetermined, and the implementation refuses and asks the user to perturb one definition
+  (`IncompleteElementOrderingError`, unisonweb/unison#2787).
+  **But this cost is optional.** `docs/design/03-content-addressing.md` §"Mutual recursion: three
+  ways to close the cycle" (2026-08-07) works out the alternative: close the cycle with a *binder
+  in the object language* rather than in the hasher — a `Fix` over a product, with each member an
+  ordinary definition that projects out of it. The bundle's body is closed because `self` is a
+  bound variable, so `Σ : Hash ⇀ Node` is untouched, a reference stays a hash, and **no
+  metatheory in this paper changes shape**. The cost is a `Fix` node with a CBV-safe reduction
+  rule.
+  **The ordering ambiguity does not disappear — it changes consequence,** and that is the part
+  worth modeling. With a *positional* tuple the bundle's hash is **invariant under group
+  automorphisms** (renumbering the projections exactly undoes the permutation), so the collision
+  case leaves only an arbitrary choice of which projection carries which name — yielding two
+  structurally distinct but observationally identical definitions rather than a rejected ingest.
+  With a *labeled* record the choice is made by minted labels instead, which restores
+  presentation-independence but relocates the question to name-keyed mint stability (the same
+  mechanism as Unison's `loadUniqueTypeGuid`).
+  Three modeling questions follow. **(i)** Which closure does the recursion rung model, given
+  that only Unison's perturbs `Σ`? **(ii)** Can the automorphism-invariance claim be stated and
+  proved — *if σ is an automorphism of the group's reference digraph, the bundle term is fixed by
+  σ* — since it is what makes the positional encoding total? **(iii)** Does `thm:alpha` need
+  restating for groups: hashing collapses α-equivalence *and* group automorphism, but not
+  observational equivalence of members.
+- **Hash-transparent `Ref` vs. opaque `Ref`.** Unison's reference node contributes the *referent's*
+  hash to its parent, so `y = x` and `x = 1+1` are one object and **inlining is hash-preserving**
+  (`unison-hashing-v2/src/Unison/Hashing/V2/Term.hs:135-146`). Both systems keep the indirection —
+  the 2026-07-23 "vacuous without indirection" rationale is untouched — but arbor's `\nRef{h}` has
+  its own encoding, so the *factoring* the author chose is part of identity. Question: is that
+  deliberate? `docs/design/12-type-abstraction.md`'s projection-inlining dependency model needs
+  arbor's answer; `thm:alpha` should then say it collapses α-equivalence and not more.
+- **Type-in-hash vs. Θ.** Unison hashes a term wrapped in its type (`Hashing/V2/Term.hs:92-109`),
+  so a signature change *is* an identity change and a cached type can never be stale. arbor-stlc's
+  observational Θ currently reads as the obvious choice; it is not — it is the choice the holes
+  line forces, since only a permissive store can hold `Type_with_holes` and ill-typed terms. One
+  sentence in arbor-stlc §1 should say so.
+- **`H` vs. `Causal` — the branching rung now has a target.** arbor's `H` is per-name, flat, and
+  append-only; it cannot answer "do these two states share an ancestor?", which is what every merge
+  asks. Unison's `Causal` can, and ships with an algebraic spec its implementors wrote out
+  (`parser-typechecker/src/Unison/Codebase/Causal/Type.hs:24-42`): five operations, `before` a
+  partial order, `merge` **commutative but not associative**, `sequence` derived. Two structural
+  choices make it work — parents are a *set*, and a namespace child maps to a child *causal*, so
+  every subtree has independent history the parent pins. The "Branching / merging" rung above
+  should be faithful to this rather than inventing.
+- **Migration by ρ vs. by print-and-reparse — and a claim worth making.** Unison's `update` renders
+  affected dependents back to source, re-parses, and re-typechecks (`Update2.hs:424-427`, which
+  calls itself *"the world's weirdest implementation of AST substitution"*). **That is correct only
+  if printing then parsing preserves hashes, and Unison does not state the property — it tests it**
+  over a regression corpus (`unison-src/transcripts-round-trip/reparses-with-same-hash.u`).
+  `prop:print-elab` is that property, proved. This is a sharper positioning claim than "first
+  formal treatment," because it names a specific mechanism in a shipping system. Two caveats before
+  using it: the propositions are stated for arbor's languages, not Unison's, so it is an argument
+  about the *shape* of the guarantee; and arbor's own `Migrate` is a structural rewrite that needs
+  no round-trip lemma, so arbor proves something it does not itself depend on.
+- **Does `E` need a `checkCacheability`-shaped side condition?** Unison caches a result only if its
+  type has **no arrows**, *"since top-level definitions can't have effects without a delay"*
+  (`unison-runtime/src/Unison/Runtime/Interface.hs:463-475`), and never caches effectful watches.
+  `E` is total here because the language is pure and a value is just another closed term. Worth a
+  remark saying so, since the guard reappears the moment either changes — effects, or a value
+  representation distinct from the term representation.
+- **Stability under transfer, as its own corollary.** `thm:stability` is stated for store *growth*.
+  Unison relies on the same fact across *codebases*: test results sync, so "is this branch passing"
+  becomes a set intersection rather than a computation (`docs/testing.markdown`). Same theorem,
+  different quantifier, and it is the one the commons argument in
+  `docs/related-work/07-commons.md` actually needs. Cheap to add beside `cor:cache`.
+- **Provenance without mints.** Unison distinguishes a human edit from an auto-propagated one by
+  **syntactic hash** — hash after substituting references with names from a pretty-print environment
+  (`unison-merge/src/Unison/Merge/Synhash.hs:1-26`). No second identity axis, nothing to keep
+  stable. Its stated limit is renames, which is exactly where a mint wins; the two fail in
+  complementary places. Relevant to the mint/thread rung above, which should say why arbor wants an
+  identity axis rather than a quotient. Note also that Unison's minting needs a side table to
+  survive *merge* (`namespace_unique_type_guid`) — the case p11's threads also do not handle.
+
 ## Questions raised by the mechanization (2026-08-05)
 
 - **Should `wf` gain a hash-keyed clause?** `thm:mono`'s proof argues "each key is ⌈n⌉ for the

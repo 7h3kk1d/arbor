@@ -157,7 +157,7 @@ The actual UX is hybrid rather than binary: follow runs as far as it can, explic
 - Namespace history / time-travel.
 - Multi-user or shared namespaces.
 - Automated "update all callers" when a name is rebound. Provided as an editor action, not a substrate guarantee.
-- Suffix-based name disambiguation (Unison's `f.h1a2b3` convention). Our namespace is unambiguous by construction; ambiguity handling can wait.
+- Hash-qualified names as a disambiguation device (Unison's `f#h1a2b3` convention — a name plus a hash prefix, used to pick one of several referents). Our substrate namespace is unambiguous by construction; ambiguity handling can wait. *(Description corrected 2026-08-07. This bullet previously read "suffix-based name disambiguation (Unison's `f.h1a2b3` convention)," which conflated two unrelated mechanisms and contradicted the prototypes. **Hash-qualification** is the non-goal above. **Suffix resolution** — writing `map` for `base.List.map` when the suffix is unambiguous — is a different mechanism, and p9, p10, and p17 all implement it, with a distinct `Ambiguous` error; see `../prototypes/p9-typed-namespaces/00-scope.md`. Unison's version is richer than any of them: three suffixification strategies chosen by context, plus a dependency-depth priority rule under which names nested deeper below `lib` lose ties, so `lib.base.List.map` wins over `lib.something.lib.base.Set.map` for the bare suffix `map`. arbor has no equivalent of that rule and will want one once namespaces carry vendored dependencies. `../systems/unison/03-namespace-and-history.md` §"Suffix resolution".)*
 
 ## Open sub-questions
 

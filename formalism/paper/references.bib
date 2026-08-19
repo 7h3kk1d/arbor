@@ -1,3 +1,17 @@
+% arbor formalism bibliography.
+%
+% Scope: works these papers cite, plus the works arbor's design docs already lean on by
+% surname and could not previously cite. Deliberately NOT a mirror of the full survey --
+% see docs/related-work/00-index.md for that, and for verification tags on every item.
+%
+% Entries here were checked against publisher records, DBLP, Crossref, or the authors' own
+% publication lists on 2026-08-03. Where a field could not be confirmed, the entry says so
+% in a note rather than guessing.
+
+% ---------------------------------------------------------------------------
+% Core references (cited or near-cited)
+% ---------------------------------------------------------------------------
+
 @book{Pierce2002TAPL,
   author    = {Benjamin C. Pierce},
   title     = {Types and Programming Languages},
@@ -15,7 +29,9 @@
   volume  = {34},
   number  = {5},
   pages   = {381--392},
-  year    = {1972}
+  year    = {1972},
+  note    = {Both volume 34 and volume 75 circulate for this paper; the JSL review lists
+             both. Also appears as KNAW Proceedings ser. A vol. 75}
 }
 
 @inproceedings{Cardelli1997Linking,
@@ -31,14 +47,250 @@
   author       = {{Unison Computing}},
   title        = {The Unison language},
   howpublished = {\url{https://www.unison-lang.org}},
-  note         = {Content-addressed code; accessed 2026}
+  note         = {Content-addressed code; accessed 2026. No peer-reviewed publication
+                  exists for Unison --- the citable artifacts are documentation, blog
+                  posts, and talks. See \texttt{docs/related-work/01-content-addressing.md}}
 }
 
-@inproceedings{Grove2025,
-  author    = {Michael D. Adams and others},
-  title     = {Grove: A Bidirectionally Typed Collaborative Structure Editor
-               Calculus},
-  booktitle = {Proceedings of the ACM on Programming Languages (POPL)},
+@misc{UnisonSource,
+  author       = {{Unison Computing}},
+  title        = {The Unison language implementation (source)},
+  howpublished = {\url{https://github.com/unisonweb/unison}},
+  note         = {Commit \texttt{db60ce2faa4649f97746873f7d186a6d3ebd3bb8}, 2026-08-07.
+                  Cite this, not \texttt{Unison}, for any claim about how the system
+                  actually behaves: with no publication, the source is the citable
+                  artifact, and it must be pinned to a commit. A full read --- store and
+                  hashing, namespace and causal history, the evaluation cache, update and
+                  merge --- is recorded in \texttt{docs/systems/unison/}, with the mapping
+                  onto this paper's objects in \texttt{07-arbor-mapping.md}}
+}
+
+@article{Maziarz2021Hashing,
+  author    = {Krzysztof Maziarz and Tom Ellis and Alan Lawrence and Andrew Fitzgibbon
+               and Simon Peyton Jones},
+  title     = {Hashing Modulo Alpha-Equivalence},
+  journal   = {Proceedings of the 42nd ACM SIGPLAN International Conference on
+               Programming Language Design and Implementation (PLDI)},
+  year      = {2021},
+  doi       = {10.1145/3453483.3454088},
+  note      = {The rigorous result behind hashing binding structures so that
+               $\alpha$-equivalent terms collide}
+}
+
+% ---------------------------------------------------------------------------
+% Type abstraction and modules --- the p12--p17 line.
+% Previously invoked by surname in docs/design/12-type-abstraction.md and the p14/p15/p17
+% scope docs with no bibliographic anchor anywhere in the repository.
+% ---------------------------------------------------------------------------
+
+@article{MitchellPlotkin1988,
+  author  = {John C. Mitchell and Gordon D. Plotkin},
+  title   = {Abstract Types Have Existential Type},
+  journal = {ACM Transactions on Programming Languages and Systems},
+  volume  = {10},
+  number  = {3},
+  pages   = {470--502},
+  year    = {1988},
+  doi     = {10.1145/44501.45065}
+}
+
+@inproceedings{LillibridgeHarper1994,
+  author    = {Mark Lillibridge and Robert Harper},
+  title     = {A Type-Theoretic Approach to Higher-Order Modules with Sharing},
+  booktitle = {Proceedings of the 21st ACM SIGPLAN-SIGACT Symposium on Principles of
+               Programming Languages (POPL)},
+  year      = {1994},
+  note      = {Author order is Lillibridge first, contrary to the common
+               ``Harper--Lillibridge'' shorthand. DOI unconfirmed}
+}
+
+@inproceedings{Leroy1994Manifest,
+  author    = {Xavier Leroy},
+  title     = {Manifest Types, Modules, and Separate Compilation},
+  booktitle = {Proceedings of the 21st ACM SIGPLAN-SIGACT Symposium on Principles of
+               Programming Languages (POPL)},
+  pages     = {109--122},
+  year      = {1994}
+}
+
+@article{Leroy1996Generativity,
+  author  = {Xavier Leroy},
+  title   = {A Syntactic Theory of Type Generativity and Sharing},
+  journal = {Journal of Functional Programming},
+  volume  = {6},
+  number  = {5},
+  pages   = {667--698},
+  year    = {1996}
+}
+
+@article{Leroy2000Modular,
+  author  = {Xavier Leroy},
+  title   = {A Modular Module System},
+  journal = {Journal of Functional Programming},
+  volume  = {10},
+  number  = {3},
+  pages   = {269--303},
+  year    = {2000}
+}
+
+@inproceedings{CardelliLeroy1990Dot,
+  author    = {Luca Cardelli and Xavier Leroy},
+  title     = {Abstract Types and the Dot Notation},
+  booktitle = {Proceedings of the IFIP TC2 Working Conference on Programming Concepts
+               and Methods},
+  pages     = {479--504},
+  year      = {1990},
+  note      = {Also DEC SRC Technical Report 56}
+}
+
+@inproceedings{MontaguRemy2009,
+  author    = {Beno{\^i}t Montagu and Didier R{\'e}my},
+  title     = {Modeling Abstract Types in Modules with Open Existential Types},
+  booktitle = {Proceedings of the 36th ACM SIGPLAN-SIGACT Symposium on Principles of
+               Programming Languages (POPL)},
+  pages     = {354--365},
+  year      = {2009},
+  doi       = {10.1145/1480881.1480926},
+  note      = {F-zip. The open/closed existential distinction underlying p17's
+               \texttt{Open} and \texttt{Open\_local}}
+}
+
+@article{RossbergRussoDreyer2014,
+  author  = {Andreas Rossberg and Claudio V. Russo and Derek Dreyer},
+  title   = {F-ing Modules},
+  journal = {Journal of Functional Programming},
+  volume  = {24},
+  number  = {5},
+  pages   = {529--607},
+  year    = {2014},
+  doi     = {10.1017/S0956796814000264},
+  note    = {Journal version of the TLDI 2010 paper; cite this one}
+}
+
+% ---------------------------------------------------------------------------
+% Hashing abstract types across a distributed system.
+% Prior art for p12's Opaque{mint, witness} that arbor's docs do not cite.
+% ---------------------------------------------------------------------------
+
+@inproceedings{Sewell2001Versioning,
+  author    = {Peter Sewell},
+  title     = {Modules, Abstract Types, and Distributed Versioning},
+  booktitle = {Proceedings of the 28th ACM SIGPLAN-SIGACT Symposium on Principles of
+               Programming Languages (POPL)},
+  pages     = {236--247},
+  year      = {2001},
+  note      = {Also University of Cambridge Computer Laboratory Technical Report 506}
+}
+
+@inproceedings{Leifer2003HashTypes,
+  author    = {James J. Leifer and Gilles Peskine and Peter Sewell and Keith Wansbrough},
+  title     = {Global Abstraction-Safe Marshalling with Hash Types},
+  booktitle = {Proceedings of the 8th ACM SIGPLAN International Conference on Functional
+               Programming (ICFP)},
+  year      = {2003},
+  doi       = {10.1145/944705.944714},
+  note      = {Abstract-type names generated by hashing, so that type equality suffices
+               to protect abstraction}
+}
+
+% ---------------------------------------------------------------------------
+% Hazel, structure editing, and the computational commons.
+% docs/design/07-hazel-substrate.md is the sourcing farm; these are its anchors.
+% ---------------------------------------------------------------------------
+
+@inproceedings{Omar2017Hazelnut,
+  author    = {Cyrus Omar and Ian Voysey and Michael Hilton and Jonathan Aldrich and
+               Matthew A. Hammer},
+  title     = {Hazelnut: A Bidirectionally Typed Structure Editor Calculus},
+  booktitle = {Proceedings of the 44th ACM SIGPLAN Symposium on Principles of
+               Programming Languages (POPL)},
+  year      = {2017},
+  doi       = {10.1145/3009837.3009900}
+}
+
+@article{Grove2025,
+  author  = {Michael D. Adams and Eric Griffis and Thomas J. Porter and
+             Sundara Vishnu Satish and Eric Zhao and Cyrus Omar},
+  title   = {Grove: A Bidirectionally Typed Collaborative Structure Editor Calculus},
+  journal = {Proceedings of the ACM on Programming Languages},
+  volume  = {9},
+  number  = {POPL},
+  year    = {2025},
+  doi     = {10.1145/3704909}
+}
+
+@inproceedings{Omar2025Commons,
+  author    = {Cyrus Omar and Michael Coblenz and Anil Madhavapeddy},
+  title     = {A FAIR Case for a Live Computational Commons},
+  booktitle = {Proceedings of the 2nd ACM SIGPLAN International Workshop on Programming
+               for the Planet (PROPL)},
+  pages     = {8--13},
   year      = {2025},
-  note      = {Cited via arbor \texttt{docs/design/07-hazel-substrate.md}}
+  doi       = {10.1145/3759536.3763802},
+  note      = {The citable statement of the computational-commons vision. Its
+               bibliography contains no content-addressing citation}
+}
+
+@inproceedings{Bandukwala2024Planetary,
+  author    = {Alexander Bandukwala and Andrew Blinn and Cyrus Omar},
+  title     = {Toward a Live, Rich, Composable, and Collaborative Planetary Compute
+               Engine},
+  booktitle = {Programming for the Planet (PROPL), co-located with POPL},
+  year      = {2024},
+  note      = {The position statement arbor operationalizes}
+}
+
+% ---------------------------------------------------------------------------
+% Lenses and schema migration --- the basis for the "Cambria-style" translation
+% direction sketched in docs/design/05-translation.md.
+% ---------------------------------------------------------------------------
+
+@inproceedings{Hofmann2012EditLenses,
+  author    = {Martin Hofmann and Benjamin C. Pierce and Daniel Wagner},
+  title     = {Edit Lenses},
+  booktitle = {Proceedings of the 39th ACM SIGPLAN-SIGACT Symposium on Principles of
+               Programming Languages (POPL)},
+  pages     = {495--508},
+  year      = {2012},
+  doi       = {10.1145/2103656.2103715},
+  note      = {Lenses whose domain is edits rather than states; the academic basis
+               Cambria names}
+}
+
+@article{Foster2007Combinators,
+  author  = {J. Nathan Foster and Michael B. Greenwald and Jonathan T. Moore and
+             Benjamin C. Pierce and Alan Schmitt},
+  title   = {Combinators for Bidirectional Tree Transformations: A Linguistic Approach
+             to the View-Update Problem},
+  journal = {ACM Transactions on Programming Languages and Systems},
+  volume  = {29},
+  number  = {3},
+  pages   = {17},
+  year    = {2007},
+  doi     = {10.1145/1232420.1232424},
+  note    = {POPL 2005 original. The foundational lens paper}
+}
+
+@misc{Cambria2020,
+  author       = {Geoffrey Litt and Peter van Hardenberg and Orion Henry},
+  title        = {Project Cambria: Translate your data with lenses},
+  howpublished = {\url{https://www.inkandswitch.com/cambria/}},
+  month        = oct,
+  year         = {2020},
+  note         = {Ink \& Switch lab essay; not peer-reviewed. Bidirectional lenses over
+                  JSON Patch edits, composed along a schema graph}
+}
+
+@incollection{Voelter2013MPS,
+  author    = {Markus Voelter},
+  title     = {Language and IDE Modularization and Composition with MPS},
+  booktitle = {Generative and Transformational Techniques in Software Engineering IV
+               (GTTSE)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {7680},
+  pages     = {383--430},
+  publisher = {Springer},
+  year      = {2013},
+  doi       = {10.1007/978-3-642-35992-7_11},
+  note      = {Cite this rather than the two-page ICSE 2012 tool demo}
 }
