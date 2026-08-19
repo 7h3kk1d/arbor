@@ -141,6 +141,19 @@ substRefsD-cong (app t u) eq =
             (substRefsD-cong u (λ r m → eq r (∈-++⁺ʳ (refsT t) m)))
 substRefsD-cong (ref h)   eq = cong ref (eq h (here refl))
 
+-- Rewriting references preserves scoping, at every level. A reference leaf is
+-- scoped under any number of binders (s-ref), so exchanging one for another
+-- cannot free a variable. In particular a rewritten CLOSED term is closed —
+-- which is what lets the migrated store's reference targets be shown closed
+-- without tracking the order in which images were registered.
+substRefsD-scoped : ∀ {n} t {f : ∀ r → r ∈ refsT t → Hash} →
+                    n ⊢ t → n ⊢ substRefsD t f
+substRefsD-scoped (var i)   (s-var lt)      = s-var lt
+substRefsD-scoped (lam t)   (s-lam sc)      = s-lam (substRefsD-scoped t sc)
+substRefsD-scoped (app t u) (s-app sc₁ sc₂) =
+  s-app (substRefsD-scoped t sc₁) (substRefsD-scoped u sc₂)
+substRefsD-scoped (ref h)   s-ref           = s-ref
+
 -- And every reference of the rewritten term is the image of a reference of the
 -- original. This is the provenance fact the acyclicity half of thm:migosc needs:
 -- an edge out of a rewritten entry cannot point anywhere the original did not.
