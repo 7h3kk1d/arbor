@@ -24,6 +24,13 @@ import Arbor.Prelude
 import Arbor.Hash
 import Arbor.NodeSig
 
+-- The signature-generic store layer (M4 groundwork): everything about the
+-- store that does not depend on the language, so that arbor-stlc instantiates
+-- rather than duplicates.
+import Arbor.Sig
+import Arbor.Generic.Syntax
+import Arbor.Generic.Store
+
 -- The untyped λ instance
 import Arbor.Core.Node
 import Arbor.Core.Surface
