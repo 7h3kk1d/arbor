@@ -680,6 +680,30 @@ agrees with $\hat\rho$ on $\refs(\Store,g)$; re-ingesting the rewritten reconstr
 registers node-for-node the $\rho^{\#}$-image of $g$'s structure. \qed
 \end{proof}
 
+\begin{remark}[The construction needs no dependency order]\label{rem:noorder}
+\cref{def:deporder} and \cref{lem:cascade-order} are a bridge to \texttt{p11}'s implementation,
+and --- this was not obvious when they were written --- \emph{only} that. Building $\rho$ and
+re-establishing $\wf$ for $\Store'$ needs no order at all.
+
+The expectation was the opposite, and it is worth saying why it was wrong. Registering an
+entry's image requires that entry's rewritten references to be closed, which does force an
+order \emph{if well-formedness is re-established after every registration}. But nothing
+requires that it be. Every entry of $\Store$ is registered, so every image is present in
+$\Store'$ whatever order the registrations ran in, and $\ingest$ only ever adds; the reference
+targets are therefore closed in $\Store'$ regardless. What makes this expressible is stating
+clause~(ii) with its conclusion in the \emph{final} store rather than the running one.
+
+The second expectation to fall was that $\rho$'s non-injectivity blocks acyclicity. It is
+genuinely non-injective --- distinct entries can rewrite to one hash, which is
+content-addressing working as intended, and the same phenomenon \cref{thm:alpha} states
+positively --- and that does defeat the argument that accessibility transfers along $\rho$
+pointwise. But the proof never needs a preimage: it follows an edge \emph{forward}, from an
+entry contributed by $h$'s registration to a $\hat\rho$-image of one of $h$'s own references,
+and recurses on $\Store$'s accessibility of that reference. A colliding hash carries the same
+node by ($\star$), hence the same out-edges, so which preimage one arrived from is not
+information the argument ever uses.
+\end{remark}
+
 \begin{remark}[The untyped gate is total]\label{rem:gate}
 \texttt{p11} gates its cascade by re-typechecking each rewritten caller
 \src{update\_strategy.re: Typecheck.check\_top}. The untyped analogue --- rewritten entries
@@ -911,14 +935,17 @@ that a non-rewritten entry's nodes are untouched (\cref{thm:mono}). \qed
 
 The development lives in \texttt{formalism/agda/} (Agda 2.7.0, \texttt{agda-stdlib} 2.1) and is
 checked with \texttt{agda -{}-safe}: no postulates, no termination pragmas, no unsolved metas.
-Sixteen of this paper's eighteen numbered statements are discharged ---
-\cref{thm:alpha,thm:nsb,thm:mono,thm:wf,thm:stability,thm:histcoh}, \cref{lem:determinism,lem:closed-no-stuck,lem:elab-premises},
+Seventeen of this paper's eighteen numbered statements are discharged ---
+\cref{thm:alpha,thm:nsb,thm:mono,thm:wf,thm:stability,thm:histcoh,thm:migosc},
+\cref{lem:determinism,lem:closed-no-stuck,lem:elab-premises},
 \cref{prop:print-elab,prop:elab-print}, and \cref{cor:cache,cor:transfer,cor:fuel,cor:incremental};
-\cref{prop:namefree} holds by construction. What remains is the construction of $\rho$ itself:
-\cref{thm:migosc} is currently discharged from a \emph{specification} record that any rewrite
-must satisfy, and \cref{lem:cascade-order} is not yet statable, since it quantifies over a
-sequential pass that does not exist until $\rho$ is constructed. \texttt{make status} reports
-this per label; \texttt{make labels} checks that no statement here lacks a counterpart there.
+\cref{prop:namefree} holds by construction. $\rho$ is \emph{constructed}, not merely specified:
+\cref{def:cascade}'s rewrite is built by well-founded recursion on \cref{def:wf} clause~(iii),
+its image is registered, and all three $\wf$ clauses are re-established for the migrated store,
+so \cref{thm:migosc}'s clause~(c) is projected out of a record that has a witness rather than
+out of a promise. Only \cref{lem:cascade-order} remains, and it is no longer a prerequisite for
+anything (\cref{rem:noorder}). \texttt{make status} reports this per label; \texttt{make
+labels} checks that no statement here lacks a counterpart there.
 
 Four transcription choices are worth recording; the rest, with rationale, is in
 \texttt{formalism/decisions.md} (2026-08-05) and \texttt{formalism/agda/README.md}.
@@ -948,8 +975,23 @@ Four transcription choices are worth recording; the rest, with rationale, is in
   and \cref{cor:fuel} relates the two.
   \item \textbf{Stores as functions into $\mathsf{Maybe}$}, keyed by decidable equality.
   Inclusion is then pointwise implication, which is how \cref{thm:mono,thm:stability} are
-  stated, and \cref{thm:mono}'s two halves become one. Finiteness is not assumed at all yet; it
-  enters when $\rho$ must enumerate $\dom(\Store)$.
+  stated, and \cref{thm:mono}'s two halves become one. Finiteness is assumed only where
+  $\rho$ must enumerate $\dom(\Store)$, as a separate predicate rather than a change to
+  \cref{def:store}.
+  \item \textbf{$\Term$ as the fixpoint of a signature.} The store layer is proved once over
+  an abstract \emph{signature} --- a set of node shapes with, for each shape, a count of
+  structural children and a count of reference children --- and this paper's language is one
+  instance of it. The two counts are exactly what the shallow/deep split of \cref{def:node} and
+  \cref{def:core} forces: a stored node has every child a hash, while a deep term has its
+  structural children recursive and its reference children still hashes, because a reference is
+  where the deep form stops and cites a definition. \textbf{Nothing in this document changes.}
+  \cref{def:core}'s four constructors are recovered as pattern synonyms, so a proof still
+  case-splits on $\Var{}/\Lam{}/\App{}/\tRef{}$ exactly as written here. The reason for
+  doing it is the typed successor: arbor-stlc's two-sorted $\Entry$ is a second \emph{instance}
+  rather than a second copy, and the store half of that rung costs a signature and some seventy
+  lines. It also shortens the proofs it generalizes --- the reconstruction-functionality
+  argument in particular, where the case-per-pair-of-constructors explosion collapses into one
+  shape equality.
 \end{itemize}
 
 \paragraph{What mechanizing changed in this paper.} Four gaps, all now fixed above.

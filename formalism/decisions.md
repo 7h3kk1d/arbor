@@ -598,3 +598,47 @@ that wants a check of its own — dead-code detection over the library — is wo
 
 M4's shape is consequently open again; the options and their costs are in
 `open-questions.md`.
+
+---
+
+## 2026-08-07 — Bringing the papers back in line with the mechanization
+
+Both `\section{Mechanization}` sections had drifted behind the Agda, and three findings from
+the typed rung belonged in the body rather than only in this log. Corrected now, because the
+whole point of the label-check discipline is that the papers do not quietly describe an
+earlier state of the proofs.
+
+**What was stale.** `arbor-core.tex` claimed sixteen of eighteen statements and said "what
+remains is the construction of ρ itself" — ρ has been constructed since, so `thm:migosc` is
+now projected out of a record with a witness rather than out of a promise. `arbor-stlc.tex`
+said mechanization of that rung "has not begun" and left the reuse boundary as two open
+options; it has begun, and the answer turned out to be neither option.
+
+**What the papers now say that they did not.**
+
+- *arbor-core §sec:mech* gains a fifth transcription choice: `Term` as the fixpoint of a
+  signature, with the two arities per shape that the shallow/deep split forces, and the
+  explicit statement that **nothing in the document changes** — `def:core`'s four constructors
+  are recovered as pattern synonyms, so a proof still case-splits on Var/Lam/App/Ref as
+  written. That is the fact that made the refactor acceptable rather than a paper-damaging
+  abstraction, and it deserved saying in the paper rather than only here.
+- *arbor-core `rem:noorder`*, after `lem:cascade-order`: the construction needs no dependency
+  order, and `def:deporder`/`lem:cascade-order` are a bridge to p11's implementation and only
+  that. With the reasons both expectations were wrong — well-formedness need not be
+  re-established after every registration, and ρ's non-injectivity does not block acyclicity
+  because the argument follows edges forward and never picks a preimage.
+- *arbor-stlc `prop:ty-ident`*: it is not "the typed analogue of thm:alpha" in the
+  mechanization but the very same theorem, since types and terms are shapes of one signature.
+- *arbor-stlc `lem:ty-stable`*: its two `wf` premises are not used, for the same reason
+  `thm:stability`'s are not.
+- *arbor-stlc `rem:subst-empty`*: `lem:subst`'s general context is unused, `thm:pres` being its
+  only consumer and stated at ∅ — and the generality is not free, since for closed `v` the
+  incremental shifting is the identity and the TAPL 9.3.8 apparatus collapses.
+
+**A note on the shape of these corrections.** Three of the five are the same kind of finding:
+a statement carries a hypothesis or a generality that nothing consumes. `thm:stability`'s `wf`
+premises, `prop:elab-print`'s side condition, `lem:ty-stable`'s `wf` premises, `lem:subst`'s
+general context. Mechanizing finds these reliably because an unused premise is visible as an
+unused argument — worth remembering when writing the next rung, since the cost is not merely
+inelegance: `lem:subst`'s generality would have committed the proof to machinery the document
+does not need.

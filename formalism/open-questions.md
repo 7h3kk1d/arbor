@@ -309,7 +309,16 @@ Open sub-questions:
   implementation" to load-bearing parts of the construction? On the evidence above they
   are load-bearing, not a bridge.
 
-## The arbor-stlc reuse boundary is still open (2026-08-07)
+## The arbor-stlc reuse boundary — settled (2026-08-07)
+
+**Closed by construction.** The answer is neither of the two options below: it is to abstract
+the SYNTAX, not the nodes and not by duplication. `Term` is now the fixpoint of a signature
+(shapes, each with a structural and a reference arity), the store layer is proved once over it,
+and arbor-stlc's two-sorted entry is a second instance. `def:core`'s four constructors survive
+as pattern synonyms, so neither paper's syntax changed. See `decisions.md` 2026-08-07 and both
+papers' mechanization sections. The original entry is kept below as written.
+
+### As originally recorded
 
 `decisions.md` 2026-08-05 §6 recorded the boundary as decided — `agda/Arbor/NodeSig.agda`,
 a record over an entry's structural children, reference children, and a map over both.

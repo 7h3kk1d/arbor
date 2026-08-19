@@ -203,7 +203,10 @@ ingest $h$.
 \begin{proposition}[Hashing collapses type equality]\label{prop:ty-ident}
 For deep types $T, U$ ingested at root hashes $h_T, h_U$: $h_T = h_U \iff T = U$. Hence
 structural type equality \emph{is} hash comparison for stored types --- the typed analogue
-of \coreref{thm:alpha}, by the same injectivity induction.
+of \coreref{thm:alpha}, by the same injectivity induction. In the mechanization it is not an
+analogue at all but the very same theorem: types and terms are shapes of one signature, so
+\coreref{thm:alpha} at this instance \emph{is} this proposition, with no separate induction
+(\cref{sec:mech}).
 \end{proposition}
 
 % =====================================================================
@@ -278,7 +281,9 @@ $t$'s reference closure lies in $\dom(\Store)$.
 \emph{Sketch:} a derivation reads only entries reachable from $t$'s references, which are
 identical in both stores by immutability (\coreref{thm:mono}); replay in either direction
 --- the same argument as \coreref{thm:stability}. So the type of a stored term is a fact
-about the hash, fixed at ingest time forever.
+about the hash, fixed at ingest time forever. As with \coreref{thm:stability}, and for the
+same reason, the two $\wf$ premises are not used by the proof: replaying needs
+$\Store \subseteq \Store'$ and nothing else.
 \end{lemma}
 
 \begin{proposition}[Decidability]\label{prop:ty-dec}
@@ -360,6 +365,17 @@ $\types{\Store}{\Gamma}{\mathsf{beta}(t,v)}{T_2}$. \emph{Sketch:} standard (TAPL
 with annotations and $\tRef{}$ inert; \textsc{T-Ref} subderivations are closed and
 untouched by shifting.
 \end{lemma}
+
+\begin{remark}[The general context is not used]\label{rem:subst-empty}
+\cref{thm:pres} is this lemma's only consumer and is stated at $\Gamma = \emptyset$, where
+$\types{\Store}{\emptyset}{v}{T_1}$ already forces $v$ closed (\cref{lem:ty-scope}). The
+generality is therefore unused --- and it is not free: for closed $v$ the incremental shifting
+that $\subst{0}{\shift{1}{0}{v}}{\cdot}$ performs as it descends under binders is the
+identity, so the TAPL~9.3.8 shift-and-weaken apparatus collapses to a single induction over the
+context prefix, with the substituted variable always last and its tail always empty. The
+mechanization proves that version. Stating the lemma at general $\Gamma$ commits the proof to
+machinery nothing in this document needs.
+\end{remark}
 
 \begin{theorem}[Preservation]\label{thm:pres}
 If $\types{\Store}{\emptyset}{t}{T}$ and $\evals{\Store}{t}{\val}$ then
@@ -658,30 +674,51 @@ new type costs exactly the followers --- and the residual says which of them nee
 \end{center}
 
 \section{Mechanization note}\label{sec:mech}
-Mechanization of this rung has not begun; \arborcore{} is mechanized through its migration
-milestone (\coreref{sec:mech}). The reuse boundary this note originally deferred was recorded
-as decided in \texttt{formalism/decisions.md} (2026-08-05), naming
-\texttt{formalism/agda/Arbor/NodeSig.agda} --- a record abstracting an entry's structural
-children, its reference children, and a map over both. \textbf{That was premature, and the
-correction is worth stating because it changes what this rung costs.} The record exists and the
-untyped node instantiates it, but nothing in the development consumes it: every graph-layer
-lemma routes through the reconstruction judgment $\Store \vdash h \rightsquigarrow t$, whose
-right-hand side is a \emph{deep term}, so the proofs are shaped by the term language and not by
-the node signature. Abstracting nodes was the wrong axis.
+Mechanization of this rung has begun, and the reuse boundary this note twice got wrong is now
+settled by construction. The first answer --- a record abstracting an entry's structural
+children, its reference children, and a map over both --- was recorded as decided and then
+retracted: it was instantiated and consumed by nothing, because every graph-layer lemma routes
+through the reconstruction judgment $\Store \vdash h \rightsquigarrow t$, whose right-hand side
+is a \emph{deep term}. Abstracting nodes was the wrong axis.
 
-What is genuinely shared, then, is the finite-map layer and the hash model --- both already
-parameterized --- and, with a modest abstraction over $\rightsquigarrow$ rather than over
-nodes, the purely graph-theoretic lemmas ($\wf$'s acyclicity transfer, callers, the
-edge-restriction lemma). The ingest and well-formedness machinery is term-recursive and will be
-written twice unless $\Term$ is first refactored as the fixpoint of a functor, which
-\arborcore{} does not currently do. Two honest options, neither yet chosen: refactor first and
-share the bulk, or write this rung as a parallel hierarchy and share only the layers named
-above. The choice is recorded as open in \texttt{formalism/open-questions.md}.
+What works is abstracting the syntax itself. \arborcore{}'s store layer is now proved once over
+a \emph{signature} --- node shapes, each with a count of structural and of reference children
+(\coreref{sec:mech}) --- and this rung's two-sorted $\Entry$ (\cref{def:entry}) is a second
+instance of it rather than a second copy. Both sorts are shapes over one hash space, which is
+this document's own position: \cref{def:entry} has a single injective $\hashof{\cdot}$ over the
+whole sum and derives the sorts' disjointness as a corollary. Nine shapes, seven term and two
+type, and the store half of the rung is a signature and some seventy lines.
 
-Independent of it, two of this document's results are already anticipated in the \arborcore{}
-development --- \cref{lem:ty-stable} is the typed twin of a reconstruction-monotonicity lemma
-proved there, and \cref{thm:typeof-stable} of \coreref{cor:cache} --- so the aspect-stability
-half of this rung should be short once the store layer exists in either form.
+Three consequences are worth recording.
+\begin{itemize}[nosep]
+  \item \cref{prop:ty-ident} is \emph{free}, as noted there: it is \coreref{thm:alpha} at this
+  signature, not an analogue of it.
+  \item ``Type entries are isolated vertices of the reference graph, so they have no callers''
+  (\cref{def:reconstruct}) holds \emph{by construction}: the two type shapes have reference
+  arity zero, so a well-sorted type has no references by induction and nothing need be assumed.
+  \item Closedness is one predicate over both sorts. A type contains no term variables
+  (\cref{def:core}), so it is scoped at every level, and the store layer's closedness parameter
+  does not have to be split.
+\end{itemize}
+
+Two presentational divergences, both forced by putting the sorts in one syntax.
+\cref{def:reconstruct} separates them by \emph{definedness}, giving $\reconstruct$ and
+$\reconstructty$ as two partial functions, so that ``a $\lambda$ whose annotation hash resolves
+to a term entry simply fails to reconstruct''; the mechanization has one reconstruction judgment
+and a well-sortedness predicate saying the same thing. And \textsc{T-Abs} carries a
+well-sortedness premise for its annotation, which this document gets for nothing because types
+are a separate syntactic category --- ``the annotation is taken as given, never checked against
+anything'' (\cref{def:typing}) still holds, since the premise is a sort condition and not a
+check against the body.
+
+Discharged so far: \cref{def:entry,def:reconstruct,def:ingest} by instantiation,
+\cref{prop:ty-ident}, \cref{def:typing}, \cref{lem:ty-scope,lem:ty-unique,lem:ty-stable},
+\cref{def:typeof}, \cref{def:value}, \cref{lem:canon,lem:subst}, \cref{thm:pres} and
+\cref{thm:local}. What remains in Part~V is \cref{thm:prog} and \cref{cor:no-stuck}, which are
+statements about the \emph{fueled} evaluator's \textsf{Stuck} outcome --- the relation
+$\Downarrow$ has no stuck states --- and so want \arborcore{}'s fuel-indexed evaluator
+instantiated here, together with its soundness and completeness bridge (\coreref{cor:fuel}).
+Parts~VI--VIII --- $\TyOf$, the residual, and the clean oracle --- are untouched.
 
 \section*{Provenance}
 The type system, values, and evaluator follow
