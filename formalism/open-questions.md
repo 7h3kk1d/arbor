@@ -162,6 +162,31 @@ systems chose differently and this paper has not said why.
   identity axis rather than a quotient. Note also that Unison's minting needs a side table to
   survive *merge* (`namespace_unique_type_guid`) — the case p11's threads also do not handle.
 
+## Cross-branch reconciliation (2026-08-07)
+
+Two things the Unison read and the prototype line each know but the other does not, found when
+the `related-work` line merged into the mechanization line.
+
+- **Option B already has its prototype: p19.** `docs/design/03-content-addressing.md` §"Mutual
+  recursion" says option B — close the cycle with a binder in the object language — "stays a
+  thread" because *"No prototype has needed recursion"*, and that *"Evaluating B properly wants a
+  prototype with `Fix` plus the existing record machinery."* **p19 is exactly that prototype.** It
+  has isorecursive `Mu` with explicit `fold`/`unfold`, `Fix` for term recursion, and both `Record`
+  and `Variant` — and it reached the same conclusion independently, in a source comment: *"content
+  addressing chooses iso over equi: you cannot hash a cycle without a fixpoint or compare two
+  without a bisimulation"*, with `Mu(body)` acyclic and hashing fine. The design doc's premise is
+  superseded; what it asks to be evaluated has been. Whether p19's `Mu`/`Fix` is B1 (positional) or
+  B2 (labeled) in the doc's taxonomy, and whether the *mutual* case was exercised at all or only
+  the self-referential one, is the thing to check before promoting B from thread to choice. Until
+  then this matters to the mechanization mainly as reassurance: option A is the one that would
+  move `Σ`, `wf`, `callers`, ρ and `thm:alpha`, and the evidence keeps pointing away from it.
+- **A stale note about this directory.** `docs/design/open-questions.md` §"Rich editors" (from
+  p20) says *"`formalism/` currently holds only compiled PDFs — `arbor-core.tex` and `macros.tex`
+  appear in the build logs but are absent from disk, and the directory is untracked."* That was
+  true when written and is not now: the sources and a `--safe` Agda development are tracked. The
+  same bullet defers a rich-editor formalism rung "until the shape settles", which still stands —
+  but its stated reason should be the shape, not the absence of a formalism.
+
 ## Questions raised by the mechanization (2026-08-05)
 
 - **Should `wf` gain a hash-keyed clause?** `thm:mono`'s proof argues "each key is ⌈n⌉ for the

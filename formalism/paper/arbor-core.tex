@@ -736,6 +736,20 @@ $(\Leftarrow)$ $\ingest$ is a function. $(\Rightarrow)$ induction on $t$ using i
 hence (IH) equal subterms. \cref{ex:alpha} instantiates it. \qed
 \end{proof}
 
+\begin{remark}[$\alpha$-equivalence, and not more]\label{rem:alpha-only}
+The theorem is a biconditional on \emph{terms}, so it says as much by what it withholds. Equal
+hashes force equal core terms --- not merely terms with equal meaning. In particular
+$\tRef{h}$ and the term $h$ reconstructs to are \emph{different} objects with different hashes:
+the reference node has its own encoding (\cref{def:node}), so how a definition is factored into
+citations is part of its identity, and inlining a reference is not hash-preserving. That is a
+real fork, and the opposite choice is available: Unison's reference node contributes the
+\emph{referent's} hash to its parent, making inlining hash-preserving and $y = x$ with
+$x = 1{+}1$ one object \src{Hashing/V2/Term.hs:135-146}. Both systems keep the indirection ---
+without it there are no cross-definition edges and migration is vacuous (\cref{sec:scope}) ---
+but they disagree about whether factoring is observable. Recorded, not yet argued, in
+\texttt{formalism/open-questions.md}.
+\end{remark}
+
 \begin{theorem}[No silent breakage]\label{thm:nsb}
 If $C = \Config{\Store}{\Names}{\Cache}{\Hist} \steps \Config{\Store}{\Names'}{\Cache}{\Hist'}$
 by \textsc{Bind}, \textsc{Rebind}, or \textsc{Unbind}, then $\Store$ is unchanged, and therefore
@@ -816,6 +830,29 @@ $\reconstruct(\cdot,\Cache(h))$ at a stored hash never changes under growth
 it ingested reconstructs to itself); no rule removes or overwrites a cache entry. \qed
 \end{proof}
 
+\begin{corollary}[Stability under transfer]\label{cor:transfer}
+Let $\Store_0$ be a store fragment shared by two configurations, and $\Store$ any store with
+$\Store_0 \subseteq \Store$. If $\evals{\Store_0}{\tRef{h}}{\val}$ then
+$\evals{\Store}{\tRef{h}}{\val}$. In particular $\Store$ need not be a temporal successor of
+$\Store_0$: it may be a \emph{different codebase} that happens to hold the same fragment, and
+the two such codebases need not be comparable to each other.
+\end{corollary}
+\begin{proof}[Proof sketch]
+\cref{thm:stability}, unchanged --- which is the content. Nothing in that proof reads $\Store$'s
+history; it replays a derivation over entries fixed by immutability, and immutability does not
+care \emph{whose} store the entries sit in. \qed
+\end{proof}
+
+\begin{remark}[Why transfer is worth separating from growth]\label{rem:transfer}
+Stated only for growth, \cref{thm:stability} reads as a fact about one user's timeline. The same
+proof gives the sharing property a commons needs: a derived result computed anywhere is valid
+everywhere the inputs agree, so distributing evaluation results is sound without re-checking
+them, and ``which of these definitions are known to pass their tests'' becomes a set
+intersection rather than a computation. Unison relies on exactly this when it syncs test
+results across codebases \src{docs/testing.markdown}. It is the form of the theorem the
+computational-commons argument actually uses.
+\end{remark}
+
 \begin{corollary}[Migration is incremental]\label{cor:incremental}
 After a \textsc{Migrate} step, every cache entry for a hash in the \emph{old} $\dom(\Store)$
 remains valid; the set of terms that may require (re-)evaluation is contained in the
@@ -874,9 +911,9 @@ that a non-rewritten entry's nodes are untouched (\cref{thm:mono}). \qed
 
 The development lives in \texttt{formalism/agda/} (Agda 2.7.0, \texttt{agda-stdlib} 2.1) and is
 checked with \texttt{agda -{}-safe}: no postulates, no termination pragmas, no unsolved metas.
-Fifteen of this paper's seventeen numbered statements are discharged ---
-\crefrange{lem:determinism}{thm:migosc} except the two migration items below, together with
-\cref{thm:alpha,thm:nsb,thm:mono,thm:wf,thm:stability,cor:cache,cor:fuel,thm:histcoh,cor:incremental};
+Sixteen of this paper's eighteen numbered statements are discharged ---
+\cref{thm:alpha,thm:nsb,thm:mono,thm:wf,thm:stability,thm:histcoh}, \cref{lem:determinism,lem:closed-no-stuck,lem:elab-premises},
+\cref{prop:print-elab,prop:elab-print}, and \cref{cor:cache,cor:transfer,cor:fuel,cor:incremental};
 \cref{prop:namefree} holds by construction. What remains is the construction of $\rho$ itself:
 \cref{thm:migosc} is currently discharged from a \emph{specification} record that any rewrite
 must satisfy, and \cref{lem:cascade-order} is not yet statable, since it quantifies over a

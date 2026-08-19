@@ -479,3 +479,51 @@ the paper's "referents are registered before referrers" argument, and ρ is **no
 injective**, so acyclicity does not transfer along it — the registration order has to be
 made explicit, which is the same machinery `lem:cascade-order` is about. Those two should
 land together.
+
+---
+
+## 2026-08-07 — Merging the Unison read into the mechanization line, and one new corollary
+
+`related-work`'s 11 commits merged into `formalism`. They branch from the same point (the
+arbor-stlc landing) and are the only branch ahead of it that matters: `main`,
+`docs/type-abstraction` and `p16-records` are strictly behind, and `p18-rich-editors`
+carries the prototype line rather than the formalism.
+
+The merge conflicted in exactly one place — both lines appended a new section to
+`formalism/open-questions.md` — and both were kept: the Unison divergences sit with the
+modeling questions, the mechanization questions lead into the Agda section.
+
+**What the read changed in the proofs.** One new statement, `cor:transfer`, and it is
+`thm:stability`'s proof verbatim. That is the finding rather than a caveat: stated only for
+store *growth*, stability reads as a fact about one user's timeline, but nothing in the
+argument reads the store's history — it replays a derivation over entries fixed by
+immutability, and immutability does not care whose store the entries sit in. So the sharing
+property a computational commons needs was already proved and merely stated too narrowly.
+Unison relies on the same fact to sync test results across codebases. Proved as `cor-transfer`
+(one line, `⇓-mono`); 16 of 18 statements now discharged.
+
+Two further items are recorded in the paper rather than the proofs. `thm:alpha` now says what
+it *withholds* (`rem:alpha-only`): being a biconditional on terms, it keeps `ref h` distinct
+from what `h` reconstructs to, so inlining is not hash-preserving — the opposite of Unison,
+whose reference node contributes the referent's hash to its parent. And `prop:print-elab` is
+the property Unison's `update` depends on (render dependents to source, re-parse, re-typecheck)
+but never states — it tests it over a regression corpus. That is the sharpest external
+comparison the formalism has, and it is proved.
+
+**What did not change, and why that was the risk worth checking.** Unison hashes a whole
+strongly-connected component, so a definition is `(Hash, Pos)`. Had arbor followed, `Store`,
+`wf`'s no-dangle clause, `callers_of`, ρ and `thm:alpha` would all have moved — a substantial
+part of what is proved. It does not apply: `docs/design/03-content-addressing.md` works through
+three closures and concludes that closing the cycle with a binder in the object language leaves
+`Σ : Hash ⇀ Node` untouched and "no metatheory in this paper changes shape". So extrinsic
+scoping, relations-for-partial-functions, the `NodeSig` boundary and the function-valued store
+all stand.
+
+**A cross-branch finding neither line had.** That design doc defers option B because "no
+prototype has needed recursion" and says evaluating it "wants a prototype with `Fix` plus the
+existing record machinery". **p19 is that prototype** — isorecursive `Mu` with explicit
+`fold`/`unfold`, `Fix`, `Record` and `Variant` — and it reached the same conclusion
+independently in a source comment ("you cannot hash a cycle without a fixpoint"). The two were
+written a day apart on different branches. Recorded in `open-questions.md`; what to check before
+promoting B from thread to choice is whether p19 exercised the *mutual* case or only the
+self-referential one.

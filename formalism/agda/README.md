@@ -1,7 +1,7 @@
 # arbor-core — Agda mechanization
 
 Machine-checked transcription of `paper/arbor-core.tex`. **Milestones 1 and 2 are
-proved — 15 of the paper's 17 statements.** What remains is the construction of
+proved — 16 of the paper's 18 statements.** What remains is the construction of
 the migration rewrite ρ (M3). Every statement is *stated* in Agda whether or not
 it is proved, so drift between the paper and the proofs is visible rather than
 silent.
@@ -30,7 +30,7 @@ statements appear in `Arbor/Core/Meta.agda` as named types with no inhabitant.
 That is deliberate: a type with no term cannot be leaned on by a later proof,
 whereas a postulate can. `make status` is the honest progress metric.
 
-    15 of 17 statements discharged.
+    16 of 18 statements discharged.
 
 ## Status
 
@@ -49,6 +49,7 @@ inhabitant (`thm-nsb`). Run `make status` for the live table.
 | `cor:cache` — evaluate at most once | `cor-cache` | proved |
 | `cor:fuel` — only divergence is non-cacheable | `cor-fuel` | proved |
 | `cor:incremental` — migration is incremental | `cor-incremental` | proved |
+| `cor:transfer` — stability under transfer | `cor-transfer` | proved |
 | `lem:determinism` | `lem-determinism` | proved |
 | `lem:closed-no-stuck` | `lem-closed-no-stuck` | proved (corrected) |
 | `lem:elab-premises` | `lem-elab-premises` | proved |
@@ -94,6 +95,33 @@ Four gaps in the paper, all now fixed there and cross-referenced from here.
    `Name` is abstract, so there is no fresh-name supply and the paper's sketch
    ("choosing binder names") could not be carried out — but the printer can
    return the surface term it started from.
+
+## What the Unison read changed
+
+`formalism/open-questions.md` §"Divergences from Unison" (a source read at `db60ce2`) names
+eight forks where the two systems chose differently. Three land on the Agda:
+
+- **`cor:transfer` is new**, and it is `thm:stability`'s proof verbatim. Stated only for store
+  *growth*, that theorem reads as a fact about one user's timeline; the same proof gives the
+  sharing property a commons needs, since immutability does not care whose store the entries sit
+  in. Unison relies on it to sync test results across codebases.
+- **`thm:alpha` says what it withholds.** Being a biconditional on terms, it keeps `ref h`
+  distinct from what `h` reconstructs to — so inlining is *not* hash-preserving here, the
+  opposite of Unison's choice, where a reference contributes the referent's hash to its parent.
+  The paper now names the fork (`rem:alpha-only`) instead of leaving it implicit.
+- **`prop:print-elab` is the sharpest external comparison available.** Unison's `update` renders
+  dependents to source, re-parses, and re-typechecks — self-described as *"the world's weirdest
+  implementation of AST substitution"* — which is correct only if printing then parsing preserves
+  hashes. Unison does not state that property; it tests it over a regression corpus.
+  `prop:print-elab` is that property, proved. (Two caveats before leaning on it, recorded in
+  open-questions: it is stated for arbor's languages, and arbor's own `Migrate` is a structural
+  rewrite that needs no round-trip lemma.)
+
+What did **not** change: the store's key type. Unison hashes a whole SCC, so a definition is
+`(Hash, Pos)` — and had arbor followed, `Store`, `wf`, `callers`, ρ and `thm:alpha` would all
+have moved. The design doc's own conclusion is that closing the cycle with a binder in the
+object language leaves `Σ : Hash ⇀ Node` untouched and "no metatheory in this paper changes
+shape", and p19 now supplies the prototype that option was waiting on.
 
 ## Layout
 

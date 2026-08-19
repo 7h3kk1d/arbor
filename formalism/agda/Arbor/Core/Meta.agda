@@ -56,7 +56,11 @@ open import Relation.Nullary.Decidable.Core using (Dec; yes; no)
 -- from)."
 --
 -- Stated on hashOf, the store-independent root; Thm-alpha-roots is the bridge
--- to the paper's phrasing in terms of ingest. The (⇐) half is `cong`, which is
+-- to the paper's phrasing in terms of ingest. Being a biconditional on TERMS,
+-- it also says what it withholds (rem:alpha-only): equal hashes force equal
+-- core terms, so `ref h` and the term h reconstructs to stay distinct and
+-- inlining a reference is not hash-preserving — the opposite of Unison's
+-- choice, and a fork the paper now names rather than leaves implicit. The (⇐) half is `cong`, which is
 -- the mechanized form of "ingest is a function"; the (⇒) half is the
 -- injectivity induction.
 Thm-alpha : Set
@@ -275,6 +279,26 @@ Cor-cache = ∀ {C C′} → Coherent C → C ⟶ C′ → CacheSound (store C�
 
 cor-cache : Cor-cache
 cor-cache = cache-preserved
+
+-- (cor:transfer) [proved] — Stability under transfer
+--
+-- "Let Σ₀ be a store fragment shared by two configurations, and Σ any store with
+-- Σ₀ ⊆ Σ. If Σ₀ ⊢ ref h ⇓ v then Σ ⊢ ref h ⇓ v." The point is the quantifier,
+-- not the proof: Σ need not be a temporal successor of Σ₀, so two codebases
+-- holding the same fragment agree on what it computes, without either
+-- containing the other.
+--
+-- It is thm:stability's proof verbatim — and that IS the content. ⇓-mono
+-- replays a derivation over entries fixed by immutability, and immutability
+-- does not care whose store the entries sit in. Nothing had to be strengthened
+-- to get the sharing property; it was already there, stated too narrowly. This
+-- is the form the computational-commons argument uses, and the form Unison
+-- relies on when it syncs test results across codebases.
+Cor-transfer : Set
+Cor-transfer = ∀ {σ₀ σ h v} → σ₀ ⊑ σ → σ₀ ⊢ ref h ⇓ v → σ ⊢ ref h ⇓ v
+
+cor-transfer : Cor-transfer
+cor-transfer = ⇓-mono
 
 -- (thm:histcoh) [proved] — History coherence
 --

@@ -74,11 +74,12 @@ p11's `follow-clean:v1`). Sources: `decisions.md` 2026-07-30 (arbor-stlc entry).
 
 ## Mechanization
 
-`arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **15 of the
-paper's 17 statements**, including both headline theorems — *no silent breakage* and
+`arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **16 of the
+paper's 18 statements**, including both headline theorems — *no silent breakage* and
 *evaluation stability* — plus coherence preservation, history coherence, α-collapse,
 monotonicity, cache soundness, incrementality, the fuel/⇓ bridge, and the naming
-round-trips. M3 is under way: **ρ itself is now defined** (well-founded recursion on
+round-trips, and `cor:transfer` — the sharing property a commons needs, which turned out
+to be `thm:stability`'s proof verbatim, stated too narrowly. M3 is under way: **ρ itself is now defined** (well-founded recursion on
 the reference graph, with `def:cascade`'s seed clause proved), and what remains is
 registering its image and re-establishing `wf` for the rewritten store — the latter
 blocked on the fact that ρ is not injective, so acyclicity does not transfer along it
