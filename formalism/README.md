@@ -74,7 +74,7 @@ p11's `follow-clean:v1`). Sources: `decisions.md` 2026-07-30 (arbor-stlc entry).
 
 ## Mechanization
 
-`arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **16 of the
+`arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **17 of the
 paper's 18 statements**, including both headline theorems — *no silent breakage* and
 *evaluation stability* — plus coherence preservation, history coherence, α-collapse,
 monotonicity, cache soundness, incrementality, the fuel/⇓ bridge, and the naming

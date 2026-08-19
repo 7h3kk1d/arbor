@@ -20,11 +20,13 @@ open import Arbor.Hash using (HashModel)
 open HashModel hashModel using (_≟_)
 
 open import Data.Bool.Base using (Bool; true; false; if_then_else_; _∨_)
+open import Function.Base using (_∋_)
 open import Data.List.Base using (List; []; _∷_)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (here; there)
 open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Product using (_×_; _,_; ∃-syntax; proj₁; proj₂)
+open import Data.Product using (Σ; _×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
+open import Data.Sum.Base using (_⊎_; inj₁; inj₂)
 open import Induction.WellFounded using (Acc; acc)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 open import Arbor.Prelude using (nothing≢just)
@@ -377,48 +379,167 @@ module Rho (σ : Store) (wf : WF σ) (gold gnew : Hash) (sc : Scope) where
         (λ h _ R memr → rewritten-refs-closed kd cg w h R (⇝-∈dom (proj₂ R)) memr)
         ⊑-refl
 
+    ------------------------------------------------------------------------
+    -- wf (iii) for Σ′: acyclicity
+    --
+    -- "g's node was contributed by registering h": g reconstructs, in Σ′, to
+    -- something whose references are among h's rewritten term's.
+    CameFrom : Hash → Hash → Set
+    CameFrom h g =
+      ∃ λ (R : Recon σ h) →
+      ∃ λ t′ → (Σ′ ⊢ g ⇝ t′)
+             × (∀ {r} → r ∈ refsT t′ → r ∈ refsT (rewritten h R))
+
+    registerOne-prov :
+      ∀ s h → HashKeyed s → registerOne s h ⊑ Σ′ →
+      ∀ {g} → g ∈dom (registerOne s h) →
+      (g ∈dom s) ⊎ (∃ λ h′ → (h′ ∈dom σ) × CameFrom h′ g)
+    registerOne-prov s h kd sub mem with reconDec h
+    ... | no  _ = inj₁ mem
+    ... | yes R with ingest-prov (rewritten h R) s kd mem
+    ...   | inj₁ mσ                = inj₁ mσ
+    ...   | inj₂ (t′ , d′ , sub′) =
+            inj₂ (h , ⇝-∈dom (proj₂ R) , (R , t′ , ⇝-mono sub d′ , sub′))
+
+    registerAll-prov :
+      ∀ s hs → HashKeyed s → registerAll s hs ⊑ Σ′ →
+      ∀ {g} → g ∈dom (registerAll s hs) →
+      (g ∈dom s) ⊎ (∃ λ h′ → (h′ ∈dom σ) × CameFrom h′ g)
+    registerAll-prov s []       kd sub mem = inj₁ mem
+    registerAll-prov s (h ∷ hs) kd sub mem
+      with registerAll-prov (registerOne s h) hs (registerOne-keyed s h kd) sub mem
+    ... | inj₂ found = inj₂ found
+    ... | inj₁ m₁    =
+          registerOne-prov s h kd
+            (⊑-trans (registerAll-⊑ (registerOne s h) hs (registerOne-keyed s h kd)) sub)
+            m₁
+
+    -- An old entry keeps exactly the edges it had: immutability plus
+    -- functionality of ⇝ mean its reconstruction cannot change.
+    accOld : HashKeyed σ → WF σ → ∀ g → g ∈dom σ →
+             Acc _≺_ g → Acc (λ b a → Σ′ ⊢ a ↝ b) g
+    accOld kd w g mem (acc rs) = acc λ {y} e →
+      let old = ⊑-edges (Σ′-grows kd) (WF.recon-total w mem) e
+      in  accOld kd w y (ClosedIn→∈dom (WF.tgt-closed w mem old)) (rs old)
+
+    -- An entry contributed by h's registration has its out-edges among the
+    -- ρ̂-images of h's own references, so a guarded one lands on a
+    -- σ-predecessor of h and the induction is on σ's accessibility of h.
+    -- ρ's non-injectivity never arises: the argument follows the edge forward
+    -- and never has to choose a preimage.
+    mutual
+      accFrom : HashKeyed σ → WF σ → ClosedIn σ gnew →
+                ∀ h → h ∈dom σ → Acc _≺_ h →
+                ∀ g → CameFrom h g → Acc (λ b a → Σ′ ⊢ a ↝ b) g
+      accFrom kd w cg h memh (acc rs) g (R@(t , d) , t′ , d′ , sub) =
+        acc λ { {x} (t″ , d″ , memx) →
+          reach x (substRefsD-refs t
+                     (sub (subst (λ ts → x ∈ refsT ts) (⇝-func d″ d′) memx))) }
+        where
+        -- ρ̂'s two halves. Out of scope: the reference is unchanged, so the
+        -- target is an old entry. In scope: it is y's image, and y ≺ h.
+        split : ∀ y → σ ⊢ h ↝ y → (b : Bool) → guarded y ≡ b →
+                Acc (λ q p → Σ′ ⊢ p ↝ q) (if b then ρ y else y)
+        split y ey false _ =
+          accOld kd w y (ClosedIn→∈dom (WF.tgt-closed w memh ey)) (rs ey)
+        split y ey true  _ =
+          accImage kd w cg y (ClosedIn→∈dom (WF.tgt-closed w memh ey)) (rs ey)
+
+        reach : ∀ x → (∃ λ y → Σ (y ∈ refsT t) (λ m → ρ̂ y ≡ x)) →
+                Acc (λ b a → Σ′ ⊢ a ↝ b) x
+        reach x (y , my , refl) = split y (t , d , my) (guarded y) refl
+
+      -- y's image is contributed by y's own registration — unless y is the
+      -- seed, whose image g_new was already in Σ.
+      accImage : HashKeyed σ → WF σ → ClosedIn σ gnew →
+                 ∀ y → y ∈dom σ → Acc _≺_ y →
+                 Acc (λ b a → Σ′ ⊢ a ↝ b) (ρ y)
+      accImage kd w cg y memy ay = decide y (y ≟ gold) memy ay
+        where
+        decide : ∀ y′ → Dec (y′ ≡ gold) → y′ ∈dom σ → Acc _≺_ y′ →
+                 Acc (λ b a → Σ′ ⊢ a ↝ b) (ρ y′)
+        decide y′ (yes refl) m a =
+          subst (Acc (λ b a → Σ′ ⊢ a ↝ b)) (sym ρ-seed)
+                (accOld kd w gnew (ClosedIn→∈dom cg) (WF.ref-acyclic w gnew))
+        decide y′ (no ¬p) m a with WF.recon-total w m
+        ... | R@(t , d) =
+              subst (Acc (λ b a → Σ′ ⊢ a ↝ b)) (sym (ρ-at ¬p d))
+                (accFrom kd w cg y′ m a (hashOf (rewritten y′ R))
+                   (R , rewritten y′ R , Σ′-image kd y′ R m , λ z → z))
+
+    Σ′-acyclic : HashKeyed σ → WF σ → ClosedIn σ gnew → Acyclic Σ′
+    Σ′-acyclic kd w cg g = dispatch (Σ′ g) refl
+      where
+      dispatch : (m : Maybe (Node Hash)) → Σ′ g ≡ m →
+                 Acc (λ b a → Σ′ ⊢ a ↝ b) g
+      dispatch nothing eq = acc λ e →
+        ⊥-elim (nothing≢just (trans (sym eq) (proj₂ (⇝-∈dom (proj₁ (proj₂ e))))))
+      dispatch (just n) eq =
+        found (registerAll-prov σ support kd ⊑-refl (n , eq))
+        where
+        found : (g ∈dom σ) ⊎ (∃ λ h → (h ∈dom σ) × CameFrom h g) →
+                Acc (λ b a → Σ′ ⊢ a ↝ b) g
+        found (inj₁ mσ)           = accOld kd w g mσ (WF.ref-acyclic w g)
+        found (inj₂ (h , mh , c)) = accFrom kd w cg h mh (WF.ref-acyclic w h) g c
+
+    ------------------------------------------------------------------------
+    -- wf for Σ′, and a RewriteData inhabitant
+    --
+    -- def:cascade, constructed rather than specified. thm:migosc clause (c) is
+    -- no longer a promise: the record now has a witness.
+
+    Σ′-wf : HashKeyed σ → ClosedIn σ gnew → WF Σ′
+    Σ′-wf kd cg = record
+      { recon-total = Σ′-recon kd wf
+      ; tgt-closed  = Σ′-tgt kd wf cg
+      ; ref-acyclic = Σ′-acyclic kd wf cg
+      }
+
+    rewriteData : HashKeyed σ → ClosedIn σ gnew → RewriteData σ gold gnew sc
+    rewriteData kd cg = record
+      { ρ     = ρ
+      ; σ′    = Σ′
+      ; grows = Σ′-grows kd
+      ; keyed = λ kd′ → Σ′-keyed kd′
+      ; seed  = ρ-seed
+      ; wf′   = λ _ kd′ → Σ′-wf kd′ cg
+      }
+
 ------------------------------------------------------------------------
--- Where this stops, and why
+-- M3, done — what was built and what it cost
 --
--- Discharged so far, for a migration rewrite over a finite well-formed store:
--- ρ (by well-founded recursion on wf clause (iii)), its independence from the
--- accessibility proof (rho-irr), its defining equation (ρ-at) and seed clause
--- (ρ-seed); the registration fold and Σ′; and of RewriteData's six fields, ρ,
--- σ′, grows, keyed and seed. Only `wf′` is left.
+-- The migration rewrite of def:cascade, CONSTRUCTED rather than specified:
+-- ρ by well-founded recursion on wf clause (iii), its seed clause and defining
+-- equation, the registration of its image, and all three wf clauses for the
+-- migrated store. `rewriteData` assembles them into a RewriteData inhabitant
+-- for any finite well-formed store, so thm:migosc clause (c) is no longer a
+-- promise projected out of an empty record.
 --
--- FINDING (2026-08-07). An earlier note here — and open-questions.md — claimed
--- the fold must run in a DEPENDENCY ORDER, on the grounds that ρ is not
--- injective so acyclicity cannot transfer along it, and that the paper's
--- "referents are registered before referrers" argument (thm:wf's sketch) is
--- therefore load-bearing. **That is true of an incremental proof and false of
--- the construction.** Registering h's image needs h's rewritten references to
--- be closed *in the accumulator*, which does force an order; but nothing needs
--- to be proved at the accumulator. Every entry of Σ is in `support`, so every
--- image is registered somewhere in the fold, and ingest only ever adds — so the
--- reference targets are closed in Σ′ whatever order the fold ran in. That is
--- ρ̂-closed above, and it is why registerAll takes `support` as given rather
--- than a topological sort of it.
+-- Two findings, both of which revised the plan that preceded them.
 --
--- Consequences: no toposort is needed, and lem:cascade-order is NOT a
--- prerequisite for thm:migosc — it stays what the paper calls it, a bridge to
--- p11's sequential implementation, rather than machinery the construction
--- depends on.
+-- 1. THE FOLD NEEDS NO DEPENDENCY ORDER. The earlier plan (and
+--    open-questions.md) held that registration must proceed referents-first,
+--    since registering h's image needs h's rewritten references closed. That is
+--    true of an INCREMENTAL proof and false of the construction: every entry of
+--    Σ is in `support`, so every image is registered somewhere in the fold, and
+--    ingest only ever adds — so the reference targets are closed in Σ′ whatever
+--    order the fold ran in (ρ̂-closed). What made this expressible is
+--    ingest-tgt-big, which pins the conclusion to the final store instead of
+--    the accumulator. Consequence: no topological sort, and lem:cascade-order
+--    is not a prerequisite for thm:migosc — it stays what the paper calls it, a
+--    bridge to p11's sequential implementation.
 --
--- What remains for `wf′`:
+-- 2. ρ'S NON-INJECTIVITY IS NOT THE OBSTACLE IT LOOKED LIKE. It is real —
+--    distinct entries can rewrite to one hash, which is content-addressing
+--    working as intended — and it does defeat the obvious argument, that
+--    acyclicity transfers along ρ pointwise. But the accessibility proof never
+--    has to choose a preimage: it follows an edge FORWARD, from an entry
+--    contributed by h's registration to a ρ̂-image of one of h's own references,
+--    and recurses on σ's accessibility of that reference. A colliding hash
+--    carries the same node by (★), hence the same out-edges, so which preimage
+--    one came from is not information the argument ever needs.
 --
--- 1. Clause (ii) for Σ′. ρ̂-closed supplies the content; the plumbing is a
---    variant of Preservation.ingest-tgt whose CONCLUSION is stated in a fixed
---    larger store (with `ingest s t ⊑ big` as a premise) rather than in the
---    step store. The present ingest-tgt cannot be reused directly precisely
---    because its conclusion is incremental. Mechanical, ~80 lines.
---
--- 2. Clause (iii), acyclicity of Σ′. The argument, now that order is not
---    available: an edge out of a registered image goes, by substRefsD-refs, to
---    a ρ̂-image of a reference of the original — and if that reference was
---    guarded, its target is a σ-predecessor. So accessibility transfers along ρ
---    by induction on σ's Acc, without ρ being injective: what makes it work is
---    that the NODE at a colliding hash is the same node (by (★)), hence has the
---    same out-edges, so the argument never has to choose a preimage. Store's
---    acyclic-transfer is the wrong shape for this — it wants new edges to land
---    in the OLD domain, and these land in the image — so it needs a sibling
---    lemma keyed on ρ rather than on dom(Σ).
+-- The one thing genuinely assumed rather than derived is finiteness, and only
+-- registration uses it — hence `Finite` as a separate record rather than a
+-- change to def:store, which would have rippled through every proof in the
+-- development for the sake of one fold.

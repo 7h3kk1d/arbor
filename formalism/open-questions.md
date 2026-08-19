@@ -267,7 +267,19 @@ the `related-work` line merged into the mechanization line.
   only reconstruction-monotonicity while `thm:wf` needs the whole acyclicity argument. `thm:wf`
   moves to M2 with the safety lemmas; migration is M3. See `agda/README.md`.
 
-## The M3 wall (2026-08-05)
+## The M3 wall (2026-08-05) — cleared 2026-08-07
+
+**Resolved.** Both halves of the difficulty below turned out to be artefacts of an
+incremental proof strategy rather than facts about the construction; see `decisions.md`
+2026-08-07 and `agda/Arbor/Core/Rewrite.agda`'s closing note. The fold needs no dependency
+order (every image is registered somewhere, and `ingest-tgt-big` pins the conclusion to the
+final store), and ρ's non-injectivity does not block acyclicity (the proof follows edges
+forward and never chooses a preimage; a colliding hash carries the same node by (★), hence
+the same out-edges). `lem:cascade-order` is consequently *not* a prerequisite — it remains
+what the paper calls it, a bridge to p11's sequential implementation. The original entry is
+kept below as written.
+
+### As originally recorded (2026-08-05)
 
 ρ is defined (`agda/Arbor/Core/Rewrite.agda`); registering its image and proving
 `wf(Σ′)` are not. The blocker is specific and worth stating precisely, because it is a

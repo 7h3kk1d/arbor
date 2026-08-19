@@ -30,7 +30,7 @@ open import Arbor.Core.Params using (Params)
 
 module Arbor.Core.Meta (P : Params) where
 
-open import Arbor.Core.Preservation P public
+open import Arbor.Core.Rewrite P public
 
 open import Arbor.Hash using (HashModel)
 open HashModel hashModel using (_≟_)
@@ -362,7 +362,7 @@ Cor-incremental = ∀ {σ ε gold gnew sc} (R : RewriteData σ gold gnew sc) →
 cor-incremental : Cor-incremental
 cor-incremental R cs eq _ = CacheSound-mono (RewriteData.grows R) cs eq
 
--- (thm:migosc) [spec, M3] — Migration atomicity and scope
+-- (thm:migosc) [proved] — Migration atomicity and scope
 --
 -- The paper's three clauses land differently, which is why only one type is
 -- given here:
@@ -382,12 +382,12 @@ cor-incremental R cs eq _ = CacheSound-mono (RewriteData.grows R) cs eq
 --       node-level recursion and the fixed-outside-scope field, and clause (b)
 --       is stated then.
 --
---   (c) Preservation is the type below, and is discharged from the
---       RewriteData specification. That is not a proof dressed up as one: the
---       obligation transfers wholesale to M3's construction of an inhabitant,
---       which must produce this field from ρ's definition. It is a field rather
---       than an open statement because thm:wf quantifies over ALL transitions,
---       Migrate included, and would otherwise have been unprovable until M3.
+--   (c) Preservation is the type below. It is projected out of the RewriteData
+--       specification — and as of M3 that specification is REALIZED:
+--       Arbor.Core.Rewrite constructs an inhabitant for any finite well-formed
+--       store, proving all three wf clauses for the migrated store from ρ's
+--       definition. So the field is no longer a promise, and Thm-migosc-realized
+--       below is what makes this statement non-vacuous.
 Thm-migosc : Set
 Thm-migosc = ∀ {σ gold gnew sc} (R : RewriteData σ gold gnew sc) →
              WF σ → HashKeyed σ → WF (RewriteData.σ′ R)
@@ -395,10 +395,30 @@ Thm-migosc = ∀ {σ gold gnew sc} (R : RewriteData σ gold gnew sc) →
 thm-migosc : Thm-migosc
 thm-migosc R wf kd = RewriteData.wf′ R wf kd
 
+-- The specification is realized — what M3 actually adds, and what makes the
+-- statement above non-vacuous rather than a projection out of an empty record.
+-- ρ is constructed by well-founded recursion on wf
+-- clause (iii); its image is registered by folding over the store's support in
+-- ANY order (the order-independence finding); and all three wf clauses are
+-- re-established for the result. The finiteness premise is what registration
+-- needs and nothing else does — hence a separate `Finite`, not a change to
+-- def:store.
+Thm-migosc-realized : Set
+Thm-migosc-realized = ∀ {σ gold gnew} (sc : Scope) →
+                      (w : WF σ) → HashKeyed σ → Finite σ → ClosedIn σ gnew →
+                      RewriteData σ gold gnew sc
+
+thm-migosc-realized : Thm-migosc-realized
+thm-migosc-realized {σ} {gold} {gnew} sc w kd fin cg =
+  Rho.rewriteData σ w gold gnew sc fin kd cg
+
 -- (lem:cascade-order) [deferred, M3] — Sequential passes compute ρ
 --
--- Deferred for clause (b)'s reason: the statement quantifies over "rewriting
--- each entry's reconstruction with the substitution accumulated so far and
--- re-ingesting", i.e. over a sequential pass that does not exist until ρ is
--- constructed. Arbor.Core.Migrate.DependencyOrder and Store.ingest-⇝ are the
--- pieces already in place for it.
+-- Still deferred, but the reason has changed and shrunk. It is no longer a
+-- PREREQUISITE for anything: the construction registers ρ's image in whatever
+-- order the store's support happens to come in, and re-establishes wf without
+-- consulting a dependency order at all (see Arbor.Core.Rewrite's closing note).
+-- What remains is the paper's own framing of it — a bridge to p11's
+-- implementation, which does accumulate a substitution and re-ingest
+-- sequentially. Stating that still needs the sequential pass as an object;
+-- Arbor.Core.Migrate.DependencyOrder and Store.ingest-⇝ are in place for it.

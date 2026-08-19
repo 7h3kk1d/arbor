@@ -1,7 +1,7 @@
 # arbor-core — Agda mechanization
 
 Machine-checked transcription of `paper/arbor-core.tex`. **Milestones 1 and 2 are
-proved — 16 of the paper's 18 statements.** What remains is the construction of
+proved, and M3 with them — 17 of the paper's 18 statements.** What remains is the construction of
 the migration rewrite ρ (M3). Every statement is *stated* in Agda whether or not
 it is proved, so drift between the paper and the proofs is visible rather than
 silent.
@@ -30,7 +30,7 @@ statements appear in `Arbor/Core/Meta.agda` as named types with no inhabitant.
 That is deliberate: a type with no term cannot be leaned on by a later proof,
 whereas a postulate can. `make status` is the honest progress metric.
 
-    16 of 18 statements discharged.
+    17 of 18 statements discharged.
 
 ## Status
 
@@ -56,7 +56,7 @@ inhabitant (`thm-nsb`). Run `make status` for the live table.
 | `prop:print-elab` | `prop-print-elab` | proved |
 | `prop:elab-print` | `prop-elab-print` | proved (corrected) |
 | `prop:namefree` | — | by construction |
-| `thm:migosc` — atomicity and scope | `thm-migosc` | from spec, M3 |
+| `thm:migosc` — atomicity and scope | `thm-migosc`, `thm-migosc-realized` | proved |
 | `lem:cascade-order` | — | deferred, M3 |
 
 `thm:migosc` is discharged from `RewriteData`, the record specifying what a
@@ -201,55 +201,27 @@ transition, so abstracting there would buy nothing.
 - **M1 — identity, naming, stability.** Done.
 - **M2 — well-formedness and safety.** Done: `thm:wf`, `thm:histcoh`,
   `cor:fuel`, `lem:closed-no-stuck`, `prop:elab-print`.
-- **M3 — migration.** Started; `Arbor/Core/Rewrite.agda`.
-  - **Done:** `Finite σ` (support list + completeness) as a *separate*
-    assumption rather than a change to `Store`, so finiteness is assumed only
-    where the paper needs it; a dependent
-    `substRefsD : (t : Term) → (∀ r → r ∈ refsT t → Hash) → Term`, so the
-    recursive call at a reference is justified by the membership proof that
-    makes its target a predecessor; **ρ itself**, by `Acc` recursion on
-    `Store.Acyclic`, with `def:cascade`'s seed clause discharged; and
-    **`rho-irr`**, ρ's independence from the accessibility proof handed to it —
-    without which ρ is a recipe rather than a function and no property of its
-    *values* is statable. `Acc` is propositional only up to funext, which
-    `--safe` does not provide, so this is a double `Acc` induction resting on
-    `substRefsD-cong` (the two step functions agree only pointwise).
+- **M3 — migration.** Done: `Arbor/Core/Rewrite.agda`. ρ constructed by
+  well-founded recursion on `wf` clause (iii), with its seed clause and defining
+  equation (`ρ-at`); the registration fold; all three `wf` clauses for the
+  migrated store; and `rewriteData`, a `RewriteData` inhabitant for any finite
+  well-formed store — so `thm:migosc` clause (c) is no longer projected out of
+  an empty record.
 
-    Also `substRefsD-refs`: every reference of a rewritten term is the image of
-    a reference of the original. That is the provenance fact clause (iii) turns
-    on — an edge out of a rewritten entry cannot point anywhere the original
-    did not.
+  Two findings revised the plan that preceded them. **The fold needs no
+  dependency order:** every entry of Σ is in `support`, so every image is
+  registered somewhere, and ingest only adds — the reference targets are closed
+  in Σ′ whatever order the fold ran in. What made that expressible is
+  `ingest-tgt-big`, which pins the conclusion to the final store rather than the
+  accumulator. **And ρ's non-injectivity is not the obstacle it looked like:**
+  it does defeat the pointwise argument, but the accessibility proof follows an
+  edge *forward* and never has to choose a preimage — a colliding hash carries
+  the same node by (★), hence the same out-edges.
 
-    One transcription note worth keeping: ρ takes the seed decision and the
-    store lookup as *arguments* rather than `with`-scrutinees. A `with` compiles
-    to an opaque generated function, and every property of ρ then becomes an
-    ill-typed with-abstraction — which is what happened on the first attempt.
+  Finiteness is the one thing assumed rather than derived, and only registration
+  uses it — hence `Finite` as a separate record rather than a change to
+  `def:store` that would have rippled through every proof.
 
-    Worth noting how ρ became definable: the paper defines it "by recursion on
-    the combined structural+reference graph", but separating the halves avoids
-    needing a combined-graph well-foundedness argument at all. The structural
-    half is ordinary structural recursion on the *reconstruction* (a `Term`),
-    and only the reference half needs well-foundedness — which `wf` (iii)
-    already supplies in exactly the right shape.
-  - **Remaining, and where it is genuinely hard:**
-    1. *Registration.* Σ′ must extend Σ by every node in ρ#'s image: a fold over
-       `Finite.support`, plus independence from the support list chosen.
-       Mechanical, not short.
-    2. *`wf` for Σ′* — the wall. Clauses (i) and (ii) follow
-       `Preservation.ingest-recon` / `ingest-tgt`. Clause (iii) does not:
-       **ρ is not injective**, so acyclicity does not transfer along it. Two
-       entries can rewrite to the same hash — that is the point of
-       content-addressing — so a cycle among ρ-images need not pull back to a
-       cycle in Σ. The paper's argument is the registration *order* ("ordering
-       new nodes by registration extends any topological order of the old
-       reference graph"), so the fold in (1) has to run in a dependency order
-       (`def:deporder`) and the proof has to read that order back out. That is
-       the same machinery `lem:cascade-order` is about; the two land together.
-    3. *The defining equation.* `ρ-at : ¬ (h ≡ gold) → σ ⊢ h ⇝ t →
-       ρ h ≡ hashOf (substRefsD t (λ r _ → if guarded r then ρ r else r))` —
-       what turns ρ from a recursion into an equation, and what everything
-       downstream should cite instead of `rho`. All three ingredients are now
-       in place: `rho-irr`, `⇝-func`, `substRefsD-cong`.
 - **M4 — arbor-stlc.** A second `NodeSig` instance, then typing, Θ, the
   residual, and the clean oracle.
 

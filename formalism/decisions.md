@@ -527,3 +527,46 @@ independently in a source comment ("you cannot hash a cycle without a fixpoint")
 written a day apart on different branches. Recorded in `open-questions.md`; what to check before
 promoting B from thread to choice is whether p19 exercised the *mutual* case or only the
 self-referential one.
+
+---
+
+## 2026-08-07 — M3: the migration rewrite, constructed
+
+`def:cascade`'s ρ is built rather than specified (`agda/Arbor/Core/Rewrite.agda`), and
+`rewriteData` assembles a `RewriteData` inhabitant for any finite well-formed store. So
+`thm:migosc` clause (c) is no longer a field projected out of an empty record: 17 of the
+paper's 18 statements are discharged, and only `lem:cascade-order` remains — deferred, but
+no longer a prerequisite for anything.
+
+**Two findings, each of which overturned the plan recorded a day earlier.**
+
+*The fold needs no dependency order.* The previous entry held that registration must
+proceed referents-first, since registering an entry's image needs its rewritten references
+closed — and that ρ's non-injectivity therefore made the paper's "referents are registered
+before referrers" argument load-bearing. That is true of an **incremental** proof and false
+of the construction. Every entry of Σ is in the support list, so every image is registered
+somewhere in the fold, and ingest only ever adds; the reference targets are therefore closed
+in Σ′ whatever order the fold ran in. What made this expressible is `ingest-tgt-big`, a
+variant of the ingest lemma whose conclusion and reference premise are pinned to a fixed
+larger store instead of the accumulator. No topological sort is needed anywhere.
+
+*ρ's non-injectivity is real but not an obstacle.* Distinct entries can rewrite to one hash
+— content-addressing working as intended, and the same phenomenon `thm:alpha` states
+positively. It does defeat the obvious acyclicity argument, that accessibility transfers
+along ρ pointwise. But the proof never has to choose a preimage: it follows an edge
+**forward**, from an entry contributed by h's registration to a ρ̂-image of one of h's own
+references, and recurses on Σ's accessibility of that reference. A colliding hash carries the
+same node by (★), hence the same out-edges, so which preimage one arrived from is not
+information the argument uses.
+
+**Two transcription notes worth keeping.** ρ branches on `Dec (Recon σ h)` rather than on
+a store lookup carrying its own proof: with-abstraction cannot abstract a term whose type
+mentions the term being abstracted, so the first shape made every property of ρ unprovable.
+And because ρ is defined by well-founded recursion, it is a function only up to `rho-irr`,
+its independence from the accessibility proof — `Acc` is propositional only up to funext,
+which `--safe` does not provide.
+
+**Finiteness** is the one thing assumed rather than derived. Only registration uses it, so
+it is a separate `Finite` record — a change to `def:store` would have rippled through every
+proof in the development for the sake of one fold. Whether the paper should say explicitly
+which results need finiteness is in `open-questions.md`.
