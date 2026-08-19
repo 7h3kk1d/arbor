@@ -29,7 +29,7 @@ open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe.Base using (just; nothing)
 open import Data.List.Membership.Propositional.Properties using (∈-++⁺ˡ; ∈-++⁺ʳ)
 open import Data.List.Relation.Unary.Any using (here; there)
-open import Data.Product using (_×_; _,_; ∃-syntax; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
 open import Data.Sum.Base using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst; subst₂)
 open import Relation.Nullary.Decidable.Core using (Dec; yes; no)
@@ -435,3 +435,120 @@ coherent-preserved coh mig@(t-migrate {ν = ν} {η = η} {τ = τ} R U bound cl
 
   oldHist : ∀ {y g τ′} → (just g , τ′) ∈ events η y → ClosedIn (RewriteData.σ′ R) g
   oldHist mem = ClosedIn-mono grow (Coherent.hist-closed coh mem)
+
+------------------------------------------------------------------------
+-- wf (ii), stated in a fixed larger store
+--
+-- ingest-tgt above concludes in the STEP store, which is the right shape when
+-- well-formedness is re-established after every ingest. The migration rewrite
+-- cannot work that way: registering an entry's image needs its rewritten
+-- references closed, and those are closed in the FINAL store — the one holding
+-- every image — not necessarily in the accumulator, whose contents depend on
+-- the order the fold happened to run in.
+--
+-- So the same induction, with the conclusion (and the reference premise) moved
+-- to a fixed `big`. This is what lets Arbor.Core.Rewrite register images in any
+-- order at all.
+
+ingest-tgt-big :
+  ∀ t σ (big : Store) → HashKeyed σ →
+  (∀ {h} → h ∈dom σ → Recon σ h) →
+  (∀ {h r} → h ∈dom σ → σ ⊢ h ↝ r → ClosedIn big r) →
+  (∀ {r} → r ∈ refsT t → ClosedIn big r) →
+  proj₁ (ingest σ t) ⊑ big →
+  ∀ {h r} → h ∈dom (proj₁ (ingest σ t)) →
+  (proj₁ (ingest σ t)) ⊢ h ↝ r → ClosedIn big r
+
+ingest-tgt-big (var i) σ big kd rec tgt rc sub mem (t′ , d′ , memr)
+  with update-dom (nvar i) mem
+... | inj₁ eq with ⇝-func (subst (λ x → _ ⊢ x ⇝ t′) eq d′) (ingest-⇝ (var i) σ kd)
+...   | refl = nil-absurd memr
+ingest-tgt-big (var i) σ big kd rec tgt rc sub mem (t′ , d′ , memr) | inj₂ mσ =
+  tgt mσ (⊑-edges (ingest-⊑ (var i) σ kd) (rec mσ) (t′ , d′ , memr))
+
+ingest-tgt-big (ref g) σ big kd rec tgt rc sub mem (t′ , d′ , memr)
+  with update-dom (nref g) mem
+... | inj₁ eq with ⇝-func (subst (λ x → _ ⊢ x ⇝ t′) eq d′) (ingest-⇝ (ref g) σ kd)
+...   | refl = subst (ClosedIn big) (sym (one memr)) (rc (here refl))
+ingest-tgt-big (ref g) σ big kd rec tgt rc sub mem (t′ , d′ , memr) | inj₂ mσ =
+  tgt mσ (⊑-edges (ingest-⊑ (ref g) σ kd) (rec mσ) (t′ , d′ , memr))
+
+ingest-tgt-big (lam t) σ big kd rec tgt rc sub mem (t′ , d′ , memr)
+  with update-dom (nlam (proj₂ (ingest σ t))) mem
+... | inj₁ eq with ⇝-func (subst (λ x → _ ⊢ x ⇝ t′) eq d′) (ingest-⇝ (lam t) σ kd)
+...   | refl = rc memr
+ingest-tgt-big (lam t) σ big kd rec tgt rc sub mem (t′ , d′ , memr) | inj₂ m₁ =
+  ingest-tgt-big t σ big kd rec tgt rc
+    (⊑-trans (grow-lam t σ kd) sub) m₁
+    (⊑-edges (grow-lam t σ kd) (ingest-recon t σ kd rec m₁) (t′ , d′ , memr))
+
+ingest-tgt-big (app t u) σ big kd rec tgt rc sub mem (t′ , d′ , memr)
+  with update-dom (napp (proj₂ (ingest σ t))
+                        (proj₂ (ingest (proj₁ (ingest σ t)) u))) mem
+... | inj₁ eq with ⇝-func (subst (λ x → _ ⊢ x ⇝ t′) eq d′) (ingest-⇝ (app t u) σ kd)
+...   | refl = rc memr
+ingest-tgt-big (app t u) σ big kd rec tgt rc sub mem (t′ , d′ , memr) | inj₂ m₂ =
+  ingest-tgt-big u σ₁ big kd₁ rec₁ tgt₁ rcu (⊑-trans (grow-app t u σ kd) sub) m₂
+    (⊑-edges (grow-app t u σ kd) (ingest-recon u σ₁ kd₁ rec₁ m₂) (t′ , d′ , memr))
+  where
+  σ₁   = proj₁ (ingest σ t)
+  kd₁  = ingest-keyed t σ kd
+  rec₁ = ingest-recon t σ kd rec
+  tgt₁ = ingest-tgt-big t σ big kd rec tgt (λ m → rc (∈-++⁺ˡ m))
+           (⊑-trans (⊑-trans (ingest-⊑ u σ₁ kd₁) (grow-app t u σ kd)) sub)
+  rcu : ∀ {r} → r ∈ refsT u → ClosedIn big r
+  rcu m = rc (∈-++⁺ʳ (refsT t) m)
+
+------------------------------------------------------------------------
+-- Where an entry came from
+--
+-- After an ingest, a stored hash is either one the base store already had, or
+-- one of the ingested term's own nodes — in which case it reconstructs to a
+-- subterm, whose references are among the whole term's. Clause (iii) for a
+-- migration needs this: to bound an entry's out-edges you must first know which
+-- term put it there.
+
+ingest-prov : ∀ t σ → HashKeyed σ →
+              ∀ {g} → g ∈dom (proj₁ (ingest σ t)) →
+              (g ∈dom σ)
+            ⊎ (∃ λ t′ → ((proj₁ (ingest σ t)) ⊢ g ⇝ t′)
+                      × (∀ {r} → r ∈ refsT t′ → r ∈ refsT t))
+
+ingest-prov (var i) σ kd mem with update-dom (nvar i) mem
+... | inj₂ mσ = inj₁ mσ
+... | inj₁ eq = inj₂ (var i , subst (λ x → _ ⊢ x ⇝ var i) (sym eq)
+                                    (ingest-⇝ (var i) σ kd)
+                             , λ m → m)
+
+ingest-prov (ref g) σ kd mem with update-dom (nref g) mem
+... | inj₂ mσ = inj₁ mσ
+... | inj₁ eq = inj₂ (ref g , subst (λ x → _ ⊢ x ⇝ ref g) (sym eq)
+                                    (ingest-⇝ (ref g) σ kd)
+                            , λ m → m)
+
+ingest-prov (lam t) σ kd mem with update-dom (nlam (proj₂ (ingest σ t))) mem
+... | inj₁ eq = inj₂ (lam t , subst (λ x → _ ⊢ x ⇝ lam t) (sym eq)
+                                    (ingest-⇝ (lam t) σ kd)
+                            , λ m → m)
+... | inj₂ m₁ with ingest-prov t σ kd m₁
+...   | inj₁ mσ = inj₁ mσ
+...   | inj₂ (t′ , d′ , sub) =
+        inj₂ (t′ , ⇝-mono (grow-lam t σ kd) d′ , sub)
+
+ingest-prov (app t u) σ kd mem
+  with update-dom (napp (proj₂ (ingest σ t))
+                        (proj₂ (ingest (proj₁ (ingest σ t)) u))) mem
+... | inj₁ eq = inj₂ (app t u , subst (λ x → _ ⊢ x ⇝ app t u) (sym eq)
+                                      (ingest-⇝ (app t u) σ kd)
+                              , λ m → m)
+... | inj₂ m₂ with ingest-prov u (proj₁ (ingest σ t)) (ingest-keyed t σ kd) m₂
+...   | inj₂ (t′ , d′ , sub) =
+        inj₂ (t′ , ⇝-mono (grow-app t u σ kd) d′
+                 , λ m → ∈-++⁺ʳ (refsT t) (sub m))
+...   | inj₁ m₁ with ingest-prov t σ kd m₁
+...     | inj₁ mσ = inj₁ mσ
+...     | inj₂ (t′ , d′ , sub) =
+          inj₂ (t′ , ⇝-mono (⊑-trans (ingest-⊑ u (proj₁ (ingest σ t))
+                                               (ingest-keyed t σ kd))
+                                     (grow-app t u σ kd)) d′
+                   , λ m → ∈-++⁺ˡ (sub m))

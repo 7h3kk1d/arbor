@@ -320,6 +320,63 @@ module Rho (σ : Store) (wf : WF σ) (gold gnew : Hash) (sc : Scope) where
     ... | false = ClosedIn-mono (Σ′-grows kd) cr
     ... | true  = ρ-closed kd cg r cr
 
+    -- Every reference of a rewritten term is closed in Σ′: by substRefsD-refs
+    -- it is the ρ̂-image of a reference of the original, and those were closed
+    -- in Σ by wf (ii).
+    rewritten-refs-closed :
+      HashKeyed σ → ClosedIn σ gnew → WF σ →
+      ∀ h (R : Recon σ h) → h ∈dom σ →
+      ∀ {r} → r ∈ refsT (rewritten h R) → ClosedIn Σ′ r
+    rewritten-refs-closed kd cg w h (t , d) mem memr with substRefsD-refs t memr
+    ... | (r₀ , m₀ , eq) =
+          subst (ClosedIn Σ′) eq (ρ̂-closed kd cg r₀ (WF.tgt-closed w mem (t , d , m₀)))
+
+    ------------------------------------------------------------------------
+    -- wf (ii) for Σ′
+    --
+    -- The fold carries the clause with its conclusion pinned to Σ′ throughout
+    -- (ingest-tgt-big), which is what removes the order dependence: a step
+    -- never has to know that the images it references were registered earlier,
+    -- only that they are in Σ′ at the end.
+
+    registerOne-tgt :
+      ∀ s h → HashKeyed s →
+      (∀ {g} → g ∈dom s → Recon s g) →
+      (∀ {g r} → g ∈dom s → s ⊢ g ↝ r → ClosedIn Σ′ r) →
+      ((R : Recon σ h) → ∀ {r} → r ∈ refsT (rewritten h R) → ClosedIn Σ′ r) →
+      registerOne s h ⊑ Σ′ →
+      ∀ {g r} → g ∈dom (registerOne s h) → registerOne s h ⊢ g ↝ r → ClosedIn Σ′ r
+    registerOne-tgt s h kd rec tgt rcs sub with reconDec h
+    ... | yes R = ingest-tgt-big (rewritten h R) s Σ′ kd rec tgt (rcs R) sub
+    ... | no  _ = tgt
+
+    registerAll-tgt :
+      ∀ s hs → HashKeyed s →
+      (∀ {g} → g ∈dom s → Recon s g) →
+      (∀ {g r} → g ∈dom s → s ⊢ g ↝ r → ClosedIn Σ′ r) →
+      (∀ h → h ∈ hs → (R : Recon σ h) →
+             ∀ {r} → r ∈ refsT (rewritten h R) → ClosedIn Σ′ r) →
+      registerAll s hs ⊑ Σ′ →
+      ∀ {g r} → g ∈dom (registerAll s hs) →
+      registerAll s hs ⊢ g ↝ r → ClosedIn Σ′ r
+    registerAll-tgt s []       kd rec tgt rcs sub = tgt
+    registerAll-tgt s (h ∷ hs) kd rec tgt rcs sub =
+      registerAll-tgt (registerOne s h) hs
+        (registerOne-keyed s h kd)
+        (registerOne-recon s h kd rec)
+        (registerOne-tgt s h kd rec tgt (rcs h (here refl))
+          (⊑-trans (registerAll-⊑ (registerOne s h) hs (registerOne-keyed s h kd)) sub))
+        (λ g m → rcs g (there m))
+        sub
+
+    Σ′-tgt : HashKeyed σ → WF σ → ClosedIn σ gnew →
+             ∀ {g r} → g ∈dom Σ′ → Σ′ ⊢ g ↝ r → ClosedIn Σ′ r
+    Σ′-tgt kd w cg =
+      registerAll-tgt σ support kd (WF.recon-total w)
+        (λ mem e → ClosedIn-mono (Σ′-grows kd) (WF.tgt-closed w mem e))
+        (λ h _ R memr → rewritten-refs-closed kd cg w h R (⇝-∈dom (proj₂ R)) memr)
+        ⊑-refl
+
 ------------------------------------------------------------------------
 -- Where this stops, and why
 --
