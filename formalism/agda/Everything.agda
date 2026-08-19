@@ -54,3 +54,11 @@ import Arbor.Core.Model
 
 -- A machine-checked refutation of lem:closed-no-stuck as the paper states it
 import Arbor.Core.Counterexamples
+
+-- M4: the STLC rung (paper/arbor-stlc.tex), as a second instantiation of the
+-- generic store layer rather than a second copy of it.
+import Arbor.Stlc.Node
+import Arbor.Stlc.Syntax
+import Arbor.Stlc.Params
+import Arbor.Stlc.Store
+import Arbor.Stlc.Typing
