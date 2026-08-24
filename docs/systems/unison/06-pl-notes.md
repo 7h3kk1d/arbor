@@ -77,7 +77,7 @@ The shape of the idea: because every definition is identified by an intrinsic ha
 
 `unison-cli/src/Unison/Codebase/Editor/{Slurp,SlurpComponent,SlurpResult}.hs`. "Slurping" is deciding which definitions from the scratch `.u` file to actually add or update, given that a file is a soup of bindings with dependencies among themselves and on the codebase. `Slurp.hs` tags each variable as term, type, or constructor, computes what each transitively needs, and partitions into added / updated / blocked / extra.
 
-**Relevance.** This is the same job as p12's *editing context* and the `Opaque`/`Seal`-on-commit machinery: a staging area where the user's text is not yet in the store, and a commit gesture that decides what enters and what that means for existing names. arbor's `../../design/06-architecture.md` puts this in the Interface layer; Unison puts it in the CLI, which agrees. Worth reading properly if arbor's editing layer grows a multi-definition commit.
+**Relevance.** This is the same job as p12's *editing context* and the `Opaque`/`Seal`-on-commit machinery: a staging area where the user's text is not yet in the store, and a commit gesture that decides what enters and what that means for existing names. arbor's `../../design/06-architecture.md` puts this in the Interface layer; Unison puts it in the CLI, which agrees. *(Read properly on 2026-08-19 — `11-scratch-file.md`. The headline the skim missed: on a failed `update`, the broken dependents are **removed from the namespace** and the scratch file becomes their only home, so the residual of a migration is delivered as the next working set.)*
 
 ## LSP and MCP in the same binary
 

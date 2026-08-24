@@ -72,6 +72,7 @@ Step in slowly. When in doubt, prefer the narrow, concrete implementation over t
 - `09-roadmap.md` — prioritization, first prototype.
 - `10-minted-identity.md` — opt-in axis of identity, orthogonal to content addressing, for definitions that should not collapse with coincidental structural twins.
 - `11-label-sort.md` — labels as a first-class minted sort, decoupling record/module field identity from the human-readable field name.
+- `13-editing-context.md` — *notes, 2026-08-19.* the editing context / working set: a named collection of definitions in flight with no commit gate (ingest everything; only *names* stay uncommitted), the frontier-vs-commit-set split, the context as the evaluation environment, and the context as the scope of migration.
 - `12-type-abstraction.md` — abstract types as `Type` definitions identified by `opaque ++ mint ++ witness`; signatures as existential/universal binders over label-records; sealing, functors, and the projection-inlining dependency model that keeps abstraction fine-grained.
 - `decisions.md` — ADR-lite log of commitments, with dates and rationale.
 - `open-questions.md` — running list; items graduate to docs or decisions as they resolve.

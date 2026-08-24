@@ -55,6 +55,12 @@ Three kinds of entry, tagged inline:
 - **`[arbor]` Mint stability under merge.** Filed at `../../design/open-questions.md` §"Minted identity". Unison needed `namespace_unique_type_guid` plus a `makeUniqueTypeGuids` pass; p11's threads have the same exposure and no answer.
 - **`[read]` What happens when two branches mint different GUIDs for the same type name and then merge?** The table exists to prevent it, but the actual conflict behavior was not traced.
 
+### Editing context *(added 2026-08-19)*
+
+- **`[arbor]` Decide the name collision.** `11-scratch-file.md` and `../../design/13-editing-context.md` use "editing context" for a working set of definitions; p12–p17 already use it for an *opacity open set*. Either the open set becomes a field of the larger object or the two get different names. Blocks writing anything down.
+- **`[read]` The LSP's `FileAnalysis` map is a second editing context.** `unison-cli/src/Unison/LSP/Types.hs:87-88` holds an n-buffer working set with a dirty set, disjoint from UCM's single `latestFile`. Not traced: whether the LSP can commit, and how the two are reconciled when both are live. The LSP is in the `[unread]` list; this is the reason to move it up.
+- **`[verify]` "Unison does not optimize for the checked-out set" is a negative from a targeted search.** Verified by absence over the 19-table SQLite schema and `LoopState`, not over the whole tree. If `13`'s claim 2 is going to be justified by "the closest neighbour never needed this," the absence needs a wider search first.
+
 ### Unread areas, if they become relevant
 
 - **`[read]`** The typechecker proper (`Typechecker/Context.hs`, 3,786 lines) beyond its ability-row interface — relevant if arbor's checker grows effects or higher-rank polymorphism.

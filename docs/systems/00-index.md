@@ -36,7 +36,8 @@ Publication tags (`[verified]`, `[UNVERIFIED]`, …) do not apply to source. The
 
 ## Systems read
 
-- **`unison/`** *(read 2026-08-07, pinned to `db60ce2`)* — the system arbor most resembles and the one with no publication. Eleven files: how the codebase is organized, the store and hashing model, the namespace and history model, caching/update/merge, **what Unison deleted** and **why**, merge and branching, PL notes outside arbor's current lines, the mapping onto arbor's formal objects, and a running followups list. Start at `unison/00-overview.md`; the payload is `unison/07-arbor-mapping.md`; open threads are `unison/10-followups.md`.
+- **`unison/`** *(read 2026-08-07, pinned to `db60ce2`)* — the system arbor most resembles and the one with no publication. Twelve files: how the codebase is organized, the store and hashing model, the namespace and history model, caching/update/merge, **what Unison deleted** and **why**, merge and branching, PL notes outside arbor's current lines, the mapping onto arbor's formal objects, the scratch file as Unison's editing context, and a running followups list. Start at `unison/00-overview.md`; the payload is `unison/07-arbor-mapping.md`; open threads are `unison/10-followups.md`.
+- **`jj/`** *(read 2026-08-19, pinned to `253d3be`)* — Jujutsu, read for `../design/13-editing-context.md`. Five files: the operation log and the `View`, workspaces and the working copy (including sparse membership), change IDs and first-class conflicts, and the mapping onto arbor's formal objects. Also has no publication, but — unlike Unison — **writes its rationale down**, so far less of the read is inference. The payload is `jj/04-arbor-mapping.md`, whose headline is that jj puts the namespace and the working sets in **one content-addressed object** versioned by the operation log, and that its namespace is **multi-valued** so a name may be conflicted without the repo failing.
 
 ## Non-goals
 
