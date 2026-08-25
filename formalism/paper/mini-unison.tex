@@ -53,9 +53,8 @@ computed result is cached against a hash and never invalidated. These properties
 As far as we can determine they have never been formally stated, and Unison has no peer-reviewed
 publication, so the implementation is the only citable description of what it guarantees.
 
-This document states them. We give a small typed object language --- $\lambda$-calculus with
-$\TNat$, $\TText$ and simple types --- and model, faithfully to the implementation at a pinned
-commit: hashing a strongly connected component of mutually recursive definitions; references as
+This document states them. We give a small object language --- the simply-typed $\lambda$-calculus
+with $\TNat$ and $\TText$ --- and model, faithfully to the implementation at a pinned commit: hashing a strongly connected component of mutually recursive definitions; references as
 $(\mathit{hash}, \mathit{position})$ pairs; reference transparency; the type inside the term hash;
 the namespace as a relation in which conflicts are representable; the watch cache; and
 \texttt{update}, which propagates an edit by rendering dependents to source, re-parsing, and
@@ -83,9 +82,11 @@ appears; the rest of the document is about Unison alone.
 \subsection{What Unison does differently}
 
 In a conventional language a definition is identified by its name and located in a file. In Unison a
-definition is identified by the hash of its own syntax, after binder names have been erased and
-references to other definitions have been replaced by \emph{their} hashes. The consequences that
-follow are the system's design:
+definition is identified by the hash of its own syntax, computed with binder names erased in favour
+of de Bruijn indices. A reference to another definition is not a name: by the time a term is hashed
+it already carries the referent's hash, so nothing is looked up and no substitution takes place ---
+the reference is simply hashed like any other node (\cref{prop:transparent} records what that hash
+turns out to be). The consequences that follow are the system's design:
 
 \begin{itemize}[nosep]
   \item \textbf{Names are metadata.} Renaming a definition does not change it, because its identity
@@ -98,10 +99,16 @@ follow are the system's design:
         cannot go stale.
 \end{itemize}
 
-The mechanism that makes this work also creates the problems the system has to solve, and those are
-what this document is mostly about: mutually recursive definitions cannot be hashed one at a time;
-names have to be reattached to hashes when code is displayed; and propagating an edit to the code
-that depends on it is not a rename but a rebuild.
+Mutually recursive definitions are the exception that shapes everything in \cref{sec:ustore}. A
+member of a cycle cannot carry its neighbours' hashes, because computing any of them requires all of
+them; so a cycle is hashed as a \emph{unit}, with its internal references standing as indices rather
+than hashes. That single exception is why the store maps hashes to components rather than to
+definitions, why a reference is a pair, and why \cref{def:comphash} needs a canonical ordering at
+all.
+
+The mechanism that makes this work also creates the rest of the problems the system has to solve, and
+those are what this document is mostly about: names have to be reattached to hashes when code is
+displayed, and propagating an edit to the code that depends on it is not a rename but a rebuild.
 
 \subsection{Why formalize it}
 
@@ -132,8 +139,8 @@ correction.
 
 \subsection{The object language, and why it is typed}
 
-The object language is deliberately small: untyped $\lambda$-calculus, plus $\TNat$ and $\TText$
-literals and references, then given simple types. The types are there for one reason. Unison's
+The object language is the simply-typed $\lambda$-calculus with $\TNat$, $\TText$ and references
+--- deliberately small, and typed for one reason. Unison's
 \texttt{update} re-typechecks the code it rebuilds, and the interesting half of \texttt{update} is
 what happens when that \emph{fails} --- Unison removes the broken definitions from the namespace and
 hands them back to the user as editable source. Without a type system that branch is unreachable and
@@ -202,6 +209,8 @@ Key & File \\
 \texttt{ufile}    & \texttt{parser-typechecker/src/Unison/UnisonFile.hs} \\
 \texttt{update}   & \texttt{unison-cli/src/Unison/Codebase/Editor/HandleInput/Update2.hs} \\
 \texttt{main}     & \texttt{unison-cli/src/Unison/Main.hs} \\
+\texttt{decl}     & \texttt{codebase2/codebase/U/Codebase/Decl.hs} \\
+\texttt{termhash} & \texttt{codebase2/codebase-sqlite-hashing-v2/src/U/Codebase/Term/Hashing.hs} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -222,6 +231,8 @@ The component format is also described in the repository's own
         implementation aborts rather than store such a hash.
   \item \Cref{thm:ualpha} --- hashing identifies terms up to $\alpha$-equivalence and cycle
         permutation, and no further.
+  \item \Cref{rem:unhash} --- a cyclic definition is stored in a different form from the one that
+        was hashed, with self-references carrying no hash; an explicit inverse bridges them.
   \item \Cref{cor:wnoinval} --- no cache invalidation is required, as a consequence of immutability
         rather than as a heuristic.
   \item \Cref{prop:print-parse} --- \texttt{update} is correct only if printing inverts parsing.
@@ -495,6 +506,35 @@ topological order and folds \cref{def:comphash} over them, substituting $\UDer{h
 already-hashed components before hashing the next. The store is extended by each component at its
 hash.
 \end{definition}
+
+\begin{remark}[A cyclic definition is not stored in the form that was hashed]\label{rem:unhash}
+Three representations of an intra-component reference have to be kept apart, and the difference is
+invisible unless one looks for it.
+
+\emph{While hashing}, a reference from one cycle member to another is a \textbf{variable}, resolved
+by \cref{def:uhash} to an index into the cycle frame. It has to be: the component's hash is what is
+being computed.
+
+\emph{In memory}, once \cref{def:uingest} has finished, those variables have been substituted by
+$\UDer{h}{i}$ carrying the component's own freshly computed hash.
+
+\emph{Serialized}, a self-reference is stored with \textbf{no hash at all}. The stored type is
+$\mathsf{Reference}'\;\mathsf{Text}\;(\mathsf{Maybe}\;\mathsf{Hash})$ --- ``a possibly-self
+(R = \emph{recursive}) reference'' --- with $\mathsf{Nothing}$ marking a reference into the enclosing
+component \src{ref:51-52, 89-90}.
+
+Consequently the bytes on disk are \emph{not} the bytes that were hashed, and re-deriving a stored
+component's hash requires undoing the substitution first. That operation exists and is documented as
+such: \texttt{unhashComponent} ``replaces all \texttt{Nothing} self-referential hashes with a
+variable reference to the relevant piece of the component'' \src{decl:80-93}, and the hash-validation
+path calls it before re-hashing \src{termhash:26-42}.
+
+None of this is observable through the API, and it is a sensible encoding --- writing a component's
+own hash into its members' serialized bytes would mean the bytes could not be produced until the hash
+was known, which is the circularity the whole construction exists to break. We record it because
+``the hash of a definition is the hash of what is stored'' is a natural thing to assume, and for
+cyclic definitions it is false in three distinct ways.
+\end{remark}
 
 \subsection{What component hashing guarantees}
 
