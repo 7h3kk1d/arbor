@@ -740,3 +740,43 @@ several of its observations concern behaviour the code fixes precisely but that 
 states, and writing a system down precisely enough to prove things about is a different activity from
 reading it. That is a claim a reader can evaluate. "We read this three weeks ago and missed it" is
 not, and is the sort of thing that reads as a confession rather than a result.
+
+---
+
+## 2026-08-25 (third) — `mini-unison`: presentation order, and where references enter
+
+Two reader-facing problems, both raised by the user.
+
+**References were presented as if you write them.** `def:uterm` had `\uref{r}` as a term former with
+no indication that no source text ever contains one. Checking the parser settled it:
+`resolveHashQualified` maps an unqualified name to `Term.var` — **a plain name parses to a
+variable** — and only a hash-qualified name resolves at parse time. Variables become references
+later, in `bindNames`, and only for names denoting things already in the codebase; names denoting
+other bindings in the same file stay variables because they are shadowed, and unresolvable or
+ambiguous names are *deliberately* left free ("leave free for telling user about expected type",
+"ambiguous: leave free for TDNR").
+
+That gives a six-stage table, now `rem:staging` in §2, which turns out to be the organizing fact of
+the whole document: written name → variable → reference-or-variable → variable again inside a cycle
+during hashing → `Derived(h,i)` in memory → no hash at all when serialized. The last two rows are
+`rem:unhash`, which previously arrived in §3 as a surprise and now has somewhere to land.
+
+**Ordering.** Fixed in this pass:
+
+- `def:uterm` used `\Reference` before it was defined two sections later. `def:uref` now opens §2,
+  with a forward pointer to `def:ustore` for *why* the derived arm is a pair — the reader needs the
+  shape to read the grammar, not yet the reason.
+- `def:ureferent` ("names denote referents, not references") sat in §3 among storage definitions. It
+  is a fact about naming and now opens §4, which also gained a lead-in rather than starting cold on
+  a definition.
+- `rem:uref-delta` (why typing a reference is a lookup) forward-referenced `def:typeinhash`; it now
+  follows it in §3.2.
+- "Summary of results" was §1.8, after all the scoping boilerplate. Moved to §1.3, so the order is
+  what this is → why → **what was found** → caveats → how to read.
+- §3 was "The store, components, and the hash"; references having moved out, it is "The store and
+  the hash".
+
+Reference transparency deliberately stays *before* component hashing: it is a clause of the term
+hash function and belongs next to it, so the progression is term → reference → component →
+guarantees. Its discussion mentions cycle heads, which needs positions, so it carries a forward
+pointer to §3.4 rather than being moved.
