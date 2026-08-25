@@ -38,69 +38,117 @@
 \newcommand{\coreref}[1]{\arborcore~\cref{core:#1}}
 \newcommand{\stlcref}[1]{\arborstlc~\cref{stlc:#1}}
 
-\title{\textbf{mini-unison}\\[2pt]
+\title{\textbf{mini-unison}\\[4pt]
 \large A formal model of Unison's content addressing and update scheme}
-\author{The arbor project}
+\author{}
 \date{Draft --- \today}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Unison is the system \arborcore{} is closest to, and it has no publication. Its design claims ---
-hashes as identity, names as metadata, caches that are never invalidated, no diamond-dependency
-problem --- have never been formally stated, let alone proved. This document states them, for a
-small object language, faithful to the implementation at a pinned commit.
+Unison is a programming language whose codebase is content-addressed: a definition is identified by
+the hash of its syntax, names are metadata attached to hashes rather than part of the code, and a
+computed result is cached against a hash and never invalidated. These properties are widely cited.
+As far as we can determine they have never been formally stated, and Unison has no peer-reviewed
+publication, so the implementation is the only citable description of what it guarantees.
 
-It is a \emph{contrast} artifact, not a rung on the \arborcore{} $\to$ \arborstlc{} ladder: it models
-another system and proposes nothing. Its purpose is to give arbor's choices something precise to be
-different from, and its results are correspondingly comparative. Three are worth stating up front.
-\textbf{(i)} Unison's store is not $\Hash \pfn \Node$ but $\Hash \pfn \Comp$, and this is not a
-canonicalization detail but a change to the type of the store. \textbf{(ii)} Presentation-independence
-of component hashing is \emph{conditional}, not absolute --- when two members of a recursive cycle
-are structurally equivalent modulo intra-cycle references, the component's hash depends on the
-members' \emph{names}; the condition is decidable, which is why the implementation detects it and
-aborts rather than silently storing a name-dependent hash. \textbf{(iii)} Unison's \texttt{update} is
-implemented by rendering definitions to source and re-parsing them, so its correctness rests on
-print-then-parse preserving hashes --- a property the implementation never states and maintains with
-a golden-file regression corpus. That property is \coreref{prop:print-elab}, proved.
+This document states them. We give a small typed object language --- $\lambda$-calculus with
+$\TNat$, $\TText$ and simple types --- and model, faithfully to the implementation at a pinned
+commit: hashing a strongly connected component of mutually recursive definitions; references as
+$(\mathit{hash}, \mathit{position})$ pairs; reference transparency; the type inside the term hash;
+the namespace as a relation in which conflicts are representable; the watch cache; and
+\texttt{update}, which propagates an edit by rendering dependents to source, re-parsing, and
+re-typechecking them.
+
+Three results are perhaps not obvious from the source. \textbf{(i)} Presentation-independence of
+component hashing is \emph{conditional}: when two members of a recursive cycle are structurally
+equivalent modulo intra-cycle references, the component's hash depends on the members' \emph{names}.
+The condition is decidable and Unison checks it, aborting rather than storing such a hash.
+\textbf{(ii)} Reference transparency holds exactly at position $0$ of a component; other members are
+referenced opaquely, so transparency and the component model are not independent features.
+\textbf{(iii)} \texttt{update}'s correctness rests on printing-then-parsing preserving hashes, a
+property the implementation does not state and maintains with a golden-file regression corpus.
+
+A closing section compares the design with \emph{arbor}, a content-addressed substrate the authors
+are developing, for which a companion formalization exists. That section is the only place arbor
+appears; the rest of the document is about Unison alone.
 \end{abstract}
 
 \tableofcontents
 
 % =====================================================================
-\section{Scope and posture}\label{sec:uscope}
+\section{Introduction}\label{sec:uscope}
 
-\subsection{What this document is}
+\subsection{What Unison does differently}
 
-A model of \emph{another system}. Every definition below is faithful to the Unison implementation at
-commit \texttt{db60ce2} (2026-08-07), and every claim carries a margin tag naming the file and lines
-it is faithful to. Cite \texttt{UnisonSource}, pinned to that commit, for any claim about how Unison
-behaves; there is no publication to cite instead, which is the reason this document exists. The
-prose source read this formalization rests on is \texttt{docs/systems/unison/}.
+In a conventional language a definition is identified by its name and located in a file. In Unison a
+definition is identified by the hash of its own syntax, after binder names have been erased and
+references to other definitions have been replaced by \emph{their} hashes. The consequences that
+follow are the system's design:
 
-Nothing here is a proposal. Where a design of Unison's differs from arbor's, \cref{sec:contrast}
-records the fork and what each side pays; it does not adjudicate.
+\begin{itemize}[nosep]
+  \item \textbf{Names are metadata.} Renaming a definition does not change it, because its identity
+        never mentioned the name. Nothing downstream is invalidated by a rename.
+  \item \textbf{Definitions are immutable.} ``Editing'' a definition produces a different hash, so it
+        is a different definition; existing callers continue to refer to the old one until something
+        deliberately points them elsewhere.
+  \item \textbf{Caches need no invalidation.} A computed value is stored against the hash of the
+        expression that produced it. Since that hash denotes one fixed expression forever, the entry
+        cannot go stale.
+\end{itemize}
+
+The mechanism that makes this work also creates the problems the system has to solve, and those are
+what this document is mostly about: mutually recursive definitions cannot be hashed one at a time;
+names have to be reattached to hashes when code is displayed; and propagating an edit to the code
+that depends on it is not a rename but a rebuild.
+
+\subsection{Why formalize it}
+
+Unison's claims about identity, immutability and caching are stated in its documentation and blog
+posts as design intent. What is not available anywhere is a statement of them precise enough to
+check, or to compare against another design --- what exactly is being identified with what, under
+which conditions, and what has to hold for the conclusions to follow. Absent a publication, the
+implementation is the specification, and the implementation is roughly 161{,}000 lines of Haskell.
+
+We wrote this because we needed such a statement in order to compare Unison honestly with a system
+we are building (\cref{sec:contrast}). It turned out to be worth writing on its own terms: three of
+the observations below were not visible to us in a careful reading of the same source conducted
+several weeks earlier, and two of them corrected conclusions we had drawn from that reading.
+
+\subsection{What this document is, and is not}
+
+It is a model of an existing system, faithful to the implementation at commit \texttt{db60ce2}. It
+proposes no changes. Where we describe something as a cost or a limitation we mean it descriptively:
+every design pays somewhere, and pointing at where is not the same as saying it is wrong. The one
+condition we identify that Unison treats as an error (\cref{cor:detect}) is already known and
+tracked upstream as issue \#2787, and the implementation's handling of it --- detect and abort ---
+is in our view the right response.
+
+We are not modeling Unison's language. There are no abilities, no data declarations, no pattern
+matching, no ANF runtime. \Cref{sec:unotmodeled} lists what is left out. Anything a Unison developer
+finds surprising here is more likely to be our error than a discovery, and we would welcome
+correction.
 
 \subsection{The object language, and why it is typed}
 
-The object language is close to \arborcore{}'s: untyped $\lambda$-calculus, plus $\TNat$ and $\TText$
-literals, plus references. It is then given \emph{simple types}, for one reason: Unison's
-\texttt{update} re-typechecks, and the interesting half of \texttt{update} is what happens when
-re-typechecking \emph{fails}. Without a type system that branch is unreachable and the sharpest
-contrast in the document --- Unison evicts the broken definitions and hands them back as source,
-where arbor commits and reports a residual (\stlcref{def:residual}) --- cannot be stated.
+The object language is deliberately small: untyped $\lambda$-calculus, plus $\TNat$ and $\TText$
+literals and references, then given simple types. The types are there for one reason. Unison's
+\texttt{update} re-typechecks the code it rebuilds, and the interesting half of \texttt{update} is
+what happens when that \emph{fails} --- Unison removes the broken definitions from the namespace and
+hands them back to the user as editable source. Without a type system that branch is unreachable and
+the most distinctive thing about the operation cannot be stated.
 
 \subsection{Modeled}
 
 \begin{itemize}[nosep]
   \item Named abstract binding trees, with de Bruijn indices computed only at hash time.
-  \item Ingest of a \emph{binding group}, strongly-connected-component decomposition, and component
+  \item Ingest of a \emph{binding group}: strongly-connected-component decomposition, and component
         hashing with its canonical ordering algorithm.
-  \item $\Reference ::= \UBuiltin{\cdot} \mid \UDer{\cdot}{\cdot}$, and the asymmetry of reference
-        transparency at position $0$.
+  \item $\Reference ::= \UBuiltin{\cdot} \mid \UDer{\cdot}{\cdot}$, and the position-$0$ boundary of
+        reference transparency.
   \item The type inside the term hash.
-  \item The namespace as a \emph{relation}, with conflict a representable state and unconflictedness a
+  \item The namespace as a relation, with conflict a representable state and unconflictedness a
         derived predicate that operations demand.
   \item The watch cache: no invalidation, and a key that need not be a named definition.
   \item \texttt{update}: the dependents index, the scope computation, the pretty-print environment,
@@ -109,55 +157,108 @@ where arbor commits and reports a residual (\stlcref{def:residual}) --- cannot b
 
 \subsection{Not modeled}\label{sec:unotmodeled}
 
-Recorded so the boundary is stated rather than implied. Each is a candidate successor.
+Stated so the boundary is explicit rather than implied.
 
 \begin{itemize}[nosep]
   \item \textbf{The namespace's representation.} Unison's \texttt{Branch} is a hashed Merkle tree of
         name segments whose \texttt{children} field points at each child's \emph{causal} hash, so
-        every level has its own history \src{Hashing/V2/Branch.hs:22-39}. Here $\UNames$ is a bare
-        relation. \Cref{sec:unaming} models the naming \emph{semantics}, which \texttt{update} needs;
-        it does not model the object.
-  \item \textbf{History, branching, merge.} \texttt{Causal} as a content-addressed DAG, and the merge
-        algorithm.
-  \item \textbf{Suffix resolution and the \texttt{lib}-depth priority rule.} Names here are atomic.
+        every level of the tree has its own history \src{branchh:22-39}. Here the namespace
+        is a bare relation. \Cref{sec:unaming} models the naming \emph{semantics}, which
+        \texttt{update} needs; it does not model the object that carries them.
+  \item \textbf{History, branching, and merge.} \texttt{Causal} as a content-addressed DAG, and the
+        merge algorithm built over it.
+  \item \textbf{Suffix resolution and the \texttt{lib}-depth priority rule.} Names here are atomic;
+        in Unison a name is a sequence of segments and may be abbreviated to any unambiguous suffix.
   \item \textbf{Data declarations and \texttt{unique}-type minting.} With only $\TNat$, $\TText$ and
         arrows there are no declarations, so the $\UCon{\cdot}{\cdot}$ arm of $\Referent$ is present
-        but vestigial, and the whole minting axis is absent.
-  \item \textbf{Synhash}, the propagation-provenance mechanism used by merge.
-  \item \textbf{Abilities, the ANF runtime, \texttt{LocalIds} and the serialization layer.}
+        but vestigial, and the minting axis is absent entirely.
+  \item \textbf{Synhash}, the provenance mechanism merge uses to distinguish a human edit from an
+        automatic propagation.
+  \item \textbf{Abilities, the ANF runtime, \texttt{LocalIds}, and the serialization layer.}
+\end{itemize}
+
+\subsection{How to read the source citations}\label{sec:paths}
+
+Every definition and claim carries a margin tag of the form \texttt{key:lines}, naming the file and
+line range it is faithful to at commit \texttt{db60ce2}. The keys:
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Key & File \\
+\midrule
+\texttt{abt}      & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/ABT.hs} \\
+\texttt{term}     & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Term.hs} \\
+\texttt{tok}      & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Tokenizable.hs} \\
+\texttt{branchh}  & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Branch.hs} \\
+\texttt{cabt}     & \texttt{codebase2/core/U/Core/ABT.hs} \\
+\texttt{ref}      & \texttt{codebase2/core/U/Codebase/Reference.hs} \\
+\texttt{referent} & \texttt{codebase2/codebase/U/Codebase/Referent.hs} \\
+\texttt{branchv3} & \texttt{codebase2/codebase/U/Codebase/BranchV3.hs} \\
+\texttt{ops}      & \texttt{codebase2/codebase-sqlite/U/Codebase/Sqlite/Operations.hs} \\
+\texttt{sql}      & \texttt{codebase2/codebase-sqlite/sql/create.sql} \\
+\texttt{branch}   & \texttt{parser-typechecker/src/Unison/Codebase/Branch/Type.hs} \\
+\texttt{ufile}    & \texttt{parser-typechecker/src/Unison/UnisonFile.hs} \\
+\texttt{update}   & \texttt{unison-cli/src/Unison/Codebase/Editor/HandleInput/Update2.hs} \\
+\texttt{main}     & \texttt{unison-cli/src/Unison/Main.hs} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The component format is also described in the repository's own
+\texttt{docs/repoformats/v2.markdown}.
+
+\subsection{Summary of results}\label{sec:summary}
+
+\begin{itemize}[nosep]
+  \item \Cref{prop:transparent} --- reference transparency holds exactly at position $0$.
+  \item \Cref{def:comphash}, \cref{rem:twoorders} --- component hashing computes two distinct
+        orderings of the same component, one fixing de Bruijn indices and one fixing stored
+        positions.
+  \item \Cref{thm:ordering} --- presentation-independence of component hashing is conditional; when
+        the condition fails the hash depends on the members' names.
+  \item \Cref{cor:detect}, \cref{rem:notpartial} --- the condition is decidable, is checked, and the
+        implementation aborts rather than store such a hash.
+  \item \Cref{thm:ualpha} --- hashing identifies terms up to $\alpha$-equivalence and cycle
+        permutation, and no further.
+  \item \Cref{cor:wnoinval} --- no cache invalidation is required, as a consequence of immutability
+        rather than as a heuristic.
+  \item \Cref{prop:print-parse} --- \texttt{update} is correct only if printing inverts parsing.
+  \item \Cref{prop:follow-only} --- \texttt{update} admits exactly one propagation strategy.
 \end{itemize}
 
 % =====================================================================
-\section{Part I --- The object language}\label{sec:ulang}
+\section{The object language}\label{sec:ulang}
 
 \subsection{Terms, named}
 
 \begin{definition}[Terms]\label{def:uterm}
-\src{U/Core/ABT.hs:16-25} Fix a countable set of variables $x,y,z$ and a set of builtin names
-$b \in \TText$.
+\src{cabt:16-25} Fix a countable set of variables $x,y,z$ and a set of builtin names
+$b$.
 \[
   t,u \;::=\; \uvar{x} \;\mid\; \ulam{x}{t} \;\mid\; \uapp{t}{u}
         \;\mid\; \unat{n} \;\mid\; \utext{s} \;\mid\; \uref{r} \;\mid\; \uann{t}{T}
 \]
 where $r \in \Reference$ (\cref{def:uref}). Binders carry \emph{names}, and those names are stored.
-$\uann{t}{T}$ is a type annotation; it is a term former because \cref{def:typeinhash} needs a place
+$\uann{t}{T}$ is a type annotation; it is a term former because \cref{def:typeinhash} needs somewhere
 to put a type inside a term.
 \end{definition}
 
-\begin{remark}[Names in storage --- the first fork]\label{rem:names}
-\arborcore{} stores de Bruijn terms and reconstructs names for display (\coreref{def:core}). Unison
-stores names and computes de Bruijn indices only while hashing (\cref{def:uhash}). The choice is
-usually presented as taste. It is not: \cref{sec:uupdate}'s \texttt{update} renders stored
-definitions back to source that a human must read and a parser must resolve, and it is the
-\emph{author's} binder names that survive into that rendering. \arborcore{}'s round trip is stated
-only up to name choice (\coreref{prop:elab-print}) precisely because it does not keep them.
+\begin{remark}[Why storing names matters]\label{rem:names}
+Unison's abstract binding trees keep binder names, and de Bruijn indices are computed only while
+hashing (\cref{def:uhash}). It would be possible to store indices and invent names for display, and
+the resulting hashes would be the same. The reason the choice is not free is \cref{sec:uupdate}:
+\texttt{update} renders stored definitions back to source that a human reads and a parser resolves.
+Because names survive storage, what is rendered uses the \emph{author's} variable names. A system
+that discarded them could state its round trip only up to a choice of names.
 \end{remark}
 
 \begin{definition}[$\alpha$-equivalence]\label{def:ualpha}
-\src{U/Core/ABT.hs:49-60} $t \equiv_\alpha u$ is the least congruence identifying
-$\ulam{x}{t}$ with $\ulam{y}{t[x := y]}$ for $y$ fresh in $t$. Implemented by renaming aligned
-binders to a common fresh variable; it is the \texttt{Eq} instance, so $\alpha$-equivalent terms are
-\emph{equal} in the implementation even before hashing.
+\src{cabt:49-60} $t \equiv_\alpha u$ is the least congruence identifying
+$\ulam{x}{t}$ with $\ulam{y}{t[x := y]}$ for $y$ fresh in $t$, implemented by renaming aligned
+binders to a common fresh variable. It is the \texttt{Eq} instance, so $\alpha$-equivalent terms are
+\emph{equal} in the implementation before any hashing takes place.
 \end{definition}
 
 \subsection{Types}
@@ -166,9 +267,9 @@ binders to a common fresh variable; it is the \texttt{Eq} instance, so $\alpha$-
 \[
   T,U \;::=\; \TNat \;\mid\; \TText \;\mid\; \uarr{T}{U}
 \]
-A context $\Gamma$ maps variables to types; a \emph{signature} $\Delta$ maps references to types
-(for builtins, given; for derived references, read off the store by \cref{def:typeinhash}).
-Syntax-directed, with no inference:
+A context $\Gamma$ maps variables to types; a signature $\Delta$ maps references to types --- given
+for builtins, and read off the store for derived references by \cref{def:typeinhash}. Typing is
+syntax-directed, with no inference:
 \begin{mathpar}
   \inferrule*[right=U-Var]{\Gamma(x) = T}{\utypes{\Gamma}{\uvar{x}}{T}}
   \and
@@ -187,66 +288,67 @@ Syntax-directed, with no inference:
 \end{mathpar}
 \end{definition}
 
-\begin{remark}[\textsc{U-Ref} reads $\Delta$, not the store]\label{rem:uref-delta}
-Contrast \stlcref{def:typing}'s \textsc{T-Ref}, whose premise is the \emph{target's typing
-derivation}, so a well-typed term carries its support with it. Here the type of a reference is looked
-up, and it is available without re-deriving anything because the type is \emph{inside the hash}
-(\cref{def:typeinhash}): a stored definition's type cannot be stale, because changing it would change
-the definition's identity. The two systems buy the same locality by opposite means.
+\begin{remark}[\textsc{U-Ref} is a lookup, not a re-derivation]\label{rem:uref-delta}
+Typing a reference costs nothing: $\Delta$ is consulted and no derivation about the target is
+required. That is affordable precisely because the type is inside the hash
+(\cref{def:typeinhash}) --- a stored definition's recorded type cannot disagree with the definition,
+since changing the type would change the hash and therefore produce a different definition. The store
+admits no ill-typed entry, so there is nothing for \textsc{U-Ref} to check.
 \end{remark}
 
 \subsection{Binding groups}
 
 \begin{definition}[Binding group]\label{def:bindgroup}
-\src{Hashing/V2/ABT.hs:106-134} A \emph{binding group} is a finite map
-$\bg : \Name \pfn \Term$ whose members' free variables all lie in $\dom(\bg)$. Ingest takes a binding
-group, not a term.
+\src{abt:106-134} A \emph{binding group} is a finite map $\bg : \Name \pfn \Term$ whose
+members' free variables all lie in $\dom(\bg)$. Ingest takes a binding group, not a single term.
 \end{definition}
 
 \begin{remark}[Where mutual recursion lives]\label{rem:mutrec}
-Unison has no recursive term former in the surface language for this purpose: mutual recursion is
-just several top-level bindings that mention each other, and \texttt{hashComponents} is the operation
-that takes the whole map. Modeling ingest at the group rather than the term is therefore both
-faithful and cheaper than adding $\mathsf{letrec}$ --- and it is what makes \cref{sec:ustore}'s
-components non-trivial. The implementation \emph{errors} if the group has free variables it cannot
-bind \src{ABT.hs:128-134}, which is why \cref{def:bindgroup} makes closedness part of being a group.
+There is no recursive term former for this purpose. Mutual recursion is several top-level bindings
+that mention one another, and \texttt{hashComponents} is the operation that takes the whole map at
+once. Modeling ingest at the group rather than the term is therefore faithful, and it is what makes
+\cref{sec:ustore}'s components non-trivial --- with single-term ingest every component is a
+singleton and the whole of \cref{def:comphash} is invisible. The implementation raises an error if a
+group has free variables it cannot bind \src{abt:128-134}, which is why closedness is part
+of \cref{def:bindgroup}.
 \end{remark}
 
 % =====================================================================
-\section{Part II --- The store, components, and the hash}\label{sec:ustore}
+\section{The store, components, and the hash}\label{sec:ustore}
 
 \subsection{References}
 
 \begin{definition}[Reference]\label{def:uref}
-\src{U/Codebase/Reference.hs:77-119}
+\src{ref:77-119}
 \[
   r \in \Reference \;::=\; \UBuiltin{b} \;\mid\; \UDer{h}{i}
   \qquad b \in \TText,\; h \in \Hash,\; i \in \Pos = \mathbb{N}
 \]
 \end{definition}
 
-\begin{remark}[Builtins are named extrinsically]\label{rem:builtin}
-$\UBuiltin{b}$ carries a \emph{text name}, not a hash. So the identity of a primitive is an assertion
-by the implementation, not a derivation from its content --- extrinsic in exactly the sense
-\texttt{docs/related-work/01-content-addressing.md} takes from the Software Heritage identifier work.
-Unison is intrinsically identified everywhere \emph{except} at its primitives, and the boundary is
-visible in the type. arbor makes the same trade with a different mechanism, manually-versioned
-procedure tags (\texttt{docs/design/decisions.md} 2026-04-20), and the same observation applies: the
-hash chain has to bottom out somewhere, and wherever it bottoms out is extrinsic.
+\begin{remark}[Primitives are named extrinsically]\label{rem:builtin}
+$\UBuiltin{b}$ carries a \emph{text name}, not a hash. An identifier is \emph{intrinsic} when it can
+be recomputed from the thing it names and \emph{extrinsic} when it is an assertion by some authority;
+a hash is the former and a builtin name is the latter. So Unison is intrinsically identified
+everywhere except at its primitives, and the boundary is visible in the type of $\Reference$ rather
+than hidden in a convention. This is not avoidable --- a hash chain has to bottom out at things
+whose content the system does not model --- and it is worth noting only because the sum type makes
+the seam unusually legible.
 \end{remark}
 
 \begin{definition}[Referent]\label{def:ureferent}
-\src{U/Codebase/Referent.hs:18-30} $\Referent ::= \URefT{r} \mid \UCon{r}{k}$. Names denote
-referents, not references: a name may denote a data constructor rather than a definition. With no
-data declarations in scope (\cref{sec:unotmodeled}) the second arm is vestigial here, and is retained
-only so \cref{sec:unaming} has the right shape.
+\src{referent:18-30} $\Referent ::= \URefT{r} \mid \UCon{r}{k}$. Names denote
+\emph{referents}, not references: a name may denote a data constructor rather than a definition. With
+no data declarations in scope (\cref{sec:unotmodeled}) the second arm is vestigial here, and is
+retained only so \cref{sec:unaming} has the right shape.
 \end{definition}
 
 \subsection{The store}
 
 \begin{definition}[Component and store]\label{def:ustore}
-\src{U/Codebase/Reference.hs:114-119; docs/repoformats/v2.markdown} A \emph{component} is a non-empty
-finite sequence of terms, $\Comp = \Term^{+}$. The store is
+\src{ref:114-119} A \emph{component} is a
+non-empty finite sequence of terms, $\Comp = \Term^{+}$ --- a strongly connected component of the
+dependency graph, hashed as a unit. The store is
 \[
   \UStore : \Hash \pfn \Comp .
 \]
@@ -254,36 +356,39 @@ A definition is addressed by a \emph{pair}: $\UDer{h}{i}$ denotes the $i$-th mem
 at $h$. A non-recursive definition is a singleton component with $i = 0$.
 \end{definition}
 
-\begin{remark}[This is a different type of store]\label{rem:storetype}
-\coreref{def:store} is $\Store : \Hash \pfn \Node$, and \coreref{def:refs}, $\wf$'s no-dangle clause,
-$\callers$, and $\rho$ are all stated over it. Replacing $\Node$ by $\Comp$ and a hash by a pair
-moves every one of them. \texttt{docs/design/03-content-addressing.md} formerly described Unison's
-approach as supplying ``a canonical ordering for the group''; that understates it twice, once because
-the commitment is to the store's type and not to an ordering, and once because the ordering is not
-unconditionally available (\cref{thm:ordering}).
+\begin{remark}[The store is not hash-to-definition]\label{rem:storetype}
+It is natural to summarize content addressing as ``a definition is identified by its hash'', and for
+non-recursive code that is what happens. But the map is from a hash to a \emph{component}, and a
+definition is a pair. Mutual recursion is the reason: a member of a cycle cannot be hashed before its
+neighbours, since it refers to them, and they refer back. Hashing the cycle as a unit breaks the
+knot, at the price of making every reference positional and every property below a property of
+components rather than of definitions.
 \end{remark}
 
 \subsection{Hashing}
 
 \begin{definition}[Token stream]\label{def:tokens}
-\src{Tokenizable.hs:122-137} Nothing is hashed as raw bytes. The hash input is a tagged,
+\src{tok:122-137} Nothing is hashed as raw bytes. The input is a tagged,
 length-prefixed token stream: $\mathsf{Tag}$ is one byte; $\mathsf{Text}$ and $\mathsf{Bytes}$ are a
 64-bit big-endian length followed by the payload; $\mathsf{Nat}$ is 64-bit big-endian;
 $\mathsf{Hashed}$ is a fixed-width hash with no length prefix. Every stream begins with a
-\emph{version} token, and each syntactic layer begins with a tag that domain-separates it from the
-others \src{Term.hs:147-152}. We write $\mathsf{acc}(\overline{\tau})$ for the hash of a token list.
+\emph{version} token, and each syntactic layer begins with a tag domain-separating it from the others
+\src{term:147-152}. Write $\mathsf{acc}(\overline{\tau})$ for the hash of a token list.
+The function is SHA3-512, untruncated.
 \end{definition}
 
-\begin{remark}[Versioning instead of rebuilding]\label{rem:version}
-The version token exists so that changing the hash function changes \emph{every} hash, and the schema
-carries a many-hashes-to-one-object table so old references keep resolving under an old scheme
-\src{sql/create.sql:33-49}. arbor's stated answer to the same question is to accept full state
-rebuilds. Recorded as prior art, not as a defect on either side.
+\begin{remark}[Versioning the hash function]\label{rem:version}
+The leading version token exists so that changing the hash function changes \emph{every} hash --- if
+it did not, simple values would collide across generations in a single global hash table. Underneath,
+the schema carries a many-hashes-to-one-object indirection so that hashes computed under an old
+scheme keep resolving \src{sql:33-49}. This is a comparatively rare thing for a
+content-addressed system to plan for, and worth recording: the migration story for ``we changed the
+hash'' is versioning plus indirection, not recomputation.
 \end{remark}
 
 \begin{definition}[Hashing a term]\label{def:uhash}
-\src{Hashing/V2/ABT.hs:143-172} Hashing carries an environment
-$\HEnv \in (\wp(\Name) + \Name)^{*}$, innermost first: $\mathsf{R}(x)$ is an ordinary binder and
+\src{abt:143-172} Hashing carries an environment
+$\HEnv \in (\wp(\Name) + \Name)^{*}$, innermost first, where $\mathsf{R}(x)$ is an ordinary binder and
 $\mathsf{L}(V)$ is a \emph{cycle frame} naming a whole set at once. Write $\uhash{\HEnv}{t}$.
 \begin{align*}
   \uhash{\HEnv}{\uvar{x}}    &= \mathsf{acc}[\mathsf{Nat}\; j]
@@ -291,34 +396,31 @@ $\mathsf{L}(V)$ is a \emph{cycle frame} naming a whole set at once. Write $\uhas
   \uhash{\HEnv}{\ulam{x}{t}} &= \mathsf{acc}[\ldots,\ \mathsf{Hashed}\;\uhash{\mathsf{R}(x)\cdot\HEnv}{t}]\\
   \uhash{\HEnv}{\uapp{t}{u}} &= \mathsf{acc}[\ldots,\ \mathsf{Hashed}\;\uhash{\HEnv}{t},\ \mathsf{Hashed}\;\uhash{\HEnv}{u}]
 \end{align*}
-and correspondingly at the other formers. Three things are load-bearing. Binder \emph{names are
-discarded} on the way in, so $\alpha$-equivalent terms hash equally. \emph{Annotations are excluded
-by construction} --- ``these should never affect the meaning of the term'' \src{ABT.hs:136-137}. And
-a variable bound by a cycle frame $\mathsf{L}(V)$ hashes to the frame's index, \emph{the same index
-for every member of $V$}: that is what \cref{def:comphash} exploits. A free variable is an error.
+and correspondingly at the other formers. Three details are load-bearing. Binder \emph{names are
+discarded} on the way in, so $\alpha$-equivalent terms hash equally. \emph{Annotations are excluded by
+construction} --- ``we ignore annotations in the \texttt{Term}, as these should never affect the
+meaning of the term'' \src{abt:136-137}. And a variable bound by a cycle frame
+$\mathsf{L}(V)$ hashes to the frame's index, \emph{the same index for every member of $V$}; that is
+what \cref{def:comphash} exploits. A free variable is an error.
 \end{definition}
 
 \begin{definition}[The type is inside the term hash]\label{def:typeinhash}
-\src{Hashing/V2/Term.hs:92-109} Before hashing, each member of a binding group is wrapped in its
-type: $t \mapsto \uann{t}{T}$, replacing an existing top annotation if present. So the hash of a
-definition is a function of its type as well as its body.
+\src{term:92-109} Before hashing, each member of a binding group is wrapped in its type,
+$t \mapsto \uann{t}{T}$, replacing an existing top-level annotation if there is one. The hash of a
+definition is therefore a function of its type as well as its body, and a change of signature is a
+change of identity.
 \end{definition}
 
-\begin{remark}[Type-in-hash versus $\TyOf$]\label{rem:typeinhash}
-A signature change \emph{is} an identity change, so a cached type can never be stale and
-\textsc{U-Ref} may read $\Delta$ without a derivation (\cref{rem:uref-delta}). \arborstlc{} instead
-makes the type an observational aspect $\TyOf$ \emph{about} a hash. That reads as the obvious choice
-and is not: it is the choice a permissive store forces, since only an aspect can be absent, partial,
-or record that a term is ill-typed --- which is what the holes line needs. Unison's store admits no
-ill-typed definition, so it can afford the stronger identity. There is a
-\texttt{hashTermComponentsWithoutTypes} \src{Term.hs:120-122} used where no type is available, which
-is the exception proving the rule.
+\begin{remark}[The exception that proves the rule]\label{rem:typeinhash}
+There is a \texttt{hashTermComponentsWithoutTypes} \src{term:120-122} used where no type
+is available. Its existence is the clearest statement that the usual path deliberately puts the type
+in: hashing without the type is possible, and is treated as the special case.
 \end{remark}
 
 \subsection{Reference transparency, and its boundary}
 
 \begin{proposition}[Transparency holds exactly at position $0$]\label{prop:transparent}
-\src{Hashing/V2/Term.hs:135-146} In the term layer,
+\src{term:135-146} In the term layer,
 \[
   \uhash{\HEnv}{\uref{\UDer{h}{0}}} = h,
   \qquad
@@ -327,36 +429,30 @@ is the exception proving the rule.
 \]
 \end{proposition}
 
-\begin{remark}[Two consequences, and one correction]\label{rem:transparent}
-For $i = 0$ --- every non-recursive definition, and the head member of a cycle --- a reference
-contributes \emph{literally} the referent's hash. Hence: a definition whose whole body is a bare
-reference \emph{is} its referent ($x = 1+1$ and $y = x$ hash the same, as the source comment says);
-and \emph{inlining is hash-preserving}, since a reference already contributes exactly what the
-inlined body would.
+\begin{remark}[Two consequences, and a boundary]\label{rem:transparent}
+For $i = 0$ --- every non-recursive definition, and the head member of every cycle --- a reference
+contributes \emph{literally} the referent's hash. Two things follow, and the source comment states
+the first: a definition whose whole body is a bare reference \emph{is} its referent, so \texttt{x = 1
++ 1} and \texttt{y = x} hash the same; and \emph{inlining is hash-preserving}, since a reference
+already contributes exactly what the inlined body would have. Factoring a subterm out into its own
+definition, or folding it back in, does not change identity.
 
-For $i \neq 0$ it is opaque, tagged with the position. So transparency and the component model are
-not independent features: the boundary between them falls at $\Pos = 0$.
-
-\texttt{docs/systems/unison/02-store-and-hashing.md} states transparency flatly, ``at any
-position''. That is true of the position \emph{within the parent term} and false of the position
-\emph{within the component}; corrected there.
-
-\textbf{Branch note.} arbor's own position on this axis is in flux at the time of writing.
-\coreref{def:node} carries an opaque $\nRef{h}$, and this document sits beside that. A substrate
-decision to adopt transparency was taken on 2026-08-24 and mechanized, but on the
-\texttt{reference-transparency} branch, not here; if it lands, this ceases to be a fork between the
-two systems --- \emph{except} for the positional asymmetry above, which arbor has no analogue of
-either way, because it has no components.
+For $i \neq 0$ the reference is opaque, tagged with its position. So the two properties above hold of
+non-recursive code and of one distinguished member of each cycle, and not of the rest. Transparency
+and the component model are not independent features; the boundary between them falls at $\Pos = 0$.
+We do not know whether this is deliberate --- inlining a singleton component is free, so there is a
+plausible reason --- or an artifact of the encoding. The source comment justifies only the $0$ case.
 \end{remark}
 
 \subsection{Component hashing}
 
-This is the deepest mechanism in the document, and the one whose properties are least obvious.
+This is the deepest mechanism in the document and the one whose properties are least apparent from
+the code.
 
 \begin{definition}[Component hashing]\label{def:comphash}
-\src{Hashing/V2/ABT.hs:73-100, 175-217} Let $C = \langle (y_1,u_1),\dots,(y_k,u_k)\rangle$ be a
-component, \emph{listed in name order} (the implementation always obtains it as
-$\mathsf{Map.toList}$). Let $V = \{y_1,\dots,y_k\}$.
+\src{abt:73-100, 175-217} Let $C = \langle (y_1,u_1),\dots,(y_k,u_k)\rangle$ be a
+component, \emph{listed in name order} --- the implementation always obtains it as
+$\mathsf{Map.toList}$. Let $V = \{y_1,\dots,y_k\}$.
 
 \emph{Step 1 --- permutation hashes.} In the environment $\HEnv_p = \mathsf{L}(V)$, every intra-cycle
 reference resolves to the same index, so member bodies become comparable without any of them yet
@@ -367,8 +463,7 @@ having an identity:
 
 \emph{Step 2 --- the binding order.} Sort the members by $\phash{\cdot}$, \textbf{stably}, giving a
 permutation $\pi$; set $\HEnv = \mathsf{R}(y_{\pi(1)})\cdots\mathsf{R}(y_{\pi(k)})$. Each member now
-has a distinct de Bruijn index, and the member hashes are
-$h_j = \uhash{\HEnv}{u_{\pi(j)}}$.
+has a distinct de Bruijn index, and the member hashes are $h_j = \uhash{\HEnv}{u_{\pi(j)}}$.
 
 \emph{Step 3 --- the storage order.} With
 $\overline{\tau} = \mathsf{Tag}\;1,\ \mathsf{Hashed}\;h_1,\dots,\mathsf{Hashed}\;h_k$ shared by every
@@ -377,8 +472,8 @@ member, put
   \nhash{y} \;=\; \mathsf{acc}\bigl(\overline{\tau} \;+\!\!+\; [\mathsf{Hashed}\;\uhash{\HEnv}{\uvar{y}}]\bigr),
 \]
 so a member is disambiguated \emph{only} by its own index in $\HEnv$. Sort the members by
-$\nhash{\cdot}$; that order is the component's storage order, position $i$ in $\UDer{h}{i}$ counts in
-it, and
+$\nhash{\cdot}$; that order is the component's storage order, the position $i$ in $\UDer{h}{i}$
+counts in it, and
 \[
   \comphash(C) \;=\; \mathsf{acc}[\mathsf{Hashed}\;\nhash{y_{\sigma(1)}},\dots,\mathsf{Hashed}\;\nhash{y_{\sigma(k)}}]
 \]
@@ -387,18 +482,18 @@ for $\sigma$ the sorting permutation.
 
 \begin{remark}[Two orders, not one]\label{rem:twoorders}
 $\pi$ and $\sigma$ are different permutations of the same component. $\pi$ fixes the de Bruijn
-indices used \emph{while hashing} member bodies; $\sigma$ fixes the $\Pos$ indices used \emph{in
+indices used \emph{while hashing} member bodies; $\sigma$ fixes the $\Pos$ indices that appear \emph{in
 stored references}. They coincide only by accident, since $\sigma$ sorts by a hash of the $\pi$-index.
-Nothing observable depends on the difference --- re-hashing re-derives $\HEnv$ --- but a
-reimplementation that conflated them would produce different hashes, and no prose description of the
-algorithm mentions it.
+Nothing observable depends on the difference --- re-hashing re-derives $\HEnv$ from scratch --- but a
+reimplementation that conflated them would produce different hashes for the same code, and no prose
+description of the algorithm we are aware of mentions that there are two.
 \end{remark}
 
 \begin{definition}[Ingest]\label{def:uingest}
-\src{Hashing/V2/ABT.hs:106-134} $\hashcomps(\bg)$ decomposes $\bg$ into strongly connected components
-in topological order and folds \cref{def:comphash} over them, substituting $\UDer{h}{i}$ for the
-names of already-hashed components before hashing the next. The store is extended by each component
-at its hash.
+\src{abt:106-134} $\hashcomps(\bg)$ decomposes $\bg$ into strongly connected components in
+topological order and folds \cref{def:comphash} over them, substituting $\UDer{h}{i}$ for the names of
+already-hashed components before hashing the next. The store is extended by each component at its
+hash.
 \end{definition}
 
 \subsection{What component hashing guarantees}
@@ -408,8 +503,8 @@ Let $C$ and $C'$ be the same component listed in two different orders.
 \begin{enumerate}[nosep,label=(\alph*)]
   \item If $\phash{\cdot}$ is \emph{injective} on $V$, then $\comphash(C) = \comphash(C')$, the member
         hashes agree, and each member receives the same $\Pos$.
-  \item If $\phash{\cdot}$ is not injective, $\comphash$ depends on the listed order. Since the list
-        is always obtained in name order, the component's hash --- and every reference into it ---
+  \item If $\phash{\cdot}$ is not injective, $\comphash$ depends on the listed order. Since the list is
+        always obtained in name order, the component's hash --- and every reference into it ---
         depends on the members' \textbf{names}.
 \end{enumerate}
 \end{theorem}
@@ -424,33 +519,34 @@ $\nhash{\cdot}$ and in general $\comphash$.
 \end{proof}
 
 \begin{corollary}[The side condition is decidable, and is checked]\label{cor:detect}
-\src{ABT.hs:186-192, 208-217} Injectivity of $\phash{\cdot}$ on $V$ is decided by grouping the
+\src{abt:186-192, 208-217} Injectivity of $\phash{\cdot}$ on $V$ is decided by grouping the
 members by permutation hash. \texttt{doHashCycle} does exactly this and emits
-\texttt{IncompleteElementOrderingError} listing the structurally equivalent sets.
+\texttt{IncompleteElementOrderingError}, listing the structurally equivalent sets.
 \end{corollary}
 
-\begin{remark}[Total function, conditional guarantee, aborting implementation]\label{rem:notpartial}
-It is tempting --- and \texttt{docs/systems/unison/02-store-and-hashing.md} does it --- to say that
-canonical ordering ``is partial'' and that Unison ``refuses''. Both are slightly wrong, and the
-precise version is more interesting.
+\begin{remark}[Total function, conditional guarantee, aborting caller]\label{rem:notpartial}
+It is tempting to summarize \cref{thm:ordering} as ``canonical ordering is a partial function'' and
+``Unison refuses''. Both are slightly off, and the accurate version is more interesting.
 
 $\comphash$ is a \emph{total} function: on the ambiguous input it returns a hash. What fails is not
 definedness but \emph{presentation-independence} --- the property content addressing exists to
 provide. The fallback is alphabetical order of user-chosen names, which is precisely the kind of
-dependency the whole design is meant to eliminate.
+dependency the design is meant to eliminate.
 
-The implementation's response is at the \emph{caller}. \texttt{doHashCycle} returns the condition as a
-warning and its own comment says ``hashing always succeeds even if it generates warnings'';
-\texttt{crashOnHashingWarning} then turns it into an exception, and the main term-component path takes
-that route \src{UnisonFile.hs:284}, with a top-level handler rendering it as bug \texttt{E253299} plus
-the workaround --- add a dummy binding such as \texttt{\_ = "this is the foo definition"}
-\src{ABT.hs:55-62; Main.hs:116}. Internal \texttt{let rec} bindings deliberately ignore the warning,
-because there the ordering is not observable \src{ABT.hs:167-172}.
+The refusal is at the \emph{caller}. \texttt{doHashCycle} returns the condition as a warning, and its
+own comment says ``hashing always succeeds even if it generates warnings'';
+\texttt{crashOnHashingWarning} turns it into an exception, and the main term-component path takes that
+route \src{ufile:284}, with a top-level handler rendering it as bug \texttt{E253299} plus a
+workaround --- add a distinguishing binding such as \texttt{\_ = "this is the foo definition"}
+\src{abt:55-62; main:116}. Internal \texttt{let rec} bindings deliberately ignore
+the warning, because there the ordering is not observable \src{abt:167-172}.
 
-So the honest statement is: \emph{a decidable side condition guards presentation-independence, and
-the implementation aborts rather than store a hash that violates it.} That is a stronger and more
-defensible engineering position than ``it is partial'', and it is a sharper problem for a formalism,
-because the side condition has to appear in the statement of every downstream theorem.
+So the accurate statement is: \emph{a decidable side condition guards presentation-independence, and
+the implementation aborts rather than store a hash that violates it.} That is a stronger engineering
+position than a partial function --- the system never silently produces a name-dependent identity ---
+and a sharper obligation for a formalism, because the side condition has to appear in the statement of
+every downstream result about component identity. The condition is tracked upstream as
+unisonweb/unison\#2787.
 \end{remark}
 
 \begin{theorem}[Hashing collapses $\alpha$-equivalence and cycle permutation]\label{thm:ualpha}
@@ -459,54 +555,46 @@ are related by $\alpha$-equivalence of members (\cref{def:ualpha}) together with
 cycle. It does not identify observationally equivalent members.
 \end{theorem}
 \begin{proof}[Proof sketch]
-$(\Leftarrow)$ Binder names are discarded by \cref{def:uhash} and permutation-independence is
+$(\Leftarrow)$ Binder names are discarded by \cref{def:uhash}, and permutation-independence is
 \cref{thm:ordering}(a). $(\Rightarrow)$ By injectivity of $\mathsf{acc}$ on token streams and the
-domain-separating tags of \cref{def:tokens}, downward through the structure, as in
-\coreref{thm:alpha}.
+domain-separating tags of \cref{def:tokens}, downward through the structure.
 \end{proof}
 
-\begin{remark}[Against \coreref{thm:alpha}]\label{rem:alphacontrast}
-\coreref{thm:alpha} is unconditional and its equivalence is $\alpha$ alone. Here the equivalence is
-coarser --- it includes cycle permutation --- and the theorem is \emph{guarded}. Both differences
-come from the same source, which is that the unit of hashing is a component rather than a node.
-\end{remark}
-
 % =====================================================================
-\section{Part III --- Naming}\label{sec:unaming}
+\section{Naming}\label{sec:unaming}
 
 \begin{definition}[Namespace]\label{def:unames}
-\src{Hashing/V2/Branch.hs:22-39; sql/create.sql:271} A namespace is a \emph{relation}
+\src{branchh:22-39; sql:271} A namespace is a \emph{relation}
 \[
   \UNames \;\subseteq\; \Name \times \Referent ,
 \]
 written $\UNames(x)$ for $\{\,\varrho \mid (x,\varrho) \in \UNames\,\}$. One name may denote several
-referents and one referent may have several names; both are ordinary states, not errors. The
-database agrees: the name-lookup key includes the referent columns, so several rows per name are
+referents and one referent may have several names; both are ordinary states rather than errors. The
+database agrees --- the name-lookup key includes the referent columns, so several rows per name are
 legal.
 \end{definition}
 
 \begin{definition}[Unconflictedness]\label{def:unconf}
-\src{Branch/Type.hs:113-119, 291-314} $\unconf{\UNames}{x}$ holds iff $|\UNames(x)| = 1$;
-$\unconf{\UNames}{}$ holds iff it holds at every name in $\dom(\UNames)$. When it does, $\UNames$
-determines a partial function and we write $\uresolve{\UNames}{x}{\varrho}$.
+\src{branch:113-119, 291-314} $\unconf{\UNames}{x}$ holds iff
+$|\UNames(x)| = 1$, and $\unconf{\UNames}{}$ holds iff it holds at every name in $\dom(\UNames)$.
+When it does, $\UNames$ determines a partial function and we write
+$\uresolve{\UNames}{x}{\varrho}$. It is computed as a derived view, recomputed rather than
+maintained.
 \end{definition}
 
 \begin{remark}[Conflict is representable; operations demand its absence]\label{rem:conflict}
-This is the shape \texttt{feedback\_visible\_breakage} describes --- commit and report, do not gate ---
-applied to names. But note where the cost lands: \texttt{update} cannot proceed against a conflicted
-namespace and \emph{asserts} unconflictedness before doing anything \src{Update2.hs:99-102}, and
-unconflictedness is recomputed as a derived view. So the representable state is refused by the
-operations that matter, and Unison's own forward-looking \texttt{BranchV3} format removes conflicted
-names outright \src{U/Codebase/BranchV3.hs:16-30}.
-
-\coreref{def:ns} makes $\Names$ a partial function, so \cref{def:unconf} holds by construction and
-\cref{def:unames}'s generality is unavailable. arbor's position (2026-08-20) is that multiplicity
-belongs to a \emph{family} of namespaces rather than to a binding. The two data points above weigh
-for that reading rather than against it.
+Making conflict a legal state rather than an error at bind time is what lets a merge complete without
+resolving everything first: the namespace can hold both candidates and the user can sort it out
+afterwards. It is worth noting where the cost lands. \texttt{update} cannot proceed against a
+conflicted namespace and \emph{asserts} unconflictedness before doing anything
+\src{update:99-102}. And Unison's own forward-looking
+\texttt{BranchV3} format removes conflicted names outright --- ``a V3 branch is a trimmed-down V2
+branch: Names can't be conflicted'' \src{branchv3:16-30}. So the generality is
+real, and the direction of travel appears to be away from it.
 \end{remark}
 
 % =====================================================================
-\section{Part IV --- The evaluation cache}\label{sec:ucache}
+\section{The evaluation cache}\label{sec:ucache}
 
 \begin{definition}[Watch cache]\label{def:watch}
 The cache is a finite partial function $\UCache : \Hash \pfn \Hash$, from the hash of an expression to
@@ -514,11 +602,10 @@ the hash of its value. Both are store hashes.
 \end{definition}
 
 \begin{remark}[The key need not be a definition]\label{rem:watchkey}
-$\dom(\UCache)$ is the hash of an \emph{expression}, which need not be named and need not be a member
-of any component the user declared. \coreref{rem:nosort} arrives at the same place from the other
-direction --- arbor's store carries no definition sort, so ``definition-hood'' is conferred by naming
-and the cache can be keyed by any hash. Two systems, independently, decline to make ``is a
-definition'' a property of stored data.
+$\dom(\UCache)$ is the hash of an \emph{expression}, which need not be named and need not be anything
+the user declared. There is no notion of ``is a definition'' attached to stored data that the cache
+would have to respect; a hash is a hash. This is what lets a watch expression in a scratch file be
+cached on the same footing as a top-level binding.
 \end{remark}
 
 \begin{theorem}[Cache soundness is stable under growth]\label{thm:wstable}
@@ -526,39 +613,41 @@ If $\UCache(h) = h_v$ is sound in $\UStore$ and $\UStore \subseteq \UStore'$, it
 $\UStore'$.
 \end{theorem}
 \begin{proof}[Proof sketch]
-Evaluation of $h$ reads only entries reachable from $h$; all of them are in $\dom(\UStore)$ and, by
-immutability, identical in $\UStore'$. Exactly \coreref{thm:stability}'s argument, and it uses
-neither well-formedness nor anything about the namespace.
+Evaluating $h$ reads only entries reachable from $h$; all of them are in $\dom(\UStore)$ and, by
+immutability, identical in $\UStore'$. The argument uses neither well-formedness nor anything about
+the namespace.
 \end{proof}
 
 \begin{corollary}[No invalidation is needed]\label{cor:wnoinval}
 An entry, once written, is valid in every future store. Consequently no invalidation logic is
-required --- and none exists: the only eviction paths in the implementation are a debug-only
-wholesale delete and a garbage collection of orphaned hashes, verified by absence over the codebase.
+required --- and none exists. The only eviction paths in the implementation are a debug-only
+wholesale delete and a garbage collection of orphaned hashes.
 \end{corollary}
 
-\begin{remark}[Where this differs from \coreref{cor:cache}, and where it does not]\label{rem:cachesame}
-It does not differ. This is the one part of the design the two systems agree on completely, down to
-the argument. It is worth stating precisely because it is the claim Unison is best known for and has
-never written down: ``never invalidated'' is not a heuristic about how often definitions change, it is
-a consequence of immutability plus the cache being keyed by a hash of what was evaluated.
+\begin{remark}[What ``never invalidated'' actually means]\label{rem:cachemeaning}
+This is the claim Unison is best known for, and it is worth stating precisely because the informal
+version invites a weaker reading. ``Caches are never invalidated'' is not an empirical observation
+that definitions rarely change, and not a policy that could be traded away for freshness. It is a
+consequence of two facts: the store is append-only, and the cache is keyed by a hash of exactly the
+expression that was evaluated. Together they make staleness unrepresentable. Nothing in the argument
+mentions names, types, or how often anyone edits anything.
 \end{remark}
 
 % =====================================================================
-\section{Part V --- Update}\label{sec:uupdate}
+\section{Update}\label{sec:uupdate}
 
 \subsection{Dependents}
 
 \begin{definition}[Dependents]\label{def:dependents}
 $\deps(h,i)$ is the set of references occurring in the $i$-th member of the component at $h$;
-$\dependents$ is its converse, maintained as an index populated when a definition is saved. Note
-that this index exists \emph{because} a reference is a stored node even though it hashes
-transparently at position $0$ (\cref{prop:transparent}): transparency is a property of the hash, not
-of the representation.
+$\dependents$ is its converse, maintained as an index populated when a definition is saved. Note that
+this index can exist because a reference remains a node in the stored representation even though it
+hashes transparently at position $0$ (\cref{prop:transparent}): transparency is a property of the
+hash, not of the representation.
 \end{definition}
 
 \begin{definition}[Update scope]\label{def:uscope}
-\src{Operations.hs:1125-1126; Update2.hs:139-179} Given a set $Q$ of references being updated and a
+\src{ops:1125-1126; update:139-179} Given a set $Q$ of references being updated and a
 namespace $\UNames$,
 \[
   \tdeps(Q) \;=\; \bigl(\dependents^{+}(Q) \;\cap\; \mathcal{S}\bigr) \setminus (F \cup L)
@@ -569,26 +658,31 @@ shadows, and $L$ is everything under $\lib$.
 \end{definition}
 
 \begin{remark}[Naming is what puts a definition in scope]\label{rem:scopenaming}
-An unnamed definition is not a dependent to be updated, even if it references the target. That is the
-no-definition-sort stance doing load-bearing work in a second system: naming is the only thing that
-makes a stored object a participant. Note also what is \emph{absent} --- there is no type-based
-gating. Unison used to classify each edit as $\mathsf{Same} \mid \mathsf{Subtype} \mid
-\mathsf{Different}$ and propagate only the first two; that machinery was deleted in 2025. The current
-design computes the closure and lets the typechecker decide.
+An unnamed definition is not a dependent to be updated, even if it references the target. Naming is
+the only thing that makes a stored object a participant in an edit --- which is a second place, after
+\cref{rem:watchkey}, where the system declines to attach a ``definition'' status to stored data and
+lets the namespace carry it instead.
+
+Note also what is \emph{absent}: there is no type-based gating. Unison formerly classified each edit
+as $\mathsf{Same} \mid \mathsf{Subtype} \mid \mathsf{Different}$ and propagated only the first two
+automatically; that machinery was removed in 2025. The current design computes the closure and lets
+the typechecker decide, reporting failure rather than predicting it.
 \end{remark}
 
 \subsection{Update, as rendering}
 
 \begin{definition}[Pretty-print environment]\label{def:ppe}
-\src{Update2.hs:429-443} A $\ppe$ assigns each reference a name to render it by, under two different
-suffixification strategies: definitions \emph{in the file} are suffixified by name, definitions
-\emph{in the codebase} by hash. The asymmetry is forced --- aliases sharing a suffix may be referred
-to by that suffix in the codebase but not in a file, where the parser reports an ambiguity.
+\src{update:429-443} A $\ppe$ assigns each reference a name to
+render it by, under two different suffixification strategies: definitions \emph{in the file} are
+suffixified by name, definitions \emph{in the codebase} by hash. The asymmetry is forced --- aliases
+sharing a suffix may be referred to by that suffix in the codebase but not in a file, where the parser
+reports an ambiguity. The source gives the example: with \texttt{one.foo} and \texttt{two.foo} both in
+the file, \texttt{hey = foo + foo} fails to parse.
 \end{definition}
 
 \begin{definition}[Update]\label{def:update}
-\src{Update2.hs:89-258} Given a typechecked incoming file $F$ and a configuration
-$\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
+\src{update:89-258} Given a typechecked incoming file $F$ and a
+configuration $\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
 \begin{enumerate}[nosep,label=\arabic*.]
   \item Let $Q$ be the references of the names $F$ redefines, and $D = \tdeps(Q)$.
   \item Render: $S = \render(\ppe, D)$, source text for every dependent.
@@ -599,20 +693,25 @@ $\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
 \end{enumerate}
 \end{definition}
 
-\begin{remark}[The residual, rendered]\label{rem:residual}
-Step 5 is the sharpest single contrast in this document. \stlcref{def:residual} has migration commit
-and report a residual \emph{set of names}; \texttt{update} evicts the broken definitions from the
-namespace and hands back \emph{the code itself}, so the namespace stays coherent and the broken work
-becomes a scratch file. The residual is not an error report, it is the next thing to edit. Note that
-this requires \cref{rem:names}: what is handed back must be readable, so binder names must have
-survived storage.
+\begin{remark}[The failure case is the interesting one]\label{rem:residual}
+Step 5 is the part of \texttt{update} we found least anticipated by the informal descriptions. When
+propagation fails, the namespace is not left holding broken definitions and the operation does not
+roll back: the broken definitions are \emph{evicted} from the namespace, and their source becomes the
+user's working state. The namespace stays coherent by construction, and the unfinished work is the
+scratch file. Note the dependency on \cref{rem:names} --- what is handed back has to be readable, so
+binder names must have survived storage.
+
+The same closure computation feeds \texttt{merge}, which puts conflicted definitions and their
+dependents into a scratch file together for the same reason: a conflict cannot be resolved in
+isolation, because whatever the user picks, everything downstream must be re-typechecked against it.
 \end{remark}
 
 \begin{proposition}[Update propagates by exactly one strategy]\label{prop:follow-only}
 The transition of \cref{def:update} admits no parameter controlling propagation: $\tdeps$ is fixed.
-In the vocabulary of \texttt{docs/design/04-naming-layer.md} it is $\Follow$ with scope fixed at the
-whole namespace. There is no $\Pin$ --- the nearest analogue is declining to run \texttt{update} ---
-and no $\Explicit$ at selection time, though something like it reappears at failure time, since what
+Every transitive dependent with an unconflicted name outside $\lib$ is rebuilt, and there is no way to
+request that some callers be left pointing at the old definition. The nearest thing to that is to
+decline to run \texttt{update} and bind a new name with \texttt{add} instead, which is abstention
+rather than an operation. A per-definition choice does reappear at \emph{failure} time, since whatever
 fails to typecheck comes back as source for the user to edit.
 \end{proposition}
 
@@ -631,82 +730,95 @@ its references to $Q$ replaced by their new targets. This holds iff, for every $
 Step 3 reconstructs $d'$ from text alone. Any discrepancy introduced by the round trip --- a binder
 renamed so as to change capture, an identifier resolving to a different alias, a different
 associativity --- is preserved into $d'$ and changes its hash for a reason unrelated to the update.
-Conversely if the round trip is exact except at the references being retargeted, $d'$ is by
+Conversely, if the round trip is exact except at the references being retargeted, $d'$ is by
 construction the intended substitution.
 \end{proof}
 
-\begin{remark}[Unison does not state this; arbor proves it]\label{rem:printparse}
-The implementation's own comment for this step is: \emph{``We are updating old references to new
-references by rendering old references as names that are then parsed back to resolve to new
-references (the world's weirdest implementation of AST substitution)''} \src{Update2.hs:424-427}.
-The correctness property that comment presupposes appears nowhere in the source. It is instead
-\emph{tested}: \texttt{unison-src/transcripts-round-trip/} renders a regression corpus, re-adds it to
-a fresh namespace, and asserts the namespace diff is empty. The corpus file is named
-\texttt{reparses-with-same-hash.u}, and its sibling \texttt{reparses.u} holds the weaker cases that
-need only parse. The naming is the tell: the property is understood precisely and lives in a golden
-file.
+\begin{remark}[The property is understood precisely, and lives in a test]\label{rem:printparse}
+The implementation's own comment for this step is: ``We are updating old references to new references
+by rendering old references as names that are then parsed back to resolve to new references (the
+world's weirdest implementation of AST substitution)''
+\src{update:424-427}. The correctness property that comment
+presupposes does not appear as a statement anywhere in the source. It is instead \emph{tested}:
+\texttt{unison-src/transcripts-round-trip/} renders a regression corpus, re-adds it to a fresh
+namespace, and asserts that the namespace diff is empty --- ``this diff should be empty if the two
+namespaces are equivalent. If it's nonempty, the diff will show us the hashes that differ.'' The
+corpus file is named \texttt{reparses-with-same-hash.u}, and its sibling \texttt{reparses.u} holds the
+weaker cases that need only parse.
 
-\coreref{prop:print-elab} is that property, stated and proved --- and stated at the right generality,
-since printing is modeled as a \emph{judgment} so the theorem quantifies over every rendering the
-printer might choose. Two caveats belong with any use of this comparison. First, \arborcore{}'s
-proposition is about \arborcore{}'s languages, not Unison's, which are vastly larger; this is an
-argument about the \emph{shape} of the guarantee, not a theorem about Unison. Second, \arborcore{}'s
-own migration is a structural rewrite over stored nodes that needs no round-trip lemma at all --- so
-arbor proves something it does not itself depend on, and Unison depends on something it does not
-prove.
+The naming is the point. The property is understood exactly, and the distinction between ``reparses''
+and ``reparses with the same hash'' is drawn in the file names --- it is simply maintained as a golden
+corpus rather than stated as an invariant. Given the size of Unison's surface language that is a
+defensible engineering choice; we note it because \cref{prop:print-parse} makes explicit what the
+corpus is protecting, and because the difficulty demonstrably concentrates in one place, the
+pretty-print environment of \cref{def:ppe}.
 \end{remark}
 
 % =====================================================================
-\section{Contrast}\label{sec:contrast}
+\section{Comparison with arbor}\label{sec:contrast}
 
-Each row names a fork and what each side pays. The prose version, with source citations on the Unison
-side, is \texttt{docs/systems/unison/07-arbor-mapping.md}; the two should be kept in agreement.
+Everything above is about Unison. This section is the exception: it compares the design with
+\emph{arbor}, a content-addressed computational substrate we are developing, for which a companion
+formalization exists in the same style --- \arborcore{}, an untyped $\lambda$-calculus over a store, a
+namespace and an evaluation cache, with an edit calculus; and \arborstlc{}, a simply-typed extension.
+Readers who came for the Unison model can stop here.
+
+arbor differs from Unison in ambition rather than in kind: it is a substrate intended to host several
+languages, not a language. It shares the core commitments --- definitions identified by hash, names as
+metadata, immutability, derived data keyed by hash --- and diverges on most of the mechanisms below.
+Its formalization is machine-checked in Agda, which is why several rows can say ``proved''; that is a
+statement about arbor's much smaller object language, not a claim that anything about Unison is
+unproved-but-provable at the same cost.
 
 \begin{center}
 \small
-\begin{tabular}{@{}p{0.19\textwidth}p{0.37\textwidth}p{0.37\textwidth}@{}}
+\begin{tabular}{@{}p{0.17\textwidth}p{0.38\textwidth}p{0.38\textwidth}@{}}
 \toprule
 & \textbf{Unison} & \textbf{arbor} \\
 \midrule
 Store key
 & $\Hash \pfn \Comp$; a definition is $\UDer{h}{i}$ (\cref{def:ustore})
-& $\Hash \pfn \Node$; a definition is a hash (\coreref{def:store}) \\
+& $\Hash \pfn \Node$: one shallow node per hash, children by hash. A definition is a hash
+  (\coreref{def:store}) \\
 \addlinespace
 Mutual recursion
-& In the hasher. Presentation-independence is \emph{conditional} and the implementation aborts when
-  the condition fails (\cref{thm:ordering}, \cref{rem:notpartial})
-& Open. A binder in the object language leaves $\Store$ untouched; the ambiguity becomes a
-  behaviour-preserving choice rather than an abort \\
+& In the hasher. Presentation-independence is conditional, and the implementation aborts when the
+  condition fails (\cref{thm:ordering}, \cref{rem:notpartial})
+& Not yet reached. The leading candidate closes the cycle with a binder in the object language ---
+  a fixpoint over a product, members as projections --- which leaves the store's type untouched \\
 \addlinespace
 Reference transparency
 & Yes, at $\Pos = 0$ only (\cref{prop:transparent})
-& Opaque here (\coreref{def:node}); transparency decided 2026-08-24 on a branch, pending merge
-  (\cref{rem:transparent}). Either way no positional asymmetry, there being no components \\
+& Opaque in \coreref{def:node}; a decision to adopt transparency was taken in 2026-08 and mechanized
+  on a branch, pending merge. Either way there is no positional asymmetry, there being no components \\
 \addlinespace
 Type
 & Inside the term hash; a signature change is an identity change (\cref{def:typeinhash})
-& A derived aspect $\TyOf$ about a hash; observational, because a permissive store must hold
-  ill-typed and partial terms \\
+& A derived aspect \emph{about} a hash, observational rather than constitutive --- forced by wanting
+  a store that can hold ill-typed and partially-written terms \\
 \addlinespace
 Primitives
 & $\UBuiltin{b}$, named by text --- extrinsic (\cref{rem:builtin})
 & Manually-versioned procedure tags --- also extrinsic, by a different mechanism \\
 \addlinespace
 Namespace
-& A relation; conflict representable, unconflictedness demanded by operations (\cref{rem:conflict})
-& A partial function; multiplicity pushed into a family of namespaces \\
+& A relation; conflict representable, unconflictedness demanded by the operations that need it
+  (\cref{rem:conflict})
+& A partial function; multiplicity pushed out into a family of namespaces, one per branch or agent \\
 \addlinespace
 Cache
 & Keyed by any expression hash; no invalidation (\cref{cor:wnoinval})
-& Identical, including the argument (\coreref{cor:cache}) \\
+& The same, including the argument (\coreref{cor:cache}) \\
 \addlinespace
 Update mechanism
 & Render $\to$ parse $\to$ typecheck $\to$ re-add (\cref{def:update})
-& A structural rewrite $\rho$ over stored nodes; no surface syntax involved \\
+& A structural rewrite over stored nodes; no surface syntax involved, so no round-trip obligation
+  arises \\
 \addlinespace
 Propagation
-& $\Follow$ only, scope fixed (\cref{prop:follow-only})
-& $\Pin$ / $\Follow$ / $\Explicit$ over a scope axis --- richer than the closest system ships \\
+& One strategy, scope fixed (\cref{prop:follow-only})
+& Pin / follow / explicit over a scope axis --- a richer framing than the closest comparable system
+  ships, which is worth knowing before treating it as descriptive of prior art \\
 \addlinespace
 Update failure
 & Evict the broken names, hand back source (\cref{rem:residual})
@@ -719,32 +831,40 @@ Round-trip lemma
 \end{tabular}
 \end{center}
 
-\subsection*{What the comparison is good for}
+\subsection*{Two observations we take from the comparison}
 
-Two claims survive it. The first is a positioning claim and it is narrow enough to defend: the
-closest comparable system has a load-bearing correctness property maintained by a regression corpus,
-and arbor has the theorem in the same shape. That is better than ``first formal treatment'' because
-it names a mechanism.
+\textbf{On the round-trip property.} \Cref{prop:print-parse} identifies a correctness obligation that
+a shipping system carries and maintains by testing. arbor happens to have the corresponding theorem
+proved, for its own much smaller languages, and does not itself depend on it --- its migration is a
+structural rewrite that never goes through surface syntax. So the honest form of the observation is
+about the \emph{shape} of the guarantee and not about either system's rigor: one system depends on a
+property it does not state, and the other states a property it does not depend on. What would be
+genuinely useful, and is out of reach here, is a specification of the pretty-print environment under
+which the property becomes provable at Unison's scale.
 
-The second is methodological. Three of this document's results --- the $\Pos = 0$ boundary of
-transparency (\cref{prop:transparent}), the two orderings inside component hashing
-(\cref{rem:twoorders}), and the fact that ordering ambiguity yields a \emph{name-dependent hash}
-rather than a failure (\cref{rem:notpartial}) --- were not visible in a careful prose read of the same
-source, and two of them correct that read. Formalizing another system's design is a way of reading
-it, and it finds different things than reading it as prose does.
+\textbf{On the failure case.} Of everything in the comparison, \cref{rem:residual} is the row where we
+think Unison is ahead. arbor's migration commits and reports a residual --- a set of names that no
+longer typecheck. Unison's answer is strictly more useful: the broken definitions leave the namespace
+and come back as code, in a file, ready to edit. The namespace never holds a broken state, and the
+report is the work itself rather than a description of it.
 
 % =====================================================================
-\section*{Provenance}
-\addcontentsline{toc}{section}{Provenance}
+\section*{Provenance and how to check this}
+\addcontentsline{toc}{section}{Provenance and how to check this}
 
-Faithful to Unison at commit \texttt{db60ce2} (2026-08-07); re-verify the pin with
-\texttt{git -C <unison> rev-parse HEAD} before citing. Every \src{path:lines} tag is relative to that
-tree. The prose source read this document formalizes is \texttt{docs/systems/unison/}, and the
-mapping onto arbor's objects is \texttt{docs/systems/unison/07-arbor-mapping.md}. Modeling choices
-and what was deferred are logged in \texttt{formalism/decisions.md} and
-\texttt{formalism/open-questions.md}.
+Every claim is faithful to Unison at commit \texttt{db60ce2} (2026-08-07). Re-check the pin with
+\texttt{git -C <unison> rev-parse HEAD}; if it has moved, the citations below are still true
+\emph{at that commit} --- they are dated, not necessarily wrong. Margin tags give file and line
+ranges, with directory prefixes expanded in \cref{sec:paths}.
 
-Cite \texttt{UnisonSource} --- the pinned tree --- for any claim about how Unison behaves. There is
-no publication.
+Because Unison has no publication, the citable artifact for any claim about its behavior is the
+source at a pinned commit, and we would encourage anyone building on this document to cite it that way
+rather than citing a description.
+
+Corrections are welcome, particularly from Unison's authors. Three points where we are least
+confident, and where the code underdetermines the intent: whether the position-$0$ boundary of
+\cref{prop:transparent} is deliberate; whether the two orderings of \cref{rem:twoorders} are meant to
+be distinct; and whether \cref{rem:conflict}'s reading of \texttt{BranchV3} --- that conflicted names
+are being designed out --- reflects the plan or only a simplification of that format.
 
 \end{document}
