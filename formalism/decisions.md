@@ -696,3 +696,47 @@ read of the same source, conducted three weeks earlier by the same process that 
 `docs/systems/unison/`. Formalizing another system's design is a *way of reading it*, and it finds
 different things than reading it as prose does. That is an argument for doing this again with the
 next system rather than only surveying it.
+
+---
+
+## 2026-08-25 (later) — `mini-unison`: two more corrections, and where the notes go
+
+**A fourth finding, `rem:unhash`.** Prompted by the user asking whether "references are replaced by
+their hashes" was true. It was not, and checking it turned up something the earlier three findings
+had not. An intra-component reference has **three** representations:
+
+| | form |
+| --- | --- |
+| while hashing | a **variable**, resolved to an index into the cycle frame |
+| in memory, after `hashComponents` | `Derived(h, i)` with the component's own fresh hash |
+| serialized | **no hash** — `Reference' Text (Maybe Hash)`, `Nothing` marking self |
+
+So the bytes on disk are not the bytes that were hashed, and re-deriving a stored component's hash
+requires undoing the substitution first. `unhashComponent` is that inverse, documented as "replaces
+all `Nothing` self-referential hashes with a variable reference to the relevant piece of the
+component", and the hash-validation path calls it before re-hashing. The encoding is sound — writing
+a component's own hash into its members' serialized bytes would require the bytes before the hash,
+which is the circularity components exist to break — but "the hash of a definition is the hash of
+what is stored" is false for cyclic definitions in three distinct ways.
+
+**The prose error that led there.** The introduction had said a definition is identified by the hash
+of its syntax "after binder names have been erased and references to other definitions have been
+replaced by *their* hashes". Wrong twice. A reference is not replaced — it already carries the
+referent's hash, and `hash1` computes the hash *of that node*; at position 0 the result equals the
+referent's hash, which is `prop:transparent`, a consequence rather than the mechanism. And the
+sentence implied intra-cycle references are hashes, which they cannot be. There *is* a substitution
+at ingest, but it replaces free **variables** naming other members of the same file with reference
+terms — names becoming references, not references becoming hashes.
+
+**Where notes go, decided.** The document is meant to be readable by people outside this project,
+including Unison's authors, so it carries no process narration: no account of what an earlier draft
+got wrong, which prose read missed what, or which claim corrected which file in `docs/`. That
+material is worth keeping and it lives here. The paper states findings positively; this log carries
+the history. A header comment in `paper/mini-unison.tex` says so, so the next editor does not
+reintroduce it.
+
+The one piece of method that stayed in the paper is the claim itself, stated without autobiography:
+several of its observations concern behaviour the code fixes precisely but that no prose description
+states, and writing a system down precisely enough to prove things about is a different activity from
+reading it. That is a claim a reader can evaluate. "We read this three weeks ago and missed it" is
+not, and is the sort of thing that reads as a confession rather than a result.

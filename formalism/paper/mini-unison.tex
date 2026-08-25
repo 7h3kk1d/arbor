@@ -1,3 +1,20 @@
+% mini-unison --- a formal model of Unison's content addressing and update scheme.
+%
+% THIS DOCUMENT IS FOR A READER WHO DOES NOT KNOW ARBOR, including Unison's own
+% authors. Keep it that way:
+%
+%   * Sections 1-6 are about Unison alone. All comparison with arbor lives in
+%     section 7, which introduces arbor for someone who has never heard of it.
+%   * No repo-internal paths (docs/..., formalism/...), and no references to
+%     arbor documents a reader cannot obtain.
+%   * No process narration -- what an earlier draft got wrong, which prose read
+%     missed what, which claims corrected which file. That material is real and
+%     worth keeping, but it belongs in ../decisions.md (entry 2026-08-25), not
+%     here. State findings positively; let the log carry the history.
+%
+% Source citations use short file keys defined in the table in section 1.7.
+% Build: latexmk -pdf arbor-core.tex first (xr cross-refs), then this.
+
 \documentclass[11pt]{article}
 
 \usepackage[margin=1in]{geometry}
@@ -118,10 +135,13 @@ check, or to compare against another design --- what exactly is being identified
 which conditions, and what has to hold for the conclusions to follow. Absent a publication, the
 implementation is the specification, and the implementation is roughly 161{,}000 lines of Haskell.
 
-We wrote this because we needed such a statement in order to compare Unison honestly with a system
-we are building (\cref{sec:contrast}). It turned out to be worth writing on its own terms: three of
-the observations below were not visible to us in a careful reading of the same source conducted
-several weeks earlier, and two of them corrected conclusions we had drawn from that reading.
+We wrote this in order to compare Unison with a system we are building (\cref{sec:contrast}), and it
+proved worth writing on its own terms. Several of the observations below --- the position-$0$
+boundary of \cref{prop:transparent}, the two orderings of \cref{rem:twoorders}, the three
+representations of \cref{rem:unhash} --- concern behaviour the code fixes precisely but which no
+prose description we have found states. Writing down what a system does, in a form precise enough to
+prove things about, turns out to be a different activity from reading it, and to surface different
+things.
 
 \subsection{What this document is, and is not}
 
@@ -531,9 +551,9 @@ path calls it before re-hashing \src{termhash:26-42}.
 
 None of this is observable through the API, and it is a sensible encoding --- writing a component's
 own hash into its members' serialized bytes would mean the bytes could not be produced until the hash
-was known, which is the circularity the whole construction exists to break. We record it because
-``the hash of a definition is the hash of what is stored'' is a natural thing to assume, and for
-cyclic definitions it is false in three distinct ways.
+was known, which is the circularity the whole construction exists to break. It is worth stating
+because ``the hash of a definition is the hash of what is stored'' is a natural thing to assume, and
+for cyclic definitions it is false in three distinct ways.
 \end{remark}
 
 \subsection{What component hashing guarantees}
@@ -734,7 +754,7 @@ configuration $\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
 \end{definition}
 
 \begin{remark}[The failure case is the interesting one]\label{rem:residual}
-Step 5 is the part of \texttt{update} we found least anticipated by the informal descriptions. When
+Step 5 is the part of \texttt{update} least anticipated by informal descriptions of it. When
 propagation fails, the namespace is not left holding broken definitions and the operation does not
 roll back: the broken definitions are \emph{evicted} from the namespace, and their source becomes the
 user's working state. The namespace stays coherent by construction, and the unfinished work is the
@@ -789,9 +809,9 @@ weaker cases that need only parse.
 The naming is the point. The property is understood exactly, and the distinction between ``reparses''
 and ``reparses with the same hash'' is drawn in the file names --- it is simply maintained as a golden
 corpus rather than stated as an invariant. Given the size of Unison's surface language that is a
-defensible engineering choice; we note it because \cref{prop:print-parse} makes explicit what the
-corpus is protecting, and because the difficulty demonstrably concentrates in one place, the
-pretty-print environment of \cref{def:ppe}.
+defensible engineering choice. \Cref{prop:print-parse} makes explicit what the corpus is protecting,
+and the difficulty demonstrably concentrates in one place: the pretty-print environment of
+\cref{def:ppe}.
 \end{remark}
 
 % =====================================================================
