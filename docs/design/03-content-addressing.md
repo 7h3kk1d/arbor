@@ -161,7 +161,9 @@ Unison's. Hash the whole strongly-connected group as one object and address a me
 
 **Cost 1: the store's type changes.** `Σ : Hash ⇀ Node` becomes `Σ : Hash ⇀ Node⁺`, and *every* reference in the system becomes a pair. That reaches `wf`'s no-dangle clause, `callers_of`, the migration rewrite, the namespace's codomain, and `thm:alpha` — see `formalism/open-questions.md`.
 
-**Cost 2: on collision it refuses.** `Pos` is externally visible — it is in every reference and in every namespace binding — so Unison must commit to an index per member and will not guess. Hence `IncompleteElementOrderingError` and the instruction to perturb a definition by hand (unisonweb/unison#2787).
+**Cost 2: on collision it aborts.** `Pos` is externally visible — it is in every reference and in every namespace binding — so Unison must commit to an index per member. Hence `IncompleteElementOrderingError` and the instruction to perturb a definition by hand (unisonweb/unison#2787).
+
+*(Precision added 2026-08-25 from `formalism/paper/mini-unison.tex`: the hasher does not decline to guess — it guesses, by falling back to a stable sort over the name-ordered input, which makes the component's hash a function of the members' **names**. It also detects that it has done so, and the **caller** aborts rather than store that hash. So the guarantee that fails is presentation-independence, not definedness; and the check is a decidable side condition, which is the shape any arbor treatment of this would inherit.)*
 
 #### Option B1 — a fixpoint over a positional tuple
 

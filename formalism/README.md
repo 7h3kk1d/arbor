@@ -3,7 +3,9 @@
 A mathematical formalism of the arbor substrate, developed the way the prototypes are:
 **start small, work up.** The first artifact, `arbor-core`, formalizes the untyped
 λ-calculus fragment of the substrate together with its three stores and an edit calculus.
-The second, `arbor-stlc`, adds simple types as a delta document over it.
+The second, `arbor-stlc`, adds simple types as a delta document over it. A third, `mini-unison`,
+is not a rung at all — it models *another system* so arbor's choices have something precise to be
+different from.
 
 This directory is a first-class, *enduring* artifact (like `docs/design/`), distinct from the
 disposable `prototypes/`. Where a design doc argues in prose and a prototype demonstrates in
@@ -72,6 +74,42 @@ total** (same type at the seed ⟹ empty residual under every scope), and the **
 (decidable ahead of time, but *not* stable under store growth — exposing an unsound cache in
 p11's `follow-clean:v1`). Sources: `decisions.md` 2026-07-30 (arbor-stlc entry).
 
+## What `mini-unison` covers — and why it is not a rung
+
+`paper/mini-unison.tex` is a **contrast artifact**. It formalizes Unison's content addressing and
+update scheme, faithful to the implementation at commit `db60ce2`, and proposes nothing. It exists
+because Unison is the system arbor is closest to, it has **no publication**, and every "arbor
+differs because…" claim in `docs/` was therefore being made against prose rather than against a
+stated design.
+
+Scope: a small object language (untyped λ + `Nat`/`Text` + simple types — typed because Unison's
+`update` re-typechecks, and the interesting half of `update` is what happens when that *fails*);
+components and `(Hash, Pos)` references; reference transparency; the type inside the term hash;
+names as a relation; the watch cache; and `update` as render/parse/typecheck with eviction on
+failure. Deferred, and listed in the paper's §1.4: the namespace's Merkle representation, `Causal`
+history, branching and merge, suffix resolution, data declarations and minting, synhash.
+
+Three results are worth knowing:
+
+- **Presentation-independence of component hashing is *conditional*.** When two members of a cycle
+  are structurally equivalent modulo intra-cycle references, the component's hash depends on the
+  members' **names**. The condition is decidable, and the implementation aborts rather than store a
+  name-dependent hash — which is a stronger position than the "it's a partial function" reading the
+  source read had recorded.
+- **Reference transparency holds exactly at `Pos = 0`.** Non-head cycle members hash opaquely.
+  Transparency and the component model are not independent features.
+- **Unison's `update` rests on print-then-parse preserving hashes**, a property it never states and
+  maintains with a golden-file corpus named `reparses-with-same-hash.u`. That property is
+  `arbor-core`'s `prop:print-elab`, proved.
+
+Two of these corrected `docs/systems/unison/02-store-and-hashing.md`, which is the point of the
+exercise: formalizing another system's design is a way of *reading* it, and it finds different
+things than reading it as prose does.
+
+**`mini-unison` is paper-only.** It is deliberately outside the Agda discipline — `make check`,
+`make status` and `make labels` are pointed at `arbor-core` and `arbor-stlc` and should stay that
+way, so a green build is never taken to say anything about this document.
+
 ## Mechanization
 
 `arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **17 of the
@@ -118,6 +156,7 @@ Requires a TeX distribution with `latexmk`.
 cd formalism/paper
 latexmk -pdf arbor-core.tex     # -> arbor-core.pdf  (build this FIRST)
 latexmk -pdf arbor-stlc.tex     # -> arbor-stlc.pdf  (reads arbor-core.aux via xr)
+latexmk -pdf mini-unison.tex    # -> mini-unison.pdf (reads both .aux files via xr)
 latexmk -c                      # clean aux files (breaks arbor-stlc's external refs
                                 #   until arbor-core is rebuilt)
 ```
@@ -132,6 +171,8 @@ formalism/
   paper/
     arbor-core.tex     # first artifact (Parts I–V + metatheory)
     arbor-stlc.tex     # second artifact: the STLC rung, a delta over arbor-core
+    mini-unison.tex    # contrast artifact: a model of Unison (paper-only, not a rung)
+    macros-unison.tex  # mini-unison notation, deliberately disjoint from macros.tex
     macros.tex         # notation (shared; arbor-stlc additions are additive)
     references.bib     # bibliography
   scripts/

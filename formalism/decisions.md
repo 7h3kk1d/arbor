@@ -642,3 +642,57 @@ general context. Mechanizing finds these reliably because an unused premise is v
 unused argument — worth remembering when writing the next rung, since the cost is not merely
 inelegance: `lem:subst`'s generality would have committed the proof to machinery the document
 does not need.
+
+---
+
+## 2026-08-25 — `mini-unison`: modeling another system, and the choices that took
+
+`paper/mini-unison.tex` formalizes Unison's content addressing and update scheme. It is a
+**contrast artifact, not a rung**: it models another system, faithful to `db60ce2`, and proposes
+nothing. The reason it exists is that Unison has no publication, so every comparative claim in
+`docs/` was being made against prose.
+
+**Choices.**
+
+1. **Simple types, not an abstract acceptance gate.** Unison's `update` re-typechecks, and the
+   interesting half of `update` is the *failure* branch — evict the broken definitions and hand them
+   back as source. Untyped, that branch is unreachable. An abstract `Ok : File → Bool` parameter was
+   considered and rejected: it would have carried no content of its own, and the object language is
+   small enough that real types cost little.
+2. **Named ABTs, de Bruijn only at hash time.** The opposite of `arbor-core`, and not a matter of
+   taste: `update` renders stored definitions back to source a human must read, so the *author's*
+   binder names have to survive storage. `arbor-core`'s round trip is stated only up to name choice
+   (`prop:elab-print`) precisely because it does not keep them.
+3. **Ingest takes a binding group, not a term.** This is how `hashComponents` works, it is where
+   mutual recursion lives, and it avoids inventing a `letrec` former Unison does not have.
+4. **Notation is deliberately disjoint** (`macros-unison.tex`, everything `\U`-prefixed). Overloading
+   `\Store` would hide the fact that the two stores have different *types*, which is the document's
+   first substantive claim.
+5. **Paper-only.** Outside the Agda discipline on purpose, so a green `make check` is never taken to
+   say anything about this document. Recorded in `README.md`.
+
+**Three findings, two of which corrected the source read.**
+
+- **`thm:ordering` — presentation-independence of component hashing is *conditional*.** When two
+  cycle members are structurally equivalent modulo intra-cycle references, the stable sort falls back
+  to the input list order, which is always `Map.toList` — so the component's hash depends on the
+  members' **names**. The condition is decidable (`cor:detect`), and the implementation *aborts*
+  rather than store a name-dependent hash: `doHashCycle` returns a warning and says "hashing always
+  succeeds even if it generates warnings", while `crashOnHashingWarning` at the caller turns it into
+  an exception. `docs/systems/unison/02-store-and-hashing.md` had recorded this as "canonical form
+  for an SCC is a *partial* function" and "Unison detects this and refuses". Both corrected.
+- **`prop:transparent` — transparency holds exactly at `Pos = 0`.** `ReferenceDerived h 0` contributes
+  literally `h`; `ReferenceDerived h i` for `i ≠ 0` hashes opaquely, tagged with the position. So
+  transparency and the component model are not independent features. The same file had stated
+  transparency flatly, "at any position". Corrected.
+- **`rem:twoorders` — component hashing computes two different orderings.** The permutation order
+  fixes the de Bruijn indices used while hashing member bodies; a *second* order, sorted by a hash of
+  those indices, fixes the `Pos` indices in stored references. Nothing observable depends on the
+  difference, but a reimplementation conflating them would produce different hashes, and no prose
+  description mentions it.
+
+**The methodological point, which is the one to keep.** All three were invisible to a careful prose
+read of the same source, conducted three weeks earlier by the same process that produced
+`docs/systems/unison/`. Formalizing another system's design is a *way of reading it*, and it finds
+different things than reading it as prose does. That is an argument for doing this again with the
+next system rather than only surveying it.

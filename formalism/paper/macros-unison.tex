@@ -1,0 +1,67 @@
+% Notation macros for mini-unison.
+%
+% DELIBERATELY DISJOINT from macros.tex. arbor's \Store, \Names, \Cache, \nRef
+% and friends denote arbor's objects, whose TYPES differ here: a Unison store is
+% Hash -> Component, not Hash -> Node, and a Unison namespace is a relation, not
+% a partial function. Overloading the notation would hide exactly the differences
+% this document exists to state, so every object gets a \U-prefixed name and
+% renders with a subscript u.
+
+% --- the three stored structures ---
+\newcommand{\UStore}{\Sigma_{\mathsf{u}}}      % codebase: Hash -> Component
+\newcommand{\UNames}{N_{\mathsf{u}}}           % namespace: Name -> P(Referent)
+\newcommand{\UCache}{W}                        % watch cache: Hash -> Hash
+\newcommand{\UConfig}[3]{\langle #1,\, #2,\, #3\rangle}
+
+% --- references and components ---
+\newcommand{\Pos}{\mathsf{Pos}}
+\newcommand{\Comp}{\mathsf{Comp}}
+\newcommand{\Referent}{\mathsf{Referent}}
+\newcommand{\Reference}{\mathsf{Reference}}
+\newcommand{\UDer}[2]{\mathsf{Derived}(#1,#2)}
+\newcommand{\UBuiltin}[1]{\mathsf{Builtin}(#1)}
+\newcommand{\URefT}[1]{\mathsf{Ref}(#1)}
+\newcommand{\UCon}[2]{\mathsf{Con}(#1,#2)}
+
+% --- object language (named ABT, NOT de Bruijn) ---
+\newcommand{\uvar}[1]{#1}
+\newcommand{\ulam}[2]{\lambda #1.\,#2}
+\newcommand{\uapp}[2]{#1\;#2}
+\newcommand{\unat}[1]{\underline{#1}}
+\newcommand{\utext}[1]{\text{``}#1\text{''}}
+\newcommand{\uref}[1]{\mathsf{r}\,#1}
+\newcommand{\uann}[2]{#1 : #2}
+
+% --- types ---
+\newcommand{\TNat}{\mathsf{Nat}}
+\newcommand{\TText}{\mathsf{Text}}
+\newcommand{\uarr}[2]{#1 \mathbin{\to} #2}
+\newcommand{\utypes}[3]{#1 \vdash #2 : #3}       % Gamma |- t : T
+
+% --- hashing ---
+\newcommand{\uhash}[2]{\lceil #2 \rceil_{#1}}    % hash in environment
+\newcommand{\uhashc}[1]{\lceil #1 \rceil}        % closed hash
+\newcommand{\HEnv}{\rho}                          % the de-Bruijn-at-hash-time environment
+\newcommand{\phash}[1]{\mathsf{ph}(#1)}           % permutation hash
+\newcommand{\nhash}[1]{\mathsf{nh}(#1)}           % name hash (second sort key)
+\newcommand{\comphash}{\mathsf{hashComp}}
+\newcommand{\hashcomps}{\mathsf{hashComps}}
+\newcommand{\amb}{\mathsf{Ambiguous}}
+\newcommand{\bg}{\mathcal{B}}                     % a binding group
+
+% --- naming ---
+\newcommand{\unconf}[2]{\mathsf{unconflicted}(#1,#2)}
+\newcommand{\uresolve}[3]{#1 \vdash #2 \rightsquigarrow #3}
+
+% --- update ---
+\newcommand{\deps}{\mathsf{deps}}
+\newcommand{\dependents}{\mathsf{dependents}}
+\newcommand{\tdeps}{\mathsf{tdeps}}
+\newcommand{\ppe}{\mathsf{ppe}}
+\newcommand{\render}{\mathsf{render}}
+\newcommand{\uparse}{\mathsf{parse}}
+\newcommand{\uupdate}{\mathsf{update}}
+\newcommand{\lib}{\mathsf{lib}}
+\newcommand{\scratch}{\mathsf{scratch}}
+\newcommand{\ok}{\mathsf{typechecks}}
+\newcommand{\usteps}{\longrightarrow_{\mathsf{u}}}

@@ -63,7 +63,15 @@ for_ structurallyEquivalentElements \vs ->
 ```
 `ABT.hs:190-192`, with the error type at `:33-36` pointing at [unisonweb/unison#2787](https://github.com/unisonweb/unison/issues/2787). The user-facing workaround is to perturb one definition — literally, add a dummy binding like `_ = "this is the foo definition"`. The storage layer mirrors it as `HashingFailure` (`codebase2/codebase-sqlite/U/Codebase/Sqlite/HashHandle.hs:33-55`). Internal `let rec` bindings deliberately suppress the warning rather than fail (`ABT.hs:169-174`), because there the ordering is not observable.
 
-**Correction owed to arbor.** `../../design/03-content-addressing.md:141` says: *"When a language introduces mutually recursive definitions, we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point."* Two things are understated. First, the commitment is larger than an ordering — it changes the *type of the store*, from hash-to-node to hash-to-component, and every reference from a hash to a pair. Second, **the known starting point has a known defect**: canonical ordering of a cycle is not always possible, and the mature implementation's answer is to detect the case and ask the user to break the tie by hand. That is worth writing down before arbor reaches recursion, because it means "canonical form for an SCC" is a *partial* function, not a total one.
+**Correction owed to arbor.** `../../design/03-content-addressing.md:141` says: *"When a language introduces mutually recursive definitions, we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point."* Two things are understated. First, the commitment is larger than an ordering — it changes the *type of the store*, from hash-to-node to hash-to-component, and every reference from a hash to a pair. Second, **the known starting point has a known defect**: canonical ordering of a cycle is not always possible, and the mature implementation's answer is to detect the case and ask the user to break the tie by hand. That is worth writing down before arbor reaches recursion.
+
+**Correction (2026-08-25, from formalizing this).** The sentence that stood here said the defect means *"canonical form for an SCC is a partial function, not a total one"*, and that "Unison detects this and refuses". Both are slightly wrong, and the accurate version is more useful.
+
+`hashComponent` is **total** — on the ambiguous input it returns a hash. What fails is not definedness but **presentation-independence**, the property content addressing exists to provide. The tie-break is `sortOn`, which is *stable*, so equal permutation hashes preserve the input list order — and the list is always `Map.toList`, i.e. **sorted by name**. So in the ambiguous case the component's hash, and every reference into it, is a function of the members' **names**.
+
+And the implementation does not "refuse" at the hashing layer. `doHashCycle` returns the condition as a *warning*, and its own comment says *"Hashing always succeeds even if it generates warnings"* (`ABT.hs:175-192`). The refusal is at the **caller**: `crashOnHashingWarning` (`ABT.hs:65-71`) turns it into an exception, the main term-component path takes that route (`parser-typechecker/src/Unison/UnisonFile.hs:284`), and `unison-cli/src/Unison/Main.hs:116` renders it as bug `E253299` with the add-a-dummy-binding workaround. Internal `let rec` bindings deliberately ignore the warning, since there the ordering is not observable (`ABT.hs:167-172`).
+
+So the precise statement is: **a decidable side condition guards presentation-independence, and the implementation aborts rather than store a hash that violates it.** That is a stronger engineering position than "the function is partial", and a sharper problem for a formalism, because the side condition has to appear in every downstream theorem. Stated as `thm:ordering` + `cor:detect` in `formalism/paper/mini-unison.tex`.
 
 ## Alpha-equivalence: named ABTs, de Bruijn only at hash time
 
@@ -83,10 +91,18 @@ De Bruijn indices appear **only during hashing**. `hash'` carries an environment
 
 ```haskell
 TermRef (ReferenceDerived h 0) -> Hash.fromByteString (Hash.toByteString h)
+TermRef (ReferenceDerived h i) ->
+  Hashable.accumulate [tag 1, hashed $ Hash.fromByteString (Hash.toByteString h), Hashable.Nat i]
 ```
 `unison-hashing-v2/src/Unison/Hashing/V2/Term.hs:135-146`, with the comment: *"this case ensures that references are 'transparent' wrt hash … So for example `x = 1 + 1` and `y = x` hash the same."*
 
-A reference node contributes **literally the referenced hash** to its parent's hash input, at any position, rather than a tagged encoding of its own. Two consequences, and the second is the strong one:
+**Correction (2026-08-25, from formalizing this in `formalism/paper/mini-unison.tex`).** A first draft of this section said the referenced hash is contributed "at any position", which conflated two senses of *position*. It is contributed at any position **within the parent term** — but only for `ReferenceDerived h 0`. A reference to a **non-head member of a component** hashes *opaquely*, tagged with its position, as the second case above shows. So:
+
+> **Transparency holds exactly at `Pos = 0`.** Every non-recursive definition and the head member of every cycle is transparent; every other cycle member is not.
+
+Transparency and the component model are therefore not independent features, and the boundary between them falls at position 0. Stated as `prop:transparent` in mini-unison.
+
+With that scoped, two consequences, and the second is the strong one:
 
 1. A definition whose whole body is a bare reference *is* the referenced definition — `x = 1 + 1` and `y = x` are one object, not two.
 2. **Inlining is hash-preserving.** `App(Ref h₁, Ref h₂)` hashes identically to the term with both callees' bodies substituted in, because each `Ref` already contributed exactly what the inlined body would have. Factoring a subterm out into its own definition, or folding it back in, changes nothing about identity.

@@ -29,6 +29,50 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
   (`docs/design/open-questions.md` §"Holes"); whether `wf` relaxes.
 - **Branching / merging.** History and namespace lifecycle once more than one namespace exists.
 
+## `mini-unison` — deferred, and questions it opened (2026-08-25)
+
+`paper/mini-unison.tex` models Unison's content addressing and update scheme. It is a **sibling, not
+a rung** — it does not extend `arbor-core`, so it does not belong on the ladder above. Choices and
+findings are in `decisions.md` 2026-08-25.
+
+**Deferred from v1**, each a candidate successor:
+
+- **The namespace's representation.** `Branch` as a hashed Merkle tree whose `children` field points
+  at each child's *causal* hash, so every level has its own history. mini-unison models the naming
+  *semantics* — names as a relation, unconflictedness as a derived predicate operations demand —
+  because `update` cannot be stated without them, and stops there.
+- **`Causal`, branching, and merge.** The thing arbor's `H` structurally cannot do: `H` is per-name,
+  flat and unhashed, and cannot answer "do these two states share an ancestor?", which is what every
+  merge asks. This is the largest deferred piece and is arguably its own document.
+- **Suffix resolution and the `lib`-depth priority rule.** Names in mini-unison are atomic.
+- **Data declarations and `unique`-type minting.** With only `Nat`, `Text` and arrows there are no
+  declarations, so `Referent`'s `Con` arm is vestigial and the minting axis is absent entirely.
+  Reinstating it is what would let the mint-stability question be stated on both sides.
+- **Synhash**, the propagation-provenance mechanism merge uses — the alternative to a second identity
+  axis, and the natural companion to the mint rung.
+- **Abilities, the ANF runtime, `LocalIds` and serialization.**
+
+**Questions it opened:**
+
+- **Does the ordering side condition propagate?** `thm:ordering` guards presentation-independence by
+  injectivity of the permutation hash. Every downstream statement about component identity inherits
+  that guard. Is there a formulation in which it does not — e.g. by ordering members with a mint, as
+  `docs/design/03-content-addressing.md` §"Mutual recursion" proposes — and if so, does that make
+  the two systems' recursion stories comparable at all, or merely different?
+- **Is the `Pos = 0` asymmetry load-bearing or incidental?** `prop:transparent` shows transparency
+  stops at the head of a component. Is that a deliberate optimization (a singleton component's
+  reference costs nothing to inline) or an accident of the encoding? The source comment justifies
+  only the `0` case. Worth asking upstream rather than inferring.
+- **Can `prop:print-parse` be proved for a realistic surface language?** mini-unison proves the
+  round-trip obligation for its own small language. Unison's is vastly larger, and the property is
+  maintained by a golden corpus. The interesting question is whether the *pretty-print environment*
+  (`def:ppe`) admits a specification under which the property is provable, rather than testable —
+  since the PPE is where the difficulty demonstrably lives.
+- **Should arbor model the evict-and-render residual?** `arbor-stlc`'s residual is a set of names;
+  Unison's is the code itself, delivered as a working set. `docs/design/13-editing-context.md`
+  already argues the residual *is* the next frontier. mini-unison's `def:update` step 5 is the
+  formal version of that, and arbor has no counterpart.
+
 ## Modeling questions inside `arbor-core`
 
 - **`hash` injectivity packaging.** Bundle `Hash` + `hash` + `hash-inj` as one record/axiom, or
