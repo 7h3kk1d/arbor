@@ -43,9 +43,9 @@
 \newtheorem{example}{Example}[section]
 \theoremstyle{plain}
 \newtheorem{theorem}{Theorem}[section]
-\newtheorem{lemma}[theorem]{Lemma}
-\newtheorem{corollary}[theorem]{Corollary}
-\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}{Lemma}[section]
+\newtheorem{corollary}{Corollary}[section]
+\newtheorem{proposition}{Proposition}[section]
 \theoremstyle{remark}
 \newtheorem{remark}{Remark}[section]
 
@@ -99,11 +99,9 @@ appears; the rest of the document is about Unison alone.
 \subsection{What Unison does differently}
 
 In a conventional language a definition is identified by its name and located in a file. In Unison a
-definition is identified by the hash of its own syntax, computed with binder names erased in favour
-of de Bruijn indices. A reference to another definition is not a name: by the time a term is hashed
-it already carries the referent's hash, so nothing is looked up and no substitution takes place ---
-the reference is simply hashed like any other node (\cref{prop:transparent} records what that hash
-turns out to be). The consequences that follow are the system's design:
+definition is identified by the hash of its own syntax, with names --- of its binders and of the
+other definitions it mentions --- playing no part in that identity. The consequences that follow are
+the system's design:
 
 \begin{itemize}[nosep]
   \item \textbf{Names are metadata.} Renaming a definition does not change it, because its identity
@@ -187,21 +185,33 @@ what happens when that \emph{fails} --- Unison removes the broken definitions fr
 hands them back to the user as editable source. Without a type system that branch is unreachable and
 the most distinctive thing about the operation cannot be stated.
 
-\subsection{Modeled}
+\subsection{What is modeled}
+
+Stated as the operations a user can perform and what each one is observed to do, rather than as a
+list of internal structures.
 
 \begin{itemize}[nosep]
-  \item Named abstract binding trees, with de Bruijn indices computed only at hash time.
-  \item Ingest of a \emph{binding group}: strongly-connected-component decomposition, and component
-        hashing with its canonical ordering algorithm.
-  \item $\Reference ::= \UBuiltin{\cdot} \mid \UDer{\cdot}{\cdot}$, and the position-$0$ boundary of
-        reference transparency.
-  \item The type inside the term hash.
-  \item The namespace as a relation, with conflict a representable state and unconflictedness a
-        derived predicate that operations demand.
-  \item The watch cache: no invalidation, and a key that need not be a named definition.
-  \item \texttt{update}: the dependents index, the scope computation, the pretty-print environment,
-        render/parse/typecheck, and eviction on failure.
+  \item \textbf{Ingest.} You present a group of definitions written in the object language. The
+        system gives each one an identity derived from its content and stores it. Definitions that
+        refer to one another cyclically receive their identities \emph{together}, which is the source
+        of most of what follows.
+  \item \textbf{Reference.} A stored definition may mention others. What it mentions is fixed when it
+        is stored and cannot afterwards change, so no edit anywhere alters what an existing
+        definition means.
+  \item \textbf{Naming.} Names are attached to identities from outside, and are not part of what is
+        stored. A name may denote more than one thing at once, and the system continues to function
+        when it does.
+  \item \textbf{Evaluation and caching.} A result is remembered against the identity of the
+        expression that produced it, and never has to be discarded.
+  \item \textbf{Update.} You present a new version of a definition. The system works out what
+        depended on the old one, rebuilds those, and either accepts the result or tells you what
+        broke --- by handing the broken definitions back to you as source.
 \end{itemize}
+
+Two things visible only through their consequences are modeled as well, because the rest does not
+make sense without them: how the identity of a mutually recursive group is fixed
+(\cref{def:comphash}), and the fact that a definition's recorded type is part of its identity
+(\cref{def:typeinhash}).
 
 \subsection{Not modeled}\label{sec:unotmodeled}
 
@@ -225,152 +235,116 @@ Stated so the boundary is explicit rather than implied.
   \item \textbf{Abilities, the ANF runtime, \texttt{LocalIds}, and the serialization layer.}
 \end{itemize}
 
-\subsection{How to read the source citations}\label{sec:paths}
-
-Every definition and claim carries a margin tag of the form \texttt{key:lines}, naming the file and
-line range it is faithful to at commit \texttt{db60ce2}. The keys:
-
-\begin{center}
-\small
-\begin{tabular}{@{}ll@{}}
-\toprule
-Key & File \\
-\midrule
-\texttt{abt}      & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/ABT.hs} \\
-\texttt{term}     & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Term.hs} \\
-\texttt{tok}      & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Tokenizable.hs} \\
-\texttt{branchh}  & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Branch.hs} \\
-\texttt{cabt}     & \texttt{codebase2/core/U/Core/ABT.hs} \\
-\texttt{ref}      & \texttt{codebase2/core/U/Codebase/Reference.hs} \\
-\texttt{referent} & \texttt{codebase2/codebase/U/Codebase/Referent.hs} \\
-\texttt{branchv3} & \texttt{codebase2/codebase/U/Codebase/BranchV3.hs} \\
-\texttt{ops}      & \texttt{codebase2/codebase-sqlite/U/Codebase/Sqlite/Operations.hs} \\
-\texttt{sql}      & \texttt{codebase2/codebase-sqlite/sql/create.sql} \\
-\texttt{branch}   & \texttt{parser-typechecker/src/Unison/Codebase/Branch/Type.hs} \\
-\texttt{ufile}    & \texttt{parser-typechecker/src/Unison/UnisonFile.hs} \\
-\texttt{update}   & \texttt{unison-cli/src/Unison/Codebase/Editor/HandleInput/Update2.hs} \\
-\texttt{main}     & \texttt{unison-cli/src/Unison/Main.hs} \\
-\texttt{decl}     & \texttt{codebase2/codebase/U/Codebase/Decl.hs} \\
-\texttt{termhash} & \texttt{codebase2/codebase-sqlite-hashing-v2/src/U/Codebase/Term/Hashing.hs} \\
-\texttt{coreterm} & \texttt{unison-core/src/Unison/Term.hs} \\
-\texttt{tparse}   & \texttt{parser-typechecker/src/Unison/Syntax/TermParser.hs} \\
-\texttt{fparse}   & \texttt{parser-typechecker/src/Unison/Syntax/FileParser.hs} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-The component format is also described in the repository's own
-\texttt{docs/repoformats/v2.markdown}.
-
 % =====================================================================
 \section{The object language}\label{sec:ulang}
 
+There are two grammars, and keeping them apart is the point of this section. A term as \emph{written}
+mentions other definitions by name, and names are variables. A term as \emph{stored} mentions them by
+reference, and a reference carries a hash. Name resolution is the map between the two, and it is
+partial in a way that matters later.
+
+In the implementation these are one datatype with one set of constructors; the distinction is which
+constructors occur at which stage. Splitting them here is an idealization, and it is the idealization
+that makes the rest of the document legible.
+
+\subsection{Source terms}
+
+\begin{definition}[Source terms]\label{def:uterm}
+Fix a countable set of variables $x,y,z$.
+\[
+  e \;::=\; \uvar{x} \;\mid\; \ulam{x}{e} \;\mid\; \uapp{e}{e'}
+        \;\mid\; \unat{n} \;\mid\; \utext{s} \;\mid\; \uann{e}{T}
+\]
+This is what a user writes. Note what is absent: there is no way to write a hash, and no term former
+denotes a stored definition. A mention of another definition is a \emph{free variable}, exactly as a
+mention of a local binding is a bound one, and the two are told apart only by an environment.
+\end{definition}
+
 \subsection{References}
 
-A term may mention another definition, so the reference type comes first. It has two arms, and the
-derived arm is a \emph{pair} rather than a bare hash --- \cref{def:ustore} explains why.
-
 \begin{definition}[Reference]\label{def:uref}
-\src{ref:77-119}
+\src{ref:77-119} A reference denotes something already stored.
 \[
-  r \in \Reference \;::=\; \UBuiltin{b} \;\mid\; \UDer{h}{i}
+  r \;::=\; \UBuiltin{b} \;\mid\; \UDer{h}{i}
   \qquad b \in \TText,\; h \in \Hash,\; i \in \Pos = \mathbb{N}
 \]
-$\UBuiltin{b}$ names a primitive; $\UDer{h}{i}$ names the $i$-th member of the definition group
-stored at $h$.
+$\UBuiltin{b}$ names a primitive, by text rather than by hash. $\UDer{h}{i}$ names the $i$-th member
+of the group stored at $h$; \cref{def:ustore} explains why that is a pair.
 \end{definition}
 
 \begin{remark}[Primitives are named extrinsically]\label{rem:builtin}
-$\UBuiltin{b}$ carries a \emph{text name}, not a hash. An identifier is \emph{intrinsic} when it can
-be recomputed from the thing it names and \emph{extrinsic} when it is an assertion by some authority;
-a hash is the former and a builtin name is the latter. So Unison is intrinsically identified
-everywhere except at its primitives, and the boundary is visible in the type of $\Reference$ rather
-than hidden in a convention. This is not avoidable --- a hash chain has to bottom out at things
-whose content the system does not model --- and it is worth noting only because the sum type makes
-the seam unusually legible.
+An identifier is \emph{intrinsic} when it can be recomputed from the thing it names and
+\emph{extrinsic} when it is an assertion by some authority; a hash is the former and a builtin name
+is the latter. So the system is intrinsically identified everywhere except at its primitives, and the
+boundary is visible in the type of a reference rather than hidden in a convention. This is not
+avoidable --- a hash chain must bottom out at things whose content the system does not model --- and
+it is worth noting only because the sum type makes the seam unusually legible.
 \end{remark}
 
-\subsection{Terms, named}
+\subsection{Resolved terms}
 
-\begin{definition}[Terms]\label{def:uterm}
-\src{cabt:16-25} Fix a countable set of variables $x,y,z$ and a set of builtin names
-$b$.
+\begin{definition}[Resolved terms]\label{def:urterm}
 \[
-  t,u \;::=\; \uvar{x} \;\mid\; \ulam{x}{t} \;\mid\; \uapp{t}{u}
+  t \;::=\; \uvar{x} \;\mid\; \ulam{x}{t} \;\mid\; \uapp{t}{u}
         \;\mid\; \unat{n} \;\mid\; \utext{s} \;\mid\; \uref{r} \;\mid\; \uann{t}{T}
 \]
-where $r \in \Reference$ (\cref{def:uref}). Binders carry \emph{names}, and those names are stored.
-$\uann{t}{T}$ is a type annotation; it is a term former because \cref{def:typeinhash} needs somewhere
-to put a type inside a term.
+\Cref{def:uterm} extended with references. Binders still carry \emph{names}, and those names are
+stored --- \cref{def:uhash} erases them only while hashing.
 \end{definition}
-
-\begin{remark}[A reference is not something anyone writes]\label{rem:staging}
-\Cref{def:uterm} admits $\uref{r}$ as a term former, and it is worth saying immediately that no
-source text ever contains one. A name written in a scratch file parses to a \emph{variable}: the
-parser's case for an unqualified name is \texttt{Term.var} \src{tparse:656}, and only a
-\emph{hash-qualified} name such as \texttt{foo\#a1b2} resolves at parse time. References are
-introduced afterwards, in stages, and which stage introduces which reference is the organizing fact
-of \cref{sec:ustore}.
-
-\begin{center}
-\small
-\begin{tabular}{@{}p{0.26\textwidth}p{0.66\textwidth}@{}}
-\toprule
-Stage & How a mention of another definition appears \\
-\midrule
-Written source
-  & A name. \\
-After parsing
-  & A free \emph{variable} \src{tparse:656}. \\
-After name resolution
-  & A \emph{reference}, if the name denotes something already in the codebase; still a variable if it
-    denotes another binding in the same file, since those are shadowed
-    \src{fparse:185-191; coreterm:162-180}. An unresolvable or ambiguous name is also left free,
-    deliberately --- ``not found: leave free for telling user about expected type'', ``ambiguous:
-    leave free for TDNR''. \\
-While hashing a component
-  & Still a \emph{variable} for members of the same cycle, resolved to a de Bruijn index into the
-    cycle frame (\cref{def:uhash}); a reference for everything else. It cannot be a hash: the hash
-    being computed is the one it would have to mention. \\
-Stored in memory
-  & $\UDer{h}{i}$, the component's own hash substituted back in (\cref{def:uingest}). \\
-Serialized
-  & $\UDer{h}{i}$, except that a reference into the \emph{enclosing} component carries no hash at all
-    (\cref{rem:unhash}). \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-So $\uref{r}$ is a form the machine produces, never one a user types, and a term's representation
-changes as it moves down this table. \Cref{rem:unhash} returns to the last two rows, which differ
-from each other in a way that is easy to miss.
-\end{remark}
-
-\begin{remark}[Why storing names matters]\label{rem:names}
-Unison's abstract binding trees keep binder names, and de Bruijn indices are computed only while
-hashing (\cref{def:uhash}). It would be possible to store indices and invent names for display, and
-the resulting hashes would be the same. The reason the choice is not free is \cref{sec:uupdate}:
-\texttt{update} renders stored definitions back to source that a human reads and a parser resolves.
-Because names survive storage, what is rendered uses the \emph{author's} variable names. A system
-that discarded them could state its round trip only up to a choice of names.
-\end{remark}
 
 \begin{definition}[$\alpha$-equivalence]\label{def:ualpha}
-\src{cabt:49-60} $t \equiv_\alpha u$ is the least congruence identifying
-$\ulam{x}{t}$ with $\ulam{y}{t[x := y]}$ for $y$ fresh in $t$, implemented by renaming aligned
-binders to a common fresh variable. It is the \texttt{Eq} instance, so $\alpha$-equivalent terms are
-\emph{equal} in the implementation before any hashing takes place.
+$t \equiv_\alpha u$ is the least congruence identifying $\ulam{x}{t}$ with $\ulam{y}{t[x := y]}$ for
+$y$ fresh in $t$. In the implementation it is the equality on terms, so $\alpha$-equivalent terms are
+\emph{equal} before any hashing takes place.
 \end{definition}
 
-\subsection{Types}
+\begin{remark}[Why storing binder names matters]\label{rem:names}
+Storing de Bruijn indices and inventing names for display would produce the same hashes, so the
+choice looks free. It is not. \Cref{sec:uupdate}'s \texttt{update} renders stored definitions back to
+source that a human reads and a parser resolves, and because names survive storage, what is rendered
+uses the \emph{author's} variable names. A system that discarded them could state its round trip only
+up to a choice of names.
+\end{remark}
+
+\begin{definition}[Name resolution]\label{def:uresolution}
+\src{tparse:656; fparse:185-191} Given a namespace $\UNames$ (\cref{def:unames}) and a set $B$ of
+names bound by the enclosing binding group, resolution $\mathcal{R}^{B}_{\UNames}$ maps a source term
+to a resolved term, homomorphically except at variables:
+\[
+  \mathcal{R}^{B}_{\UNames}(\uvar{x}) \;=\;
+    \begin{cases}
+      \uvar{x} & x \in B \text{, or } x \text{ locally bound}\\
+      \uref{r} & \UNames(x) = \{\URefT{r}\}\\
+      \uvar{x} & \text{otherwise}
+    \end{cases}
+\]
+\end{definition}
+
+\begin{remark}[Resolution is deliberately partial]\label{rem:staging}
+Three of these cases leave a variable in place, and only one produces a reference. That is not an
+omission.
+
+A name bound by the group being ingested \emph{cannot} be resolved --- its referent does not exist
+yet, and for a recursive group it cannot exist until the group is hashed (\cref{sec:comphash}).
+Resolution therefore stops at the boundary of what is already stored, and the remaining variables are
+discharged by ingest.
+
+The last case is more interesting: a name that resolves to nothing, or to more than one thing, is
+left free \emph{on purpose}. The implementation's comments are explicit --- ``not found: leave free
+for telling user about expected type'' and ``ambiguous: leave free for TDNR'' --- so an unresolved
+name survives into typechecking, where the expected type may disambiguate it or produce a better
+error than resolution could. Failure to resolve is not an error in itself.
+\end{remark}
+
+\subsection{Types and typing}
 
 \begin{definition}[Types and typing]\label{def:utyping}
 \[
   T,U \;::=\; \TNat \;\mid\; \TText \;\mid\; \uarr{T}{U}
 \]
-A context $\Gamma$ maps variables to types; a signature $\Delta$ maps references to types --- given
-for builtins, and read off the store for derived references by \cref{def:typeinhash}. Typing is
-syntax-directed, with no inference:
+Typing is over \emph{resolved} terms. A context $\Gamma$ maps variables to types; a signature
+$\Delta$ maps references to types --- given for builtins, and read off the store for derived
+references (\cref{def:typeinhash}). Syntax-directed, with no inference:
 \begin{mathpar}
   \inferrule*[right=U-Var]{\Gamma(x) = T}{\utypes{\Gamma}{\uvar{x}}{T}}
   \and
@@ -387,23 +361,25 @@ syntax-directed, with no inference:
   \and
   \inferrule*[right=U-Ann]{\utypes{\Gamma}{t}{T}}{\utypes{\Gamma}{\uann{t}{T}}{T}}
 \end{mathpar}
+A term with a free variable is not typeable, which is how \cref{rem:staging}'s unresolved names
+become errors --- at typechecking, with a type to report, rather than at resolution.
 \end{definition}
 
 \subsection{Binding groups}
 
 \begin{definition}[Binding group]\label{def:bindgroup}
-\src{abt:106-134} A \emph{binding group} is a finite map $\bg : \Name \pfn \Term$ whose
-members' free variables all lie in $\dom(\bg)$. Ingest takes a binding group, not a single term.
+A \emph{binding group} is a finite map $\bg$ from names to resolved terms, whose members' free
+variables all lie in $\dom(\bg)$. Ingest takes a binding group, not a single term.
 \end{definition}
 
-\begin{remark}[Where mutual recursion lives]\label{rem:mutrec}
-There is no recursive term former for this purpose. Mutual recursion is several top-level bindings
-that mention one another, and \texttt{hashComponents} is the operation that takes the whole map at
-once. Modeling ingest at the group rather than the term is therefore faithful, and it is what makes
-\cref{sec:ustore}'s components non-trivial --- with single-term ingest every component is a
-singleton and the whole of \cref{def:comphash} is invisible. The implementation raises an error if a
-group has free variables it cannot bind \src{abt:128-134}, which is why closedness is part
-of \cref{def:bindgroup}.
+\begin{remark}[Why ingest is group-at-a-time]\label{rem:mutrec}
+There is no recursive term former. Mutual recursion is several bindings that mention one another, so
+the unit that can be given identities is the group, not the definition. Everything distinctive about
+\cref{sec:ustore} follows from this: with single-term ingest every component would be a singleton and
+\cref{def:comphash} would be invisible.
+
+The closedness condition is what \cref{rem:staging} left over --- the variables resolution could not
+discharge are exactly the group's own names, and ingest discharges them by hashing.
 \end{remark}
 
 % =====================================================================
@@ -412,7 +388,7 @@ of \cref{def:bindgroup}.
 \subsection{The store and its components}
 
 \begin{definition}[Component and store]\label{def:ustore}
-\src{ref:114-119} A \emph{component} is a
+ A \emph{component} is a
 non-empty finite sequence of terms, $\Comp = \Term^{+}$ --- a strongly connected component of the
 dependency graph, hashed as a unit. The store is
 \[
@@ -434,12 +410,12 @@ components rather than of definitions.
 \subsection{Hashing}
 
 \begin{definition}[Token stream]\label{def:tokens}
-\src{tok:122-137} Nothing is hashed as raw bytes. The input is a tagged,
+ Nothing is hashed as raw bytes. The input is a tagged,
 length-prefixed token stream: $\mathsf{Tag}$ is one byte; $\mathsf{Text}$ and $\mathsf{Bytes}$ are a
 64-bit big-endian length followed by the payload; $\mathsf{Nat}$ is 64-bit big-endian;
 $\mathsf{Hashed}$ is a fixed-width hash with no length prefix. Every stream begins with a
 \emph{version} token, and each syntactic layer begins with a tag domain-separating it from the others
-\src{term:147-152}. Write $\mathsf{acc}(\overline{\tau})$ for the hash of a token list.
+. Write $\mathsf{acc}(\overline{\tau})$ for the hash of a token list.
 The function is SHA3-512, untruncated.
 \end{definition}
 
@@ -447,13 +423,13 @@ The function is SHA3-512, untruncated.
 The leading version token exists so that changing the hash function changes \emph{every} hash --- if
 it did not, simple values would collide across generations in a single global hash table. Underneath,
 the schema carries a many-hashes-to-one-object indirection so that hashes computed under an old
-scheme keep resolving \src{sql:33-49}. This is a comparatively rare thing for a
+scheme keep resolving . This is a comparatively rare thing for a
 content-addressed system to plan for, and worth recording: the migration story for ``we changed the
 hash'' is versioning plus indirection, not recomputation.
 \end{remark}
 
 \begin{definition}[Hashing a term]\label{def:uhash}
-\src{abt:143-172} Hashing carries an environment
+ Hashing carries an environment
 $\HEnv \in (\wp(\Name) + \Name)^{*}$, innermost first, where $\mathsf{R}(x)$ is an ordinary binder and
 $\mathsf{L}(V)$ is a \emph{cycle frame} naming a whole set at once. Write $\uhash{\HEnv}{t}$.
 \begin{align*}
@@ -465,7 +441,7 @@ $\mathsf{L}(V)$ is a \emph{cycle frame} naming a whole set at once. Write $\uhas
 and correspondingly at the other formers. Three details are load-bearing. Binder \emph{names are
 discarded} on the way in, so $\alpha$-equivalent terms hash equally. \emph{Annotations are excluded by
 construction} --- ``we ignore annotations in the \texttt{Term}, as these should never affect the
-meaning of the term'' \src{abt:136-137}. And a variable bound by a cycle frame
+meaning of the term'' . And a variable bound by a cycle frame
 $\mathsf{L}(V)$ hashes to the frame's index, \emph{the same index for every member of $V$}; that is
 what \cref{def:comphash} exploits. A free variable is an error.
 \end{definition}
@@ -478,7 +454,7 @@ change of identity.
 \end{definition}
 
 \begin{remark}[The exception that proves the rule]\label{rem:typeinhash}
-There is a \texttt{hashTermComponentsWithoutTypes} \src{term:120-122} used where no type
+There is a \texttt{hashTermComponentsWithoutTypes}  used where no type
 is available. Its existence is the clearest statement that the usual path deliberately puts the type
 in: hashing without the type is possible, and is treated as the special case.
 \end{remark}
@@ -564,7 +540,7 @@ description of the algorithm we are aware of mentions that there are two.
 \end{remark}
 
 \begin{definition}[Ingest]\label{def:uingest}
-\src{abt:106-134} $\hashcomps(\bg)$ decomposes $\bg$ into strongly connected components in
+ $\hashcomps(\bg)$ decomposes $\bg$ into strongly connected components in
 topological order and folds \cref{def:comphash} over them, substituting $\UDer{h}{i}$ for the names of
 already-hashed components before hashing the next. The store is extended by each component at its
 hash.
@@ -671,12 +647,11 @@ attached to and what a namespace is, which is as much as \cref{sec:uupdate} need
 carries a namespace, and its history, are out of scope (\cref{sec:unotmodeled}).
 
 \begin{definition}[Referent]\label{def:ureferent}
-\src{referent:18-30} $\Referent ::= \URefT{r} \mid \UCon{r}{k}$. Names denote
+ $\Referent ::= \URefT{r} \mid \UCon{r}{k}$. Names denote
 \emph{referents}, not references: a name may denote a data constructor rather than a definition. With
 no data declarations in scope (\cref{sec:unotmodeled}) the second arm is vestigial here, and is
 retained only so that \cref{def:unames} has the right shape.
 \end{definition}
-
 
 \begin{definition}[Namespace]\label{def:unames}
 \src{branchh:22-39; sql:271} A namespace is a \emph{relation}
@@ -690,7 +665,7 @@ legal.
 \end{definition}
 
 \begin{definition}[Unconflictedness]\label{def:unconf}
-\src{branch:113-119, 291-314} $\unconf{\UNames}{x}$ holds iff
+ $\unconf{\UNames}{x}$ holds iff
 $|\UNames(x)| = 1$, and $\unconf{\UNames}{}$ holds iff it holds at every name in $\dom(\UNames)$.
 When it does, $\UNames$ determines a partial function and we write
 $\uresolve{\UNames}{x}{\varrho}$. It is computed as a derived view, recomputed rather than
@@ -787,7 +762,7 @@ the typechecker decide, reporting failure rather than predicting it.
 \subsection{Update, as rendering}
 
 \begin{definition}[Pretty-print environment]\label{def:ppe}
-\src{update:429-443} A $\ppe$ assigns each reference a name to
+ A $\ppe$ assigns each reference a name to
 render it by, under two different suffixification strategies: definitions \emph{in the file} are
 suffixified by name, definitions \emph{in the codebase} by hash. The asymmetry is forced --- aliases
 sharing a suffix may be referred to by that suffix in the codebase but not in a file, where the parser
@@ -796,7 +771,7 @@ the file, \texttt{hey = foo + foo} fails to parse.
 \end{definition}
 
 \begin{definition}[Update]\label{def:update}
-\src{update:89-258} Given a typechecked incoming file $F$ and a
+ Given a typechecked incoming file $F$ and a
 configuration $\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
 \begin{enumerate}[nosep,label=\arabic*.]
   \item Let $Q$ be the references of the names $F$ redefines, and $D = \tdeps(Q)$.
@@ -964,22 +939,53 @@ and come back as code, in a file, ready to edit. The namespace never holds a bro
 report is the work itself rather than a description of it.
 
 % =====================================================================
-\section*{Provenance and how to check this}
-\addcontentsline{toc}{section}{Provenance and how to check this}
+\appendix
 
-Every claim is faithful to Unison at commit \texttt{db60ce2} (2026-08-07). Re-check the pin with
-\texttt{git -C <unison> rev-parse HEAD}; if it has moved, the citations below are still true
-\emph{at that commit} --- they are dated, not necessarily wrong. Margin tags give file and line
-ranges, with directory prefixes expanded in \cref{sec:paths}.
+% =====================================================================
+\section{Provenance, and how to check this}\label{sec:paths}
+
+Everything here is modeled on Unison at commit \texttt{db60ce2} (2026-08-07). Re-check the pin with
+\texttt{git -C <unison> rev-parse HEAD}; if it has moved, the citations below are still true \emph{at
+that commit} --- they are dated, not necessarily wrong.
+
+Citations are given where a claim is surprising, load-bearing, or likely to be doubted, and are
+deliberately not exhaustive: this is an idealized model, not a transcription, and a tag on every
+definition would suggest a correspondence closer than the one being claimed. A margin tag has the
+form \texttt{key:lines}, with keys as follows.
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Key & File \\
+\midrule
+\texttt{abt}      & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/ABT.hs} \\
+\texttt{term}     & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Term.hs} \\
+\texttt{branchh}  & \texttt{unison-hashing-v2/src/Unison/Hashing/V2/Branch.hs} \\
+\texttt{ref}      & \texttt{codebase2/core/U/Codebase/Reference.hs} \\
+\texttt{branchv3} & \texttt{codebase2/codebase/U/Codebase/BranchV3.hs} \\
+\texttt{ops}      & \texttt{codebase2/codebase-sqlite/U/Codebase/Sqlite/Operations.hs} \\
+\texttt{sql}      & \texttt{codebase2/codebase-sqlite/sql/create.sql} \\
+\texttt{ufile}    & \texttt{parser-typechecker/src/Unison/UnisonFile.hs} \\
+\texttt{update}   & \texttt{unison-cli/src/Unison/Codebase/Editor/HandleInput/Update2.hs} \\
+\texttt{main}     & \texttt{unison-cli/src/Unison/Main.hs} \\
+\texttt{decl}     & \texttt{codebase2/codebase/U/Codebase/Decl.hs} \\
+\texttt{termhash} & \texttt{codebase2/codebase-sqlite-hashing-v2/src/U/Codebase/Term/Hashing.hs} \\
+\texttt{tparse}   & \texttt{parser-typechecker/src/Unison/Syntax/TermParser.hs} \\
+\texttt{fparse}   & \texttt{parser-typechecker/src/Unison/Syntax/FileParser.hs} \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 Because Unison has no publication, the citable artifact for any claim about its behavior is the
-source at a pinned commit, and we would encourage anyone building on this document to cite it that way
-rather than citing a description.
+source at a pinned commit, and we would encourage anyone building on this document to cite it that
+way rather than citing a description.
 
-Corrections are welcome, particularly from Unison's authors. Three points where we are least
-confident, and where the code underdetermines the intent: whether the position-$0$ boundary of
-\cref{prop:transparent} is deliberate; whether the two orderings of \cref{rem:twoorders} are meant to
-be distinct; and whether \cref{rem:conflict}'s reading of \texttt{BranchV3} --- that conflicted names
-are being designed out --- reflects the plan or only a simplification of that format.
+Corrections are welcome, particularly from Unison's authors. Three points where the code
+underdetermines the intent, and where we are correspondingly least confident: whether the position-$0$
+boundary of \cref{prop:transparent} is deliberate; whether the two orderings of \cref{rem:twoorders}
+are meant to be distinct; and whether \cref{rem:conflict}'s reading of \texttt{BranchV3} --- that
+conflicted names are being designed out --- reflects the plan or only a simplification of that
+format.
 
 \end{document}
