@@ -557,10 +557,9 @@ being computed.
 \emph{In memory}, once \cref{def:uingest} has finished, those variables have been substituted by
 $\UDer{h}{i}$ carrying the component's own freshly computed hash.
 
-\emph{Serialized}, a self-reference is stored with \textbf{no hash at all}. The stored type is
-$\mathsf{Reference}'\;\mathsf{Text}\;(\mathsf{Maybe}\;\mathsf{Hash})$ --- ``a possibly-self
-(R = \emph{recursive}) reference'' --- with $\mathsf{Nothing}$ marking a reference into the enclosing
-component \src{ref:51-52, 89-90}.
+\emph{Serialized}, a self-reference is stored with \textbf{no hash at all}: the hash field becomes
+optional, and the absent case marks a reference into the enclosing component. The type is named for
+it --- ``a possibly-self (R = \emph{recursive}) reference'' \src{ref:51-52, 89-90}.
 
 Consequently the bytes on disk are \emph{not} the bytes that were hashed, and re-deriving a stored
 component's hash requires undoing the substitution first. That operation exists and is documented as
@@ -847,208 +846,228 @@ and the difficulty demonstrably concentrates in one place: the pretty-print envi
 % =====================================================================
 \section{Worked examples}\label{sec:examples}
 
-Symbolic hashes are written \texttt{\#a}, \texttt{\#b}, and $\ulcorner t \urcorner$ abbreviates
-$\uhash{\HEnv}{t}$ where the environment is clear. \texttt{Nat.+} is a builtin, so it resolves to
-$\UBuiltin{\texttt{Nat.+}}$ and never acquires a hash of its own.
+Each example is a derivation: every line applies an operation defined above, with the definition
+named on the right. Symbolic hashes are written \texttt{\#a}, \texttt{\#b}; $\ulcorner t \urcorner$
+abbreviates $\uhash{\HEnv}{t}$ where the environment is clear; and $r_{+}$ abbreviates
+$\UBuiltin{\texttt{Nat.+}}$, a builtin, which therefore never acquires a hash of its own.
 
 \subsection{Ingesting one definition}\label{ex:ingest}
 
-The user writes
 \[
-  \texttt{inc} \;=\; \ulam{n}{\uapp{\uapp{\uvar{\texttt{Nat.+}}}{\uvar{n}}}{\unat{1}}}
+\begin{array}{r@{\;}l@{\quad}l}
+  e &= \ulam{n}{\uapp{\uapp{\uvar{\texttt{Nat.+}}}{\uvar{n}}}{\unat{1}}}
+    & \just{source term, \cref{def:uterm}} \\[3pt]
+  \Res{\{\texttt{inc}\}}{\UNames}(e)
+    &= \ulam{n}{\uapp{\uapp{\uref{r_{+}}}{\uvar{n}}}{\unat{1}}}
+    & \just{resolution, \cref{def:uresolution}} \\[3pt]
+  {} &\utypes{\emptyset}{\Res{\{\texttt{inc}\}}{\UNames}(e)}{\uarr{\TNat}{\TNat}}
+    & \just{typing, \cref{def:utyping}} \\[3pt]
+  t &= \uann{\Res{\{\texttt{inc}\}}{\UNames}(e)}{\uarr{\TNat}{\TNat}}
+    & \just{type incorporation, \cref{def:typeinhash}} \\[3pt]
+  \bg &= \{\,\texttt{inc} \mapsto t\,\}
+    & \just{binding group, \cref{def:bindgroup}} \\[3pt]
+  C &= \langle(\texttt{inc}, t)\rangle,\quad k = 1
+    & \just{one SCC, \cref{def:uingest}} \\[6pt]
+  \phash{\texttt{inc}} &= \uhash{\mathsf{L}(\{\texttt{inc}\})}{t}
+    & \just{step 1, \cref{def:comphash}} \\[3pt]
+  \HEnv &= \mathsf{R}(\texttt{inc}),\qquad h_1 = \uhash{\HEnv}{t}
+    & \just{step 2} \\[3pt]
+  \nhash{\texttt{inc}} &= \mathsf{acc}[\mathsf{Tag}\,1,\ \mathsf{Hashed}\,h_1,\
+                          \mathsf{Hashed}\,\uhash{\HEnv}{\uvar{\texttt{inc}}}]
+    & \just{step 3} \\[3pt]
+  \texttt{\#a} &= \comphash(C) = \mathsf{acc}[\mathsf{Hashed}\,\nhash{\texttt{inc}}]
+    & \just{step 3} \\[6pt]
+  \UStore' &= \upd{\UStore}{\texttt{\#a}}{\langle t \rangle}
+    & \just{store, \cref{def:ustore}} \\[3pt]
+  \UNames' &= \UNames \cup \{(\texttt{inc},\ \URefT{\UDer{\texttt{\#a}}{0}})\}
+    & \just{naming, \cref{def:unames}}
+\end{array}
 \]
-and the pipeline of \cref{sec:ulang,sec:ustore} runs as follows.
 
-\begin{enumerate}[nosep,label=\arabic*.]
-  \item \textbf{Parse.} Both \texttt{Nat.+} and \texttt{n} are variables (\cref{def:uterm}); \texttt{n}
-        is bound by the $\lambda$, \texttt{Nat.+} is free.
-  \item \textbf{Resolve} (\cref{def:uresolution}). \texttt{Nat.+} is not in the binding group and the
-        namespace maps it to a builtin, so it becomes $\uref{\UBuiltin{\texttt{Nat.+}}}$. The result
-        is a resolved term with no free variables.
-  \item \textbf{Typecheck.} $\Delta$ gives \texttt{Nat.+} the type $\uarr{\TNat}{\uarr{\TNat}{\TNat}}$,
-        so \texttt{inc} has type $\uarr{\TNat}{\TNat}$.
-  \item \textbf{Wrap} (\cref{def:typeinhash}). The term hashed is not the body but
-        $\uann{(\ulam{n}{\ldots})}{\uarr{\TNat}{\TNat}}$.
-  \item \textbf{Component} (\cref{def:comphash}). \texttt{inc} does not mention itself, so its
-        strongly connected component is the singleton $\{\texttt{inc}\}$ and
-        \cref{def:comphash} runs at $k = 1$: the permutation sort is trivial, $\HEnv$ is one binder,
-        and the member hash is $h_1 = \ulcorner \uann{(\ulam{n}{\ldots})}{\uarr{\TNat}{\TNat}}
-        \urcorner$.
-  \item \textbf{Positions.} $\nhash{\texttt{inc}} = \mathsf{acc}[\mathsf{Tag}\,1,\
-        \mathsf{Hashed}\,h_1,\ \mathsf{Hashed}\,\ulcorner \uvar{\texttt{inc}}\urcorner]$ and the
-        component hash is $\texttt{\#a} = \mathsf{acc}[\mathsf{Hashed}\,\nhash{\texttt{inc}}]$.
-  \item \textbf{Store and name.} The component is stored at \texttt{\#a}; the definition is
-        $\UDer{\texttt{\#a}}{0}$; and only now is the name \texttt{inc} attached to it, in the
-        namespace and not in the definition.
-\end{enumerate}
+The name is attached last, to a definition that was complete without it. And note the two
+accumulations in the final three lines: $\comphash(C) \neq h_1$ even at $k = 1$, which
+\cref{ex:transparency} turns on.
 
-Step 6 is worth pausing on: \textbf{the component hash is not the member's hash.} There are two
-layers between them --- the shared token prefix and the outer accumulation --- even when the
-component has one member. \Cref{ex:transparency} is where that matters.
+\subsection{An alias, and what transparency gives}\label{ex:transparency}
 
-\subsection{A reference, and what transparency gives}\label{ex:transparency}
-
-Now two definitions in one group, the second a bare alias of the first:
 \[
-  \texttt{x} \;=\; \uapp{\uapp{\uvar{\texttt{Nat.+}}}{\unat{1}}}{\unat{1}}
-  \qquad\qquad
-  \texttt{y} \;=\; \uvar{\texttt{x}}
+\begin{array}{r@{\;}l@{\quad}l}
+  e_x &= \uapp{\uapp{\uvar{\texttt{Nat.+}}}{\unat{1}}}{\unat{1}},
+  \qquad e_y = \uvar{\texttt{x}}
+    & \just{source, \cref{def:uterm}} \\[3pt]
+  \Res{\{\texttt{x},\texttt{y}\}}{\UNames}(e_y) &= \uvar{\texttt{x}}
+    & \just{unresolved: $\texttt{x} \in B$, \cref{def:uresolution}} \\[3pt]
+  \bg &= \{\,\texttt{x} \mapsto X,\ \ \texttt{y} \mapsto \uann{\uvar{\texttt{x}}}{\TNat}\,\}
+    & \just{\cref{def:bindgroup}} \\[3pt]
+  X &= \uann{(\uapp{\uapp{\uref{r_{+}}}{\unat 1}}{\unat 1})}{\TNat} & \\[3pt]
+  C_1 &= \langle(\texttt{x}, X)\rangle,\qquad C_2 = \langle(\texttt{y}, \cdot)\rangle
+    & \just{two SCCs, \cref{def:uingest}} \\[6pt]
+  \texttt{\#x} &= \comphash(C_1)
+    & \just{as in \cref{ex:ingest}} \\[3pt]
+  Y &= \uann{\uref{\UDer{\texttt{\#x}}{0}}}{\TNat}
+    & \just{substitution before $C_2$, \cref{def:uingest}} \\[6pt]
+  \uhashc{\uref{\UDer{\texttt{\#x}}{0}}} &= \texttt{\#x}
+    & \just{\cref{prop:transparent}} \\[3pt]
+  \uhashc{Y} &= \mathsf{acc}[\ldots,\ \mathsf{Hashed}\,\texttt{\#x},\ \ldots]
+    & \just{via \cref{prop:transparent}} \\[3pt]
+  \uhashc{X} &= \mathsf{acc}[\ldots,\ \mathsf{Hashed}\,\uhashc{B_x},\ \ldots]
+    & \just{same position} \\[3pt]
+  B_x &= \uapp{\uapp{\uref{r_{+}}}{\unat 1}}{\unat 1} &
+\end{array}
 \]
-\texttt{y} depends on \texttt{x}, so the strongly connected components are $\{\texttt{x}\}$ then
-$\{\texttt{y}\}$, in that order. Ingesting \texttt{x} as in \cref{ex:ingest} gives a component hash
-\texttt{\#x}, with the definition at $\UDer{\texttt{\#x}}{0}$. Ingest then substitutes that reference
-for the variable \texttt{x} before hashing \texttt{y}, so the term hashed for \texttt{y} is
-\[
-  Y \;=\; \uann{\uref{\UDer{\texttt{\#x}}{0}}}{\TNat},
-  \qquad\text{against}\qquad
-  X \;=\; \uann{(\uapp{\uapp{\uvar{\texttt{Nat.+}}}{\unat{1}}}{\unat{1}})}{\TNat} .
-\]
-By \cref{prop:transparent} the reference contributes \texttt{\#x}, so
-$\ulcorner Y \urcorner = \mathsf{acc}[\ldots,\ \mathsf{Hashed}\,\texttt{\#x},\
-\mathsf{Hashed}\,\ulcorner\TNat\urcorner]$, while $\ulcorner X \urcorner$ has
-$\ulcorner \uapp{\uapp{\ldots}{\unat 1}}{\unat 1} \urcorner$ in that position.
 
 \begin{remark}[The usual summary of transparency is too strong]\label{rem:transparency-limit}
 The source comment illustrates transparency with exactly this pair, saying that \texttt{x = 1 + 1}
-and \texttt{y = x} ``hash the same''. On the reading above they do not, and the reason is
-\cref{ex:ingest}'s step 6.
-
-$\ulcorner X \urcorner = \ulcorner Y \urcorner$ would require
-$\ulcorner \texttt{Nat.+ 1 1} \urcorner = \texttt{\#x}$ --- the referent's \emph{term} hash to equal
-its \emph{component} hash. But \texttt{\#x} is built \emph{from} $\ulcorner X \urcorner$ by two
-accumulations, so the equation asks the hash function for a fixed point of a particular shape.
-Transparency passes along the component hash; inlining would contribute the term hash;
-\cref{def:comphash} puts two layers between them. So the two definitions receive different hashes,
-and inlining a reference into a larger term does not preserve that term's hash either.
+and \texttt{y = x} ``hash the same''. Comparing the last two lines, that would require
+\[
+  \uhashc{\uapp{\uapp{\uref{r_{+}}}{\unat 1}}{\unat 1}} \;=\; \texttt{\#x} ,
+\]
+the referent's \emph{term} hash to equal its \emph{component} hash. But \texttt{\#x} is built
+\emph{from} $\uhashc{X}$ by the two accumulations at the end of \cref{ex:ingest}, so the equation
+asks the hash function for a fixed point of a particular shape. Transparency passes along the
+component hash; inlining would contribute the term hash; \cref{def:comphash} puts two layers between
+them. So the two definitions receive different hashes, and inlining a reference into a larger term
+does not preserve that term's hash either.
 
 What \emph{is} true is what \cref{prop:transparent} says: a position-$0$ reference is
 indistinguishable from any term hashing to \texttt{\#x}. The comment's own caveat is precisely this
 condition --- ``so long as \texttt{Reference.Derived} ctors are created using the same hashing
-function as is used here''. There is a construction that satisfies it, \texttt{hashClosedTerm}, which
-builds $\UDer{\ulcorner t \urcorner}{0}$ directly from a term's hash \src{term:124-125}; references
-made that way \emph{are} interchangeable with their referents. The component construction is not that
-way.
+function as is used here''. There is a construction satisfying it, \texttt{hashClosedTerm}, which
+builds $\UDer{\uhashc{t}}{0}$ directly from a term's hash \src{term:124-125}; references made that
+way \emph{are} interchangeable with their referents. The component construction is not that way.
 
 We flag this as the place we are least confident of our reading, since it bears on a
 frequently-repeated description of the system. If the definition-level claim does hold, we have
-misread the relationship between \texttt{overallHash} and the member hashes.
+misread the relationship between $\comphash$ and the member hashes.
 \end{remark}
 
 \subsection{A recursive group}\label{ex:cycle}
 
+Write $\langle j \rangle$ for the hash of de Bruijn index $j$, and $V = \{\texttt{cd},\texttt{cu}\}$.
+
 \[
-  \texttt{countdown} \;=\; \ulam{n}{\uapp{\uvar{\texttt{countup}}}{\uvar{n}}}
+\begin{array}{r@{\;}l@{\quad}l}
+  e_{\texttt{cd}} &= \ulam{n}{\uapp{\uvar{\texttt{cu}}}{\uvar{n}}},
   \qquad
-  \texttt{countup} \;=\; \ulam{n}{\uapp{\uvar{\texttt{countdown}}}{(\uapp{\uapp{\uvar{\texttt{Nat.+}}}{\uvar{n}}}{\unat 1})}}
+  e_{\texttt{cu}} = \ulam{n}{\uapp{\uvar{\texttt{cd}}}{(\uapp{\uapp{\uvar{\texttt{Nat.+}}}{\uvar n}}{\unat 1})}}
+    & \just{source} \\[3pt]
+  \Res{V}{\UNames}(e_{\texttt{cd}}) &= e_{\texttt{cd}}
+    & \just{both names in $B$, \cref{def:uresolution}} \\[3pt]
+  C &= \langle(\texttt{cd}, \cdot), (\texttt{cu}, \cdot)\rangle,\quad k = 2
+    & \just{one SCC, \cref{def:uingest}} \\[6pt]
+  \phash{\texttt{cd}} &= \uhash{\mathsf{L}(V)}{\ulam{n}{\uapp{\langle 1\rangle}{\langle 0\rangle}}}
+    & \just{step 1, \cref{def:comphash}} \\[3pt]
+  \phash{\texttt{cu}} &= \uhash{\mathsf{L}(V)}{\ulam{n}{\uapp{\langle 1\rangle}{(\uapp{\uapp{\uref{r_{+}}}{\langle 0\rangle}}{\unat 1})}}}
+    & \just{step 1} \\[3pt]
+  \phash{\texttt{cd}} &\neq \phash{\texttt{cu}}
+    & \just{the bodies differ} \\[3pt]
+  \HEnv &= \mathsf{R}(\texttt{cd})\,\mathsf{R}(\texttt{cu})
+    & \just{step 2, sorted by $\phash{\cdot}$} \\[3pt]
+  \sigma &= \text{sort by } \nhash{\cdot}
+    & \just{step 3} \\[3pt]
+  \texttt{\#c} &= \comphash(C)
+    & \just{step 3}
+\end{array}
 \]
-Each mentions the other, so they form one component of size two and neither can be resolved to a
-reference before the other exists (\cref{rem:staging}). \Cref{def:comphash} runs in three steps.
 
-\emph{Permutation hashes.} In $\HEnv_p = \mathsf{L}(\{\texttt{countdown},\texttt{countup}\})$ both
-names hash to the \emph{same} index, so the bodies are compared with their mutual references made
-indistinguishable:
-\[
-  \phash{\texttt{countdown}} = \ulcorner \ulam{n}{\uapp{\langle 1\rangle}{\langle 0 \rangle}} \urcorner
-  \qquad
-  \phash{\texttt{countup}} = \ulcorner \ulam{n}{\uapp{\langle 1\rangle}{(\uapp{\uapp{\cdot}{\langle 0\rangle}}{\unat 1})}} \urcorner
-\]
-writing $\langle j \rangle$ for the index $j$. The bodies differ --- one applies \texttt{Nat.+} ---
-so the two hashes differ and the sort is decided by structure alone, not by the names
-\texttt{countdown} and \texttt{countup}.
-
-\emph{Binding order.} Say the sort puts \texttt{countdown} first. Then
-$\HEnv = \mathsf{R}(\texttt{countdown})\,\mathsf{R}(\texttt{countup})$, each member now has its own
-index, and the member hashes $h_1, h_2$ are computed in that environment.
-
-\emph{Storage order.} $\nhash{\cdot}$ is computed for each name and the members are sorted
-\emph{again} by it. This second sort is by a hash of the first sort's index, so it need not agree
-with it (\cref{rem:twoorders}): \texttt{countup} may well end up at position $0$ and
-\texttt{countdown} at position $1$.
-
-The component is stored at some \texttt{\#c}, and the two definitions are $\UDer{\texttt{\#c}}{0}$
-and $\UDer{\texttt{\#c}}{1}$. \textbf{Whichever landed at position $1$ is now referenced opaquely}
-(\cref{prop:transparent}), while its partner at position $0$ is referenced transparently --- a
-difference between two definitions that the user wrote symmetrically and cannot observe.
+Neither name enters $\phash{\cdot}$, so the ordering is decided by structure alone --- which is what
+\cref{thm:ordering}(a) requires. The second sort $\sigma$ is by a hash of the first sort's index and
+need not agree with it (\cref{rem:twoorders}), so \texttt{cu} may take position $0$. Whichever member
+does \emph{is referenced transparently, and the other opaquely} (\cref{prop:transparent}) --- an
+asymmetry between two definitions the user wrote symmetrically, and cannot observe.
 
 \subsection{When the canonical order is ambiguous}\label{ex:ambiguous}
 
-Change the example so the two members differ only by which of the other they call:
-\[
-  \texttt{ping} \;=\; \ulam{n}{\uapp{\uvar{\texttt{pong}}}{\uvar{n}}}
-  \qquad
-  \texttt{pong} \;=\; \ulam{n}{\uapp{\uvar{\texttt{ping}}}{\uvar{n}}}
-\]
-In $\HEnv_p$ both mutual references collapse to the same index, so the two bodies become the
-\emph{same} term $\ulam{n}{\uapp{\langle 1 \rangle}{\langle 0 \rangle}}$ and
-\[
-  \phash{\texttt{ping}} \;=\; \phash{\texttt{pong}} .
-\]
-$\phash{\cdot}$ is not injective, so \cref{thm:ordering}(b) applies. The sort is stable, the list
-arrived in name order, and \texttt{ping} therefore precedes \texttt{pong} --- \textbf{for no reason
-but the alphabet}. Renaming \texttt{ping} to \texttt{zing} would swap the binding order and change
-the component's hash.
+Change the two so they differ only by which of the other they call:
 
-The implementation detects the collision (\cref{cor:detect}) and aborts rather than store a
-name-dependent identity, reporting bug \texttt{E253299} and suggesting the user distinguish the two
-definitions by hand --- for instance by adding \texttt{\_ = "this is the ping definition"}. That
-suggestion is exactly a request to make $\phash{\cdot}$ injective again.
+\[
+\begin{array}{r@{\;}l@{\quad}l}
+  e_{\texttt{ping}} &= \ulam{n}{\uapp{\uvar{\texttt{pong}}}{\uvar{n}}},
+  \qquad
+  e_{\texttt{pong}} = \ulam{n}{\uapp{\uvar{\texttt{ping}}}{\uvar{n}}}
+    & \just{source} \\[3pt]
+  \phash{\texttt{ping}} &= \uhash{\mathsf{L}(V)}{\ulam{n}{\uapp{\langle 1\rangle}{\langle 0\rangle}}}
+    & \just{step 1, \cref{def:comphash}} \\[3pt]
+  \phash{\texttt{pong}} &= \uhash{\mathsf{L}(V)}{\ulam{n}{\uapp{\langle 1\rangle}{\langle 0\rangle}}}
+    & \just{step 1} \\[3pt]
+  \phash{\texttt{ping}} &= \phash{\texttt{pong}}
+    & \just{$\phash{\cdot}$ not injective} \\[3pt]
+  \HEnv &= \mathsf{R}(\texttt{ping})\,\mathsf{R}(\texttt{pong})
+    & \just{stable sort $\Rightarrow$ name order}
+\end{array}
+\]
+
+In $\mathsf{L}(V)$ both mutual references collapse to one index, so the two bodies become the
+\emph{same} term and the sort has nothing to separate them. It is stable, and the list arrived in
+name order, so \texttt{ping} precedes \texttt{pong} \textbf{for no reason but the alphabet};
+renaming \texttt{ping} to \texttt{zing} would swap the binding order and change \texttt{\#c}. This is
+\cref{thm:ordering}(b). The implementation detects it (\cref{cor:detect}) and aborts rather than
+store a name-dependent identity, suggesting the user add something like
+$\texttt{\_} = \utext{this is the ping definition}$ --- which is a request to make $\phash{\cdot}$
+injective again.
 
 \subsection{An update that succeeds}\label{ex:update-ok}
 
-Stored, from two earlier ingests:
+Starting state, from two earlier ingests:
+$\texttt{scale} \mapsto \UDer{\texttt{\#s}}{0}$ and $\texttt{double} \mapsto \UDer{\texttt{\#d}}{0}$,
+where \texttt{double}'s stored body is $\ulam{n}{\uapp{\uref{\UDer{\texttt{\#s}}{0}}}{\uvar n}}$. The
+user submits a new \texttt{scale} of the same type, $\uarr{\TNat}{\TNat}$.
+
 \[
-  \texttt{scale} \;=\; \ulam{n}{\uapp{\uapp{\uvar{\texttt{Nat.+}}}{\uvar n}}{\uvar n}}
-  \qquad
-  \texttt{double} \;=\; \ulam{n}{\uapp{\uvar{\texttt{scale}}}{\uvar n}}
+\begin{array}{r@{\;}l@{\quad}l}
+  Q &= \{\UDer{\texttt{\#s}}{0}\}
+    & \just{what $F$ redefines, \cref{def:update}} \\[3pt]
+  \tdeps(Q) &= \{\UDer{\texttt{\#d}}{0}\}
+    & \just{\cref{def:uscope}: named, unconflicted, not in $\lib$} \\[3pt]
+  S &= \render(\ppe, \tdeps(Q))
+    & \just{\cref{def:ppe}} \\[3pt]
+  {} &= ``\texttt{double = }\ulam{n}{\uapp{\uvar{\texttt{scale}}}{\uvar n}}\text{''}
+    & \just{a \emph{name}, not a hash} \\[3pt]
+  \uparse(\ppe, S) &\rightsquigarrow \ulam{n}{\uapp{\uvar{\texttt{scale}}}{\uvar n}}
+    & \just{a \emph{variable} again, \cref{def:uterm}} \\[3pt]
+  \Res{\emptyset}{\UNames}(\cdot) &= \ulam{n}{\uapp{\uref{\UDer{\texttt{\#s}'}{0}}}{\uvar n}}
+    & \just{\emph{here} the reference is retargeted} \\[3pt]
+  {} &\utypes{\emptyset}{F \cup S}{\ } \text{ succeeds}
+    & \just{\cref{def:utyping}} \\[3pt]
+  \texttt{\#s}',\ \texttt{\#d}' &= \hashcomps(\bg_{F \cup S})
+    & \just{\cref{def:uingest}} \\[3pt]
+  \UNames'' &= \UNames[\texttt{scale} \mapsto \UDer{\texttt{\#s}'}{0}]
+    & \just{\cref{def:update}, step 4} \\[3pt]
+  \UNames''' &= \UNames''[\texttt{double} \mapsto \UDer{\texttt{\#d}'}{0}] &
+\end{array}
 \]
-with \texttt{scale} at $\UDer{\texttt{\#s}}{0}$, \texttt{double} at $\UDer{\texttt{\#d}}{0}$, and
-\texttt{double}'s stored body containing $\uref{\UDer{\texttt{\#s}}{0}}$.
 
-The user edits \texttt{scale} to $\ulam{n}{\uapp{\uapp{\uvar{\texttt{Nat.*}}}{\uvar n}}{\unat 2}}$,
-of the same type, and runs \texttt{update} (\cref{def:update}).
-
-\begin{enumerate}[nosep,label=\arabic*.]
-  \item $Q = \{\UDer{\texttt{\#s}}{0}\}$, and $\tdeps(Q) = \{\UDer{\texttt{\#d}}{0}\}$ ---
-        \texttt{double} depends on \texttt{scale} and has an unconflicted name.
-  \item \texttt{double} is \emph{rendered back to source} under a pretty-print environment
-        (\cref{def:ppe}). Its stored body holds a hash; what is printed is the name \texttt{scale}.
-  \item The file --- the new \texttt{scale} plus the printed \texttt{double} --- is parsed and
-        typechecked as a unit. This time \texttt{scale} resolves to the \emph{new} definition, which
-        is the entire mechanism by which the reference is retargeted.
-  \item It typechecks. Both are ingested, yielding \texttt{\#s'} and \texttt{\#d'}, and both names are
-        rebound.
-\end{enumerate}
-
-Note what changed and what did not. \texttt{double}'s \emph{source text} is character-for-character
-what it was; its \emph{hash} changed, because the definition it names changed. And the old
-\texttt{\#d} is still in the store, still referring to the old \texttt{\#s}, still meaning exactly
-what it meant --- nothing was mutated, and any cached result for \texttt{\#d} remains valid
+The fifth line is the whole mechanism: retargeting happens because a printed \emph{name} resolves
+against the new namespace. \texttt{double}'s source text is character-for-character what it was, and
+its hash changed anyway. Meanwhile \texttt{\#d} is still in $\UStore$, still referring to
+\texttt{\#s}, still meaning what it meant --- so any cached result for it remains valid
 (\cref{cor:wnoinval}).
 
 \subsection{An update that fails}\label{ex:update-fail}
 
-Same starting state, but the user changes \texttt{scale} to something of a different type:
+Same starting state; this time the new \texttt{scale} is
 $\ulam{s}{\uapp{\uvar{\texttt{Text.size}}}{\uvar s}}$, of type $\uarr{\TText}{\TNat}$.
 
-Steps 1--3 run as before. At step 3 the file does not typecheck: \texttt{double} applies
-\texttt{scale} to its argument $n$, and $n$ is used at $\TNat$. Step 5 of \cref{def:update} then
-applies:
+\[
+\begin{array}{r@{\;}l@{\quad}l}
+  Q,\ \tdeps(Q),\ S &\text{ as before}
+    & \just{\cref{def:uscope,def:ppe}} \\[3pt]
+  {} &\utypes{\emptyset}{F \cup S}{\ } \text{ fails at \texttt{double}}
+    & \just{$n : \TNat$ against $\uarr{\TText}{\TNat}$} \\[3pt]
+  \UNames'' &= \bigl(\UNames \setminus \{(\texttt{double}, \cdot)\}\bigr)
+               [\texttt{scale} \mapsto \UDer{\texttt{\#s}'}{0}]
+    & \just{\cref{def:update}, step 5} \\[3pt]
+  \text{delivered} &= S
+    & \just{step 5}
+\end{array}
+\]
 
-\begin{itemize}[nosep]
-  \item \texttt{scale} is ingested and its name rebound to the new definition.
-  \item \texttt{double}'s name is \textbf{removed from the namespace}.
-  \item The rendered source for \texttt{double} is handed back to the user, on an update branch, as
-        the thing to edit.
-\end{itemize}
-
-The namespace is left coherent --- it contains no name denoting a definition that fails to typecheck
---- and the unfinished work is a file. The old \texttt{\#d} has not been deleted or altered; it has
-merely stopped being reachable by name, which is the only kind of ``deletion'' the store supports.
-
-\Cref{rem:residual} discusses why this is the design's most distinctive feature, and
-\cref{prop:print-parse} is the obligation step 2 rests on: the rendering of \texttt{double} must be
-something the parser turns back into \texttt{double}, differing only in what \texttt{scale} resolves
-to.
+The namespace is left coherent: it contains no name denoting a definition that fails to typecheck.
+\texttt{\#d} has not been deleted or altered --- it has stopped being reachable by name, which is the
+only kind of deletion the store supports --- and the unfinished work is a file. \Cref{rem:residual}
+discusses why this is the design's most distinctive feature, and \cref{prop:print-parse} is the
+obligation the third line rests on: $\render$ must produce something $\uparse$ turns back into
+\texttt{double}, differing only in what \texttt{scale} resolves to.
 
 % =====================================================================
 \section{Comparison with arbor}\label{sec:contrast}

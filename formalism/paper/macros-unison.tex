@@ -29,7 +29,7 @@
 \newcommand{\uapp}[2]{#1\;#2}
 \newcommand{\unat}[1]{\underline{#1}}
 \newcommand{\utext}[1]{\text{``}#1\text{''}}
-\newcommand{\uref}[1]{\mathsf{r}\,#1}
+\newcommand{\uref}[1]{#1}
 \newcommand{\uann}[2]{#1 : #2}
 
 % --- types ---
@@ -65,3 +65,7 @@
 \newcommand{\scratch}{\mathsf{scratch}}
 \newcommand{\ok}{\mathsf{typechecks}}
 \newcommand{\usteps}{\longrightarrow_{\mathsf{u}}}
+
+% --- worked examples ---
+\newcommand{\Res}[2]{\mathcal{R}^{#1}_{#2}}     % resolution, superscript = group names
+\newcommand{\just}[1]{\text{\footnotesize (#1)}}       % right-hand justification in a derivation
