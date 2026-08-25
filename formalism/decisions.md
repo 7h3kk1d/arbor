@@ -780,3 +780,37 @@ Reference transparency deliberately stays *before* component hashing: it is a cl
 hash function and belongs next to it, so the progression is term → reference → component →
 guarantees. Its discussion mentions cycle heads, which needs positions, so it carries a forward
 pointer to §3.4 rather than being moved.
+
+---
+
+## 2026-08-25 (fourth) — `mini-unison`: worked examples, and a claim they falsified
+
+Added §7, six worked examples: ingesting one definition; a bare alias; a recursive group; the
+ambiguous-ordering case; an update that succeeds; an update that fails.
+
+**Writing them falsified something the paper asserted.** `rem:transparent` had carried both of the
+consequences the source comment gives for reference transparency — that `x = 1 + 1` and `y = x`
+"hash the same", and that inlining is hash-preserving. Working the alias example through
+`def:comphash` shows neither follows.
+
+A reference at position 0 contributes the referent's **component** hash. Inlining the body would
+contribute the referent's **term** hash. `hashComponent` puts two accumulations between them —
+`commonTokens = Tag 1 : map Hashed hashes`, then `overallHash = acc (map Hashed hashes')` — even at
+*k* = 1. So `⌈X⌉ = ⌈Y⌉` would require `⌈Nat.+ 1 1⌉ = #x` where `#x` is built *from* `⌈X⌉`: the
+equation asks the hash function for a fixed point of a particular shape.
+
+The comment's own caveat is exactly this condition — "so long as `Reference.Derived` ctors are
+created using the same hashing function as is used here". And there *is* a construction satisfying
+it: `hashClosedTerm tm = ReferenceId (ABT.hash tm) 0`, which builds a reference from a term's own
+hash. References made that way are interchangeable with their referents; ones made by
+`hashComponents` are not.
+
+So the term-level property (`prop:transparent`) is exactly right and the definition-level reading of
+it is not. `rem:transparent` now states only the former and points at `rem:transparency-limit`, which
+works the difference out, and the appendix lists it as **the** thing we would most like checked,
+since it bears on a frequently-repeated description of the system.
+
+**Method note.** This is the fourth finding in this document and the second that came from a user
+question rather than from reading. It is also the first that contradicts something *we had already
+written down and believed*. Worked examples earn their place for exactly this reason: prose can
+restate a source comment without ever putting it against the definitions, and an example cannot.
