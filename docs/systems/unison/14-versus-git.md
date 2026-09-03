@@ -189,13 +189,114 @@ The conflict does not disappear; it **moves** to two hashes competing for one na
 
 That last sentence is the interesting one for arbor, and it is the converse of the finding above. Unison's costs cluster in observation; git-with-one-file-per-definition gets the observation for free and misses the identity. The target is the union, and the smudge/clean sketch is evidence that the union is a build order rather than a contradiction.
 
+## Could you just use GUIDs?
+
+The follow-up challenge to the previous section, and a sharper one: keep the file-per-definition git repo, but have definitions reference each other by **GUID**, with one table mapping GUID → human-readable name. Renames become a single row edit. What does content addressing buy over that?
+
+Less than the marketing implies. Two of the arguments made earlier in this document do not survive it.
+
+### What the GUID system gets outright
+
+Free renames, exactly as cheap as Unison's — one row, no dependents touched, nothing to conflict. Free moves between namespaces. No import churn. Plus everything the file split already bought in the previous section.
+
+### Withdrawn: cross-version type sharing is not unique to content addressing
+
+§4's result — `dep_v1.Color` and `dep_v2.Color` being the same type — is reachable here. Have the compiler content-hash the AST and use *that* for nominal type identity, and identical content unifies regardless of GUID.
+
+One sharpening, which is a concession rather than a rescue. The compiler must hash **transitively through** the GUIDs — replacing each reference with the hash of what it points at, recursively — because hashing a GUID only hashes an assignment, and two independently forked libraries with different GUIDs would give different hashes for identical content. That transitive hash *is* a content address; the design rebuilds it inside the compiler rather than avoiding it. But it works, and the property is not an argument for exposing the hash as the stored identity.
+
+### Withdrawn: verification and shareable caches are not unique either
+
+Nix is the existence proof: named source files, a content-addressed store, and a remote cache that is safely shareable between mutually distrusting machines precisely because the key is a content hash. Add lockfiles carrying integrity hashes and artifact-level verification follows. The residual difference is *granularity* — definition-level versus artifact-level reference — and who maintains the manifest. Real, but small.
+
+### The strongest argument is on the GUID system's side, and it is not one its proposer made
+
+**In the GUID system there is no propagation.** `usesDep.u` holds `ref(g_dep)`; change `dep` and `usesDep.u`'s bytes do not move. Nothing cascades, nothing is re-hashed, so **there is nothing to classify** — no syntactic hash, no propagated-versus-authored distinction, and therefore none of the rename fragility documented in `08-merge-and-branching.md`.
+
+That apparatus exists *only because content addressing forces the cascade*. A dependent's hash contains its dependency's hash, so an edit at the bottom of a graph rewrites the identity of everything above it, so merge must reconstruct which of those rewrites a human meant. The GUID system never incurs the debt, so it never pays the interest.
+
+| | Unison | GUID indirection |
+|---|---|---|
+| Dependent's identity when a dependency changes | forced to change | unchanged |
+| Therefore | must classify propagated vs. authored | nothing to classify |
+| Cost of that | synhash; renames break it | — |
+| What it buys | dependents are known to typecheck | the build finds out |
+
+The residual trade is exactly the one from §3: *the codebase always typechecks* versus *you find out at build time*. Which this document has already argued is not obviously a win for Unison.
+
+### What survives
+
+**1. Convergence of independent authorship — genuinely unique, and narrow.** Two people who write the same definition in different repositories get the same hash. GUIDs cannot ever unify them, and no amount of merging will.
+
+The bound matters more than the property. Measured `[verified empirically]` — seven ways to write "add one", added together, then `names a1`:
+
+```
+#t7g50rohbm   Term   a1, a2, a4, a5, a6
+```
+
+| variant | | |
+|---|---|---|
+| `a1 x = x + 1` | baseline | — |
+| `a2 y = y + 1` | α-renamed | **same** |
+| `a4 x = (Nat.+) x 1` | operator desugared to prefix | **same** |
+| `a5 = x -> x + 1` | lambda instead of equation | **same** |
+| `a6 : Nat -> Nat` + same body | signature written vs. inferred | **same** |
+| `a3 x = 1 + x` | arguments commuted | **different** |
+| `a7 x = (y = x + 1; y)` | intermediate named | **different** |
+
+The equivalence is **syntactic identity modulo desugaring and binder names**. Commuting a commutative operator breaks it; naming an intermediate breaks it. Two people converge only if they wrote literally the same expression tree.
+
+A second bound is harsher: two independently declared `unique type`s never converge, and Unison is unique-by-default for types. Any definition mentioning a locally declared type is permanently disqualified. Convergence is therefore confined to code written over *already shared* vocabulary — builtins and library types both parties imported.
+
+So the dividend is real and concentrated in the small-combinator tail. It is a nice property, not a foundation. Convergence at a *semantic* rather than syntactic level is a normalization problem (canonical forms, e-graphs); content addressing offers no help with it, only a cheap equality test once normalization has happened.
+
+Note also that Unison does not market this. The FAQ presents it as a consequence — *"Definitions never change, but the names we give them do"* — and it is absent from the six advertised claims audited above.
+
+**2. No preservation obligation.** Someone must mint a GUID and every tool must keep it, through copy-paste, forks, and refactors. "Does a fork keep upstream's GUIDs?" has no principled answer: keep them and the fork claims to *be* upstream; drop them and nothing is shared. Hashes never ask, because the answer is derived from the bytes.
+
+The evidence is inside Unison. It *has* GUIDs — `unique type` mints one — and that is the part needing scaffolding. To survive a re-save the GUID is recovered **by name** (`UniqueTypeGuidLookup.loadUniqueTypeGuid`), whose docstring says *"If there are multiple such types, an arbitrary one is chosen."* Plus a side table, also keyed by name:
+
+```sql
+create table namespace_unique_type_guid (
+  namespace_hash_id integer not null references hash (id) on delete cascade,
+  type_name         jsonb   not null,
+  type_guid         text    not null
+);
+```
+
+In the one place Unison uses assigned identity it needs a side table, a name-based recovery path, and an arbitrary tie-break. That is the GUID design's operational cost, measured inside the system being compared to.
+
+**3. Durable reference.** A hash written down means the same thing forever, to anyone, offline. A GUID means "whatever that slot holds now," so any durable reference needs a GUID *plus* a version — which is a manifest, which is another thing to maintain, resolve, and merge. This is probably the strongest remaining argument, and it is not one Unison makes.
+
+### They are duals, and neither is a superset
+
+| | identity derived from | unifies independent equals | survives an edit |
+|---|---|---|---|
+| **Hash** | content | **yes** | no |
+| **GUID** | assignment | no | **yes** |
+
+"Which definition is this the successor of?" is unanswerable from hashes — an edit produces an unrelated hash. Unison answers it *by name*, which is precisely why its merge classifier breaks on renames. A GUID answers it directly, and a GUID-based synhash would be rename-proof.
+
+Every system that needs both ends up carrying both: Unison has hashes plus unique-type GUIDs, Nix has a content-addressed store plus attribute names, and arbor's own line arrived at the same place deliberately — p10 minted everything, p11 layered mint *threads* over hashes.
+
 ## What arbor should take from this
 
-Recorded as findings, not decisions — see `feedback_findings_not_decisions`.
+Recorded as findings, not decisions — see `feedback_findings_not_decisions`. **Revised 2026-09-03**: the two hypotheticals above withdrew two arguments this list previously rested on, so items 1–3 replace a single earlier claim that cross-version sharing was the headline dividend of `Σ`.
 
-1. **The sharing result is the thing worth carrying.** Definition-level identity means the unchanged subset of two library versions is literally shared. This is the strongest real consequence of content addressing for dependency management, it is stronger than Unison's own claim, and it does not depend on any of Unison's contested choices (the commit gate, `lib` magic, evict-on-failure). arbor gets it for free from `Σ`.
-2. **It is conditional on shared provenance, and that should be stated wherever the claim is made.** The mechanism is the same as a merge base. `docs/design/` should not repeat "no diamond problem" without it.
-3. **`lib` is a warning.** Unison's exemption from propagation is a magic name segment special-cased in ~20 modules. arbor's update strategies (`project_update_strategies`, p11's pin/follow/explicit) are the same distinction made first-class. That is the right shape and it should stay first-class.
-4. **The costs cluster in *observation*, not in merging.** No content history, no blame, no line diff, no grep, no comments. arbor's `Θ` aspect store can hold what Unison discards — comments and authorial formatting as aspects on a hash rather than as bytes in it — which keeps "no formatting conflicts" without losing the comment. Worth an entry in `docs/design/open-questions.md`.
-5. **The commit gate's real cost is visible here.** "Never broken" and "cannot checkpoint broken work" are the same property. `13-editing-context.md`'s position — ingest everything, uncommitted is *names* not definitions — buys back git's ability to save a half-finished thought, and p21 exists to make that trade concrete.
-6. **The union is a build order, not a contradiction.** §"Could you just do this in git?" isolates which half of Unison's advantage comes from *file granularity* (recoverable in git today) and which from *identity* (not recoverable without hashing references). arbor wants both halves, and the two are independent — which means observation-layer work (content history, per-definition diff, comments as aspects) does not have to trade against `Σ`.
+1. **The case for a content-addressed `Σ` is durable reference and the absence of a preservation obligation — not the advertised claims.** A hash written down means the same thing forever, to anyone, offline; a GUID means "whatever that slot holds now," and every durable reference to one needs an accompanying version, i.e. a manifest to maintain and merge. And nobody has to *keep* a hash through copy-paste, forks, or refactors. Unison's own unique-type GUIDs show what that obligation costs: a side table, a name-based recovery path, and an arbitrary tie-break. These two arguments survive every hypothetical in this document; the flashier ones do not.
+
+2. **Cross-version type sharing is real but is not an argument for `Σ`.** It is reachable in a GUID system whose compiler hashes transitively through the references (§"Could you just use GUIDs?"). It is also conditional on shared provenance — the mechanism is a merge base by another name — and `docs/design/` should not repeat "no diamond problem" without that condition. Still worth having; just not load-bearing for the identity model.
+
+3. **Convergence of independent authorship is the one genuinely unique property, and it is narrow.** Measured: the equivalence is syntactic identity modulo desugaring and binder names. Commuting a commutative operator breaks it; naming an intermediate breaks it; and two independently declared `unique` types never converge at all, which disqualifies anything mentioning a locally declared type. The dividend is concentrated in the small-combinator tail. Treat it as a pleasant consequence, not a foundation — and note that Unison itself frames it that way. Semantic convergence is a normalization problem that content addressing does not address.
+
+4. **Content addressing *creates* the propagation cascade, and the cascade is what needs the syntactic hash.** A dependent's hash contains its dependency's hash, so an edit rewrites the identity of everything above it, so merge must reconstruct which rewrites a human meant — via a name-substituted hash that then breaks on renames. A GUID design never incurs the debt. Budget for this: any arbor design with content-addressed references inherits the classification problem, and needs a better answer than names. p11's mint threads are one such answer.
+
+5. **Mints are not redundant with hashes; they answer the question hashes cannot.** "Which definition is this the successor of?" is unanswerable from a hash — an edit produces an unrelated one. Unison answers it *by name*, which is exactly why its merge classifier is rename-fragile. p10/p11's minted identity and `project_cross_edit_identity`'s lean toward mint-survives-edits are doing genuine, non-overlapping work: hash for identity, mint for continuity, kept separate.
+
+6. **`lib` is a warning.** Unison's exemption from propagation is a magic name segment special-cased in ~20 modules. arbor's update strategies (`project_update_strategies`, p11's pin/follow/explicit) are the same distinction made first-class. That is the right shape and it should stay first-class.
+
+7. **The costs cluster in *observation*, not in merging.** No content history, no blame, no line diff, no grep, no comments. arbor's `Θ` aspect store can hold what Unison discards — comments and authorial formatting as aspects on a hash rather than bytes in it — which keeps "no formatting conflicts" without losing the comment. Worth an entry in `docs/design/open-questions.md`.
+
+8. **The commit gate's real cost is visible here.** "Never broken" and "cannot checkpoint broken work" are the same property. `13-editing-context.md`'s position — ingest everything, uncommitted is *names* not definitions — buys back git's ability to save a half-finished thought, and p21 exists to make that trade concrete.
+
+9. **The union is a build order, not a contradiction.** The two hypotheticals isolate which half of Unison's advantage comes from *file granularity* (recoverable in git today), which from *assigned identity* (recoverable with GUIDs), and which from *content identity* (items 1 and 3). The halves are independent, so observation-layer work — content history, per-definition diff, comments as aspects — does not have to trade against `Σ`.
