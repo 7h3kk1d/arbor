@@ -99,3 +99,57 @@ not, since the tests went through `Ingest` and never through this path.
 longer exists, merged in 2025. Two buttons would model a distinction the system stopped making. This
 also corrects `prop:follow-only`'s description of `add` as the abstention gesture — abstention is
 choosing a name nothing depends on, not choosing a different command.
+
+---
+
+### 2026-09-03 — Namespace gestures, with the precondition the equations do not show
+
+**Decision.** `Names.move`, `Names.alias` and `Names.delete` (`def:gestures`), the three operations
+that change `N` and nothing else. `move` and `alias` return a `result` and refuse three cases:
+source unbound, source conflicted, **target already bound**. `delete` is total.
+
+**Why the third case.** The paper writes `move(x,y)` as `N' = (N \ {(x,r)}) ∪ {(y,r)}`, and a
+relation would hold that result perfectly well when `y` is already bound — the union just makes `y`
+conflicted. `ucm` 1.1.1 refuses: *"A term named bar already exists."* So conflict stays
+**representable** while no gesture here can produce one, which is a third instance of `rem:conflict`'s
+pattern after `def:unconf`'s all-or-nothing view and `update`'s precondition. Modelling the set
+equation literally would have made the prototype able to reach a state the real system cannot.
+`def:gestures` in the paper now carries the same note.
+
+**What the pair of tests is for.** `test_gestures` pins the preconditions. `test_renamefree` pins
+`rem:renamefree`, which is the reason renaming is usually offered as the payoff of content addressing:
+rename a callee out from under its caller and the caller's referent, the caller's hash, the store and
+the cached result of evaluating it are all bit-for-bit what they were. Nothing below the interface can
+observe that a rename happened. That test exists to be *contradicted* by the merge section, which is
+the one operation that reads names as though they were content.
+
+**Not reachable here: `rem:innercycle`.** That finding is about `hash_component` having two callers
+who treat the ordering warning differently. p21 has one, because `def:urterm` has no `let`, so no
+inner cycle is expressible. Declining to add let-rec purely to acquire a second call site; noted in
+`open-questions.md`.
+
+---
+
+### 2026-09-03 — Committable from `Typechecked` onwards, not *at* `Typechecked`
+
+**Decision.** `Scratch.is_committable` compares stage *rank* (`stage_index(s.stage) >=
+stage_index(Typechecked)`) rather than testing `s.stage == Typechecked`.
+
+**Why.** The equality test was a regression introduced by the save/commit split of 2026-09-02, and it
+disabled the commit button in exactly the state where committing is possible. `analyze_only` stops at
+`Typechecked`; `save` carries a well-typed buffer one step further to `Hashed`; and the editor runs
+`save` on every keystroke, because typing *is* saving (`rem:saveident`). So no buffer a user could
+actually produce ever satisfied `== Typechecked`. The rail read `hashed`, every binding showed a hash
+at save, and the button underneath said "nothing is hashed until the whole buffer typechecks."
+
+**Why the suite stayed green.** Both halves were already asserted, in different tests.
+`test_save_is_not_commit` checked that a save reaches `Hashed`; the commit gate was described as
+`Typechecked` in `scratch.re`. Nothing put the two in one place. `test_committable_after_save` now
+does, and asserts the negative as well, so the gate is still shown to hold on an ill-typed buffer.
+
+**Second instance of a pattern worth naming.** The 2026-09-02 entry on live feedback records a bug the
+browser pass caught and the native tests did not. This is the same shape: the defect is in a predicate
+that only the interface calls, and the substrate tests reach `Update.run` directly. Any p21 test that
+never renders cannot see this class of defect, and `project_browser_verification` is the standing note
+about it — `--dump-dom` would not have caught this either, since the button renders in both states and
+only the `disabled` attribute differs.

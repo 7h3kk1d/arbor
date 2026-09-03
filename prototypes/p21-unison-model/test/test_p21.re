@@ -252,8 +252,15 @@ let test_ordering_b2 = () => {
   );
 };
 
-/* (cor:detect) The side condition is decidable, and is checked: injectivity is
-   decided by grouping the members by permutation hash. */
+/* (cor:detect) The side condition is decidable and is computed: doHashCycle's
+   analogue groups the members by permutation hash and reports the ties.
+
+   What p21 cannot show is rem:innercycle. That finding is about hash_component
+   having TWO callers who decide the warning differently -- the top-level path
+   aborts, the internal let-rec path drops it and lets source order fix the de
+   Bruijn indices. Here there is one caller, because def:urterm has no `let` at
+   all, so there is no inner cycle to hash. Reaching it would mean adding let-rec
+   to the object language purely to acquire a second call site. */
 let test_detect = () => {
   let mk = other =>
     Term.Ann(Term.Lam("n", Term.App(Term.Var(other), Term.Var("n"))), nat2nat);
@@ -410,6 +417,42 @@ let test_shadowing = () => {
   check("and the codebase's g survives", true, Names.resolve(overlay, "g") == Some(old_));
 };
 
+/* (def:gestures) move, alias and delete: the operations that change N and
+   nothing else. The two preconditions are the interesting part, because the
+   paper's set equations do not show them -- see the note in names.re. */
+let test_gestures = () => {
+  let ns = Names.create();
+  let a = Reference.Ref(Reference.Derived(Hash.acc([Hash.Nat(1)]), 0));
+  let b = Reference.Ref(Reference.Derived(Hash.acc([Hash.Nat(2)]), 0));
+  Names.add(ns, "foo", a);
+  Names.add(ns, "bar", b);
+
+  check("alias adds a second name for one referent", true, Names.alias(ns, "foo", "baz") == Ok());
+  check("and both names denote it", true, Names.names_of(ns, a) == ["baz", "foo"]);
+
+  /* the target must be free: the relation could hold the union, the interface
+     refuses it, so no gesture here can manufacture a conflict */
+  check("alias onto an occupied name is refused", true, Names.alias(ns, "foo", "bar") == Error(Names.Occupied("bar")));
+  check("move onto an occupied name is refused", true, Names.move(ns, "baz", "bar") == Error(Names.Occupied("bar")));
+  check("and bar is untouched", true, Names.resolve(ns, "bar") == Some(b));
+
+  /* the source must be unconflicted, and must exist */
+  check("move from an unbound name is refused", true, Names.move(ns, "nope", "quux") == Error(Names.Unbound("nope")));
+  Names.add(ns, "bar", a);
+  check("move from an ambiguous name is refused", true, Names.move(ns, "bar", "quux") == Error(Names.Ambiguous("bar")));
+  Names.remove_name(ns, "bar");
+
+  check("move rebinds and vacates", true, Names.move(ns, "foo", "renamed") == Ok());
+  check("the old name is gone", true, Names.resolve(ns, "foo") == None);
+  check("the new one denotes the same referent", true, Names.resolve(ns, "renamed") == Some(a));
+
+  /* delete needs neither precondition: it removes every row for the name */
+  Names.add(ns, "both", a);
+  Names.add(ns, "both", b);
+  Names.delete(ns, "both");
+  check("delete takes a conflicted name wholesale", true, Names.lookup(ns, "both") == []);
+};
+
 /* (thm:wstable, cor:wnoinval) A cache entry, once written, is valid in every
    future store. No invalidation is required -- and there is no invalidation
    function to call, which is the point. */
@@ -557,6 +600,37 @@ let scale_and_double = () => {
   | Update.Failed(f) => Alcotest.fail("setup failed: " ++ f.message)
   };
   (st, ns, w);
+};
+
+/* (rem:renamefree) Renaming is free, and this is the usual argument for content
+   addressing. A move changes one row: no stored definition is rewritten,
+   because no stored definition contains a name; every hash is what it was; and
+   a cached result stays valid, because its key names the expression and not the
+   name (cor:wnoinval).
+
+   Nothing in the store, the cache or update can observe that a rename happened.
+   sec:umerge is where that stops being true, and merge is not modeled here yet. */
+let test_renamefree = () => {
+  let (st, ns, w) = scale_and_double();
+  let scale_before = Names.resolve(ns, "scale");
+  let double_before = Names.resolve(ns, "double");
+  let cached =
+    switch (double_before) {
+    | Some(Reference.Ref(r)) => Eval.eval_ref(st, w, r)
+    | _ => Alcotest.fail("no double")
+    };
+
+  check("rename the callee out from under its caller", true, Names.move(ns, "scale", "times2") == Ok());
+
+  check("the callee's referent is unchanged", true, Names.resolve(ns, "times2") == scale_before);
+  check("the caller's referent is unchanged", true, Names.resolve(ns, "double") == double_before);
+  switch (scale_before, double_before) {
+  | (Some(Reference.Ref(s)), Some(Reference.Ref(d))) =>
+    check("both are still in the store", true, Store.lookup(st, s) != None && Store.lookup(st, d) != None);
+    check("the cache entry survives untouched", true, Watch.get(w, d) == Option.map(v => v, Result.to_option(cached)));
+    check("and double still means what it meant", true, Eval.eval_ref(st, w, d) == cached);
+  | _ => Alcotest.fail("no referents")
+  };
 };
 
 /* (ex:update-ok, def:update steps 1-4) An update that succeeds. The dependent
@@ -910,6 +984,91 @@ let test_scratch_stages = () => {
    and writes each result to the cache -- `only when (not isHit)` -- with no
    `addDefsToCodebase` anywhere. So a save confers identity and fills the cache;
    it stores and names nothing. */
+/* (def:usave, rem:saveident) The commit gate, as the interface asks it.
+   REGRESSION: is_committable used to be `stage == Typechecked`. analyze_only
+   stops at Typechecked; save carries a good buffer on to Hashed; the editor
+   saves on every keystroke. So the predicate was false for every buffer a user
+   could actually have, and the commit button was disabled in exactly the state
+   where committing is possible.
+
+   The suite already asserted both halves -- that save reaches Hashed, and that
+   commit needs Typechecked -- in different tests, which is why it stayed green.
+   This one puts them in the same place. */
+let test_committable_after_save = () => {
+  let st = Store.create();
+  let ns = Names.create();
+  let w = Watch.create();
+  let good = "twice : Nat -> Nat\ntwice = \\n. Nat.* n 2";
+  let sc = Scratch.save(~st, ~ns, ~w, good);
+  check("a save carries a good buffer past Typechecked", true, sc.stage == Scratch.Hashed);
+  check("and it is committable there", true, Scratch.is_committable(sc));
+  /* the gate still holds where it should */
+  let bad = "twice : Nat -> Nat\ntwice = \\n. Nat.* n \"two\"";
+  let sc = Scratch.save(~st, ~ns, ~w, bad);
+  check("an ill-typed buffer does not reach Typechecked", false, sc.stage == Scratch.Typechecked);
+  check("and is not committable", false, Scratch.is_committable(sc));
+};
+
+/* (rem:names, def:uresolution) A committed dependent cannot see a buffer
+   definition that shares its dependency's NAME.
+
+   Commit `scale` and a `double` that calls it, then reset the buffer to a new
+   `scale` plus `> double 3`. The buffer's `scale` shadows the codebase's, but
+   `double` is not in the buffer, so it resolves to the committed `double` --
+   whose stored body holds the old scale's HASH, not the name `scale`. There is
+   no name in there for shadowing to reach, so the watch sees the old scale.
+
+   Only `update` changes that, and it does so by rebuilding `double` into a new
+   definition with a new hash -- which is why propagation is an operation and
+   not a consequence of lookup. Checked against ucm 1.1.1: 6, then 15. */
+let test_buffer_does_not_reach_committed_dependents = () => {
+  let st = Store.create();
+  let ns = Names.create();
+  let w = Watch.create();
+  /* commit, returning (rebuilt names, watch values) -- an inline record cannot
+     escape its constructor, so project inside the match */
+  let commit = text => {
+    let (file, _) = Parse.file(text);
+    switch (Update.run(~st, ~ns, ~w, ~text, ~file)) {
+    | Update.Succeeded(o) => (o.rebuilt, List.map(((_, _, v)) => v, o.watched))
+    | Update.Conflicted(n) => Alcotest.fail("conflicted: " ++ n)
+    | Update.Failed(f) => Alcotest.fail(f.message)
+    };
+  };
+  ignore(
+    commit(
+      "scale : Nat -> Nat\nscale = \\n. Nat.* n 2\n\ndouble : Nat -> Nat\ndouble = \\n. scale n",
+    ),
+  );
+  let double_before = Names.resolve(ns, "double");
+
+  /* the buffer redefines scale and watches double -- saved, NOT committed */
+  let buffer = "scale : Nat -> Nat\nscale = \\n. Nat.* n 5\n\n> double 3";
+  let sc = Scratch.save(~st, ~ns, ~w, buffer);
+  check("the buffer typechecks and hashes", true, sc.stage == Scratch.Hashed);
+  switch (sc.watches) {
+  | [wa] => check("the watch still sees the OLD scale", true, wa.value == Some(Term.Nat(6)))
+  | _ => Alcotest.fail("expected one watch")
+  };
+  check("and nothing rebound double", true, Names.resolve(ns, "double") == double_before);
+
+  /* committing is what propagates */
+  let (rebuilt, values) = commit(buffer);
+  check("double was rebuilt though nobody edited it", true, List.mem("double", rebuilt));
+  check("so its referent moved", false, Names.resolve(ns, "double") == double_before);
+  check("and now the watch sees the new scale", true, values == ["15"]);
+
+  /* and the old double is untouched in the store, still meaning 6 (cor:wnoinval) */
+  switch (double_before) {
+  | Some(Reference.Ref(r)) =>
+    switch (Eval.eval_top(st, Term.App(Term.Ref(r), Term.Nat(3)))) {
+    | Ok(v) => check("the old double still gives 6", true, Eval.to_term(v) == Term.Nat(6))
+    | Error(e) => Alcotest.fail(e)
+    }
+  | _ => Alcotest.fail("no prior double")
+  };
+};
+
 let test_save_is_not_commit = () => {
   let st = Store.create();
   let ns = Names.create();
@@ -1037,7 +1196,7 @@ let () =
           Alcotest.test_case("presentation-independence, when injective (thm:ordering a)", `Quick, test_ordering_a),
           Alcotest.test_case("a tie makes Pos name-dependent (thm:ordering b1)", `Quick, test_ordering_b1),
           Alcotest.test_case("and usually the hash too (thm:ordering b2)", `Quick, test_ordering_b2),
-          Alcotest.test_case("the condition is decidable and checked (cor:detect)", `Quick, test_detect),
+          Alcotest.test_case("the condition is decidable and computed (cor:detect)", `Quick, test_detect),
           Alcotest.test_case("total function, aborting caller (rem:notpartial)", `Quick, test_notpartial),
         ],
       ),
@@ -1053,6 +1212,8 @@ let () =
         [
           Alcotest.test_case("a relation, conflict representable (def:unames, rem:conflict, def:unconf)", `Quick, test_unames),
           Alcotest.test_case("the buffer shadows the codebase", `Quick, test_shadowing),
+          Alcotest.test_case("move, alias, delete, and their two preconditions (def:gestures)", `Quick, test_gestures),
+          Alcotest.test_case("a rename changes no hash and no cache entry (rem:renamefree)", `Quick, test_renamefree),
           Alcotest.test_case("resolution is deliberately partial (def:uresolution, rem:staging)", `Quick, test_uresolution),
         ],
       ),
@@ -1092,6 +1253,8 @@ let () =
         "save",
         [
           Alcotest.test_case("a save confers identity but stores and names nothing", `Quick, test_save_is_not_commit),
+          Alcotest.test_case("a saved buffer is committable (def:usave)", `Quick, test_committable_after_save),
+          Alcotest.test_case("a buffer cannot reach a committed dependent (rem:names)", `Quick, test_buffer_does_not_reach_committed_dependents),
           Alcotest.test_case("re-saving does not re-evaluate (cor:wnoinval)", `Quick, test_save_does_not_reevaluate),
           Alcotest.test_case("save and commit agree on the hash", `Quick, test_save_and_commit_agree),
         ],

@@ -51,6 +51,19 @@ Running list. Findings that generalize bubble up to `docs/design/` and to
   refuses it; nothing benefits, because merge is out of scope. That is evidence for the
   single-valued-`N` position, but it is evidence gathered with the motivating case removed. A p21
   successor with two namespaces and a merge would be the honest test.
+
+- **Merge is now in the paper and not in the prototype.** `mini-unison.tex` gained §7 on 2026-09-03
+  (`formalism/decisions.md`, same date): fourteen statements, `prop:merge-store` through
+  `prop:merge-print-parse`. `check-labels.sh` reports **49 statements, 16 not mirrored** — the merge section plus
+  `def:namestable` and `cor:noedit-user`, which need merge to be testable. This is the largest drift the check has ever reported and it is deliberate:
+  the section's evidence is transcripts run against `ucm`, not arithmetic run through the model.
+  `def:gestures` landed 2026-09-03 and is no longer part of the gap. Closing the remainder needs four things p21 does not have: a second namespace (the store can stay
+  shared, by `prop:merge-store`), the syntactic hash (`def:synhash` — the same token recursion as `Abt.hash_term`
+  with the reference clause swapped for a name lookup, so it is a small addition, not a second
+  hasher), the naming function `ν` with its target-branch bias, and the five-way per-name
+  classification of `def:mergediff`. The three worked examples are the acceptance test, and
+  `ex:merge-dup` is the one to write first: it is the only one that succeeds, so it is the only one
+  where a wrong model would look right.
 - **`prop:print-parse` as a property scales how far?** It found a real printer bug immediately, over a
   language with six term formers and three types. Unison uses a corpus because its surface language
   is vastly larger. Where does the crossover sit, and is there a middle — a property over a
@@ -59,6 +72,16 @@ Running list. Findings that generalize bubble up to `docs/design/` and to
   every member's identity, and `07-arbor-mapping.md` records this as "a wash" in the comparison
   table. p21 can now measure it, and has not: no example here has a cycle large enough for it to
   matter.
+
+- **`rem:innercycle` is out of reach, and the reason is the interesting part.** The finding is that
+  `hash_component` has two callers who decide the ordering warning differently: the top-level path
+  aborts (`cor:detect`), the internal `let rec` path drops the warning and lets *source declaration
+  order* fix the de Bruijn indices, so the enclosing definition's hash depends on which of two
+  indistinguishable bindings was written first. p21 has one caller — `def:urterm` has no `let`, so no
+  inner cycle exists to hash. Modelling it means adding let-rec to the object language purely to
+  acquire a second call site, which is not obviously worth it. Recorded here rather than left implied,
+  because the shape generalizes: the guarantee is a property of a *call site*, not of the hash
+  function, and any substrate with more than one caller has to make them agree.
 
 ## Vocabulary
 

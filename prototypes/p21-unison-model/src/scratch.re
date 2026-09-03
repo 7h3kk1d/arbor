@@ -249,7 +249,16 @@ let analyze_only = (~st: Store.t, ~ns: Names.t, text: string): t => {
   };
 };
 
-let is_committable = (s: t): bool => s.stage == Typechecked;
+/* Committable from Typechecked ONWARDS, not AT Typechecked.
+ *
+ * Identity is conferred by typechecking (rem:saveident), so `analyze_only`
+ * stops at Typechecked and `save` -- which the editor runs on every keystroke
+ * -- carries a good buffer one step further, to Hashed. An equality test here
+ * therefore held only for a buffer that had been analyzed and never saved,
+ * which in the UI is no buffer at all: the commit button was disabled in
+ * exactly the state where committing is possible. Compare by rank. */
+let is_committable = (s: t): bool =>
+  stage_index(s.stage) >= stage_index(Typechecked);
 
 /* ---- save ----------------------------------------------------------------
  *

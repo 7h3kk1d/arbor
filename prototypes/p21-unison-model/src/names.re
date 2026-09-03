@@ -107,3 +107,70 @@ let shadowing = (a: t, b: t): t => {
   let a_names = names(a);
   {rows: a.rows @ List.filter(((k, _)) => !List.mem(k, a_names), b.rows)};
 };
+
+/* (def:gestures) The three operations that change N and nothing else.
+ *
+ *   move(x, y)   N' = (N \ {(x,r)}) u {(y,r)}
+ *   alias(x, y)  N' = N u {(y,r)}
+ *   delete(x)    N' = N \ ({x} x Referent)
+ *
+ * None reads or writes the Store, none can fail on a typing ground, and none
+ * changes any hash. That is rem:renamefree -- a rename is one row, it cannot
+ * break a caller and it cannot invalidate a cached result (cor:wnoinval),
+ * because no stored definition contains a name to rewrite. Nothing in the
+ * store, the cache or update can observe that one happened.
+ *
+ * TWO PRECONDITIONS THE PAPER'S SET EQUATIONS DO NOT SHOW, both verified
+ * against ucm 1.1.1:
+ *
+ *   - The source name must be unconflicted. The equations write `r` for "the
+ *     referent N binds at x", which presupposes it.
+ *   - The target name must be free. The relation would hold the result of
+ *     moving onto an occupied name perfectly well -- the union simply makes
+ *     that name conflicted -- but the interface refuses: "A term named bar
+ *     already exists." So conflict stays REPRESENTABLE while no gesture here
+ *     can produce one. Third instance of rem:conflict's pattern, after
+ *     def:unconf's all-or-nothing view and update's precondition.
+ *
+ * delete needs neither: it removes every row for the name, conflicted or not. */
+
+type gesture_error =
+  | Unbound(string) /* source name denotes nothing */
+  | Ambiguous(string) /* source name denotes several referents */
+  | Occupied(string); /* target name is already bound */
+
+let gesture_error_to_string =
+  fun
+  | Unbound(x) => "I don't know about a term named " ++ x
+  | Ambiguous(x) => "the name " ++ x ++ " is ambiguous"
+  | Occupied(y) => "a term named " ++ y ++ " already exists";
+
+let source_referent = (n: t, from_: string): result(Reference.referent, gesture_error) =>
+  switch (lookup(n, from_)) {
+  | [] => Error(Unbound(from_))
+  | [r] => Ok(r)
+  | _ => Error(Ambiguous(from_))
+  };
+
+let alias = (n: t, from_: string, to_: string): result(unit, gesture_error) =>
+  switch (source_referent(n, from_)) {
+  | Error(_) as e => e
+  | Ok(r) =>
+    List.mem(to_, names(n)) ? Error(Occupied(to_)) : Ok(add(n, to_, r))
+  };
+
+let move = (n: t, from_: string, to_: string): result(unit, gesture_error) =>
+  switch (source_referent(n, from_)) {
+  | Error(_) as e => e
+  | Ok(r) =>
+    if (List.mem(to_, names(n))) {
+      Error(Occupied(to_));
+    } else {
+      remove_name(n, from_);
+      add(n, to_, r);
+      Ok();
+    }
+  };
+
+/* Total: the store keeps the definition, it just stops being reachable. */
+let delete = (n: t, name: string): unit => remove_name(n, name);
