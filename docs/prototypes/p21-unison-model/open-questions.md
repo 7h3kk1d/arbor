@@ -52,26 +52,12 @@ Running list. Findings that generalize bubble up to `docs/design/` and to
   single-valued-`N` position, but it is evidence gathered with the motivating case removed. A p21
   successor with two namespaces and a merge would be the honest test.
 
-- **Merge is now in the paper and not in the prototype.** `mini-unison.tex` gained §7 on 2026-09-03
-  (`formalism/decisions.md`, same date): fourteen statements, `prop:merge-store` through
-  `prop:merge-print-parse`. `check-labels.sh` reports **49 statements, 16 not mirrored** — the merge section plus
-  `def:namestable` and `cor:noedit-user`, which need merge to be testable. This is the largest drift the check has ever reported and it is deliberate:
-  the section's evidence is transcripts run against `ucm`, not arithmetic run through the model.
-  `def:gestures` landed 2026-09-03 and is no longer part of the gap. Closing the remainder needs four things p21 does not have: a second namespace (the store can stay
-  shared, by `prop:merge-store`), the syntactic hash (`def:synhash` — the same token recursion as `Abt.hash_term`
-  with the reference clause swapped for a name lookup, so it is a small addition, not a second
-  hasher), the naming function `ν` with its target-branch bias, and the five-way per-name
-  classification of `def:mergediff`. The three worked examples are the acceptance test, and
-  `ex:merge-dup` is the one to write first: it is the only one that succeeds, so it is the only one
-  where a wrong model would look right.
-- **`prop:print-parse` as a property scales how far?** It found a real printer bug immediately, over a
-  language with six term formers and three types. Unison uses a corpus because its surface language
-  is vastly larger. Where does the crossover sit, and is there a middle — a property over a
-  *generated* subset plus a corpus for the rest?
-- **Does the coarsening of component identity actually bite?** Editing one member of a cycle changes
-  every member's identity, and `07-arbor-mapping.md` records this as "a wash" in the comparison
-  table. p21 can now measure it, and has not: no example here has a cycle large enough for it to
-  matter.
+- ~~**Merge is now in the paper and not in the prototype.**~~ **Closed 2026-09-03.** Built:
+  `src/synhash.re`, `src/merge.re`, eight tests, 49/49 statements mirrored. Building it corrected
+  `def:mergediff` and `def:umerge` and settled `rem:merge-soundness` — see `formalism/decisions.md`.
+  The one thing left unmirrored in spirit rather than in letter is the render environment: the paper
+  distinguishes `rho` (suffixified) from `nu` (not), and with atomic names the two coincide here, so
+  `prop:merge-asym`'s second mechanism is exercised and suffixification is not.
 
 - **`rem:innercycle` is out of reach, and the reason is the interesting part.** The finding is that
   `hash_component` has two callers who decide the ordering warning differently: the top-level path

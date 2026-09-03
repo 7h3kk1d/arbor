@@ -1238,9 +1238,12 @@ $\delta_P(x)$ is
   \dupd & \NO(x) \neq P(x) \text{ and } \syn{\namer}{\NO(x)} \neq \syn{\namer}{P(x)}
 \end{array}
 \]
-Only $\dadd$, $\ddel$ and $\dupd$ enter the diff. $\dnil$ is discarded before any hashing happens
---- equal referents have equal syntactic hashes, so the case is decided on the content hash alone
---- and $\dprop$ is separated out and set aside as an automatic propagation.
+Only $\dadd$, $\ddel$ and $\dupd$ enter the diff. $\dnil$ is discarded before any hashing happens ---
+equal referents have equal syntactic hashes, so the case is decided on the content hash alone --- and
+$\dprop$ is partitioned off as an automatic propagation. Held back from the diff is not discarded:
+\cref{def:umerge} still applies the $\dprop$ bindings to the merged namespace, because a definition
+\texttt{update} rebuilt is still the version that branch has. What it is spared is being put to the
+user.
 \end{definition}
 
 \begin{remark}[Only the syntactic hash decides]\label{rem:syn-only}
@@ -1284,14 +1287,18 @@ edit --- and \cref{ex:merge-dup} works that through.
 \begin{definition}[Merge]\label{def:umerge}
 \src{mblob:186-243; merge2:346-380} Given $\NO$, $\NA$, $\NB$ satisfying \cref{def:mergepre}:
 \begin{enumerate}[nosep,label=\arabic*.]
-  \item Compute $\delta_{\NA}$, $\delta_{\NB}$ and the conflicted names (\cref{def:mergecombine}),
-        and form $\NM$.
-  \item Let $D$ be the conflicted definitions together with their transitive dependents in either
-        branch --- the same closure \cref{def:uscope} computes, for the same reason: whatever
-        resolves a conflict, everything downstream must be rechecked against it.
+  \item Compute $\delta_{\NA}$, $\delta_{\NB}$ and the conflicted names (\cref{def:mergecombine}).
+        Form $\NM$ from $\NO$ by applying the $\dprop$ bindings, then the resolved operations on top;
+        conflicted names are removed rather than bound.
+  \item Call a referent \emph{superseded} if $\NO$ bound some name to it and $\NM$ no longer does.
+        Let $D$ be every name $\NM$ binds whose definition reaches a superseded referent, together
+        with the conflicted names. These are what must be rebuilt: an update supersedes (the name
+        means something else now), a rename supersedes (the name is gone), and a definition all of
+        whose dependencies still mean what they meant needs no attention.
   \item Render $D$ to source under a naming function $\rnamer$, producing one file.
-  \item If no name is conflicted, parse and typecheck that file against $\NM$. On success, ingest and
-        bind; the merge is complete.
+  \item If no name is conflicted, parse and typecheck that file against $\NM$ --- from which the
+        names in $D$ have been removed, so the re-ingest rebinds them, exactly as \texttt{update}
+        treats what it rebuilds. On success the merge is complete.
   \item Otherwise --- a conflicted name, or a file that does not parse or typecheck --- create a
         temporary branch holding $\NM$ and deliver the file to the user as editable source.
 \end{enumerate}
@@ -1470,12 +1477,28 @@ namespace it will be parsed against no longer has, and step 4 fails (\cref{ex:me
 Reversing the roles removes the mismatch, which is \cref{prop:merge-asym}.
 \end{remark}
 
-\begin{remark}[What is not claimed]\label{rem:merge-soundness}
-\Cref{thm:noconflict} and its corollary bound \emph{spurious} conflicts. The dual question --- whether
-every real disagreement is reported --- is left open here. The case to examine is the second row of
+\begin{remark}[The silent resolution, and what it hides]\label{rem:merge-soundness}
+\Cref{thm:noconflict} and its corollary bound \emph{spurious} conflicts. The dual question is whether
+every real disagreement is reported, and the case to examine is the second row of
 \cref{def:mergecombine}: when both branches update $x$ to definitions with equal syntactic hashes but
-different referents, merge takes $\NA$'s silently. That is defensible only if the disagreement
-underneath is reported at some other name, and while we expect it is, we have not established it.
+different referents, merge takes $\NA$'s and says nothing.
+
+The case is reachable. Let both branches update a shared dependency $y$ differently; each rebuilds $x$
+by \cref{def:update}, and both rebuilds render as the same code, because $\namer$ gives each branch's
+version of $y$ the same name. So $x$ has two versions, one syntactic hash, and is resolved in silence.
+
+It is nonetheless not hiding anything, and the reason is that the collapse cannot go all the way down.
+$\syn{\namer}{\NA(x)} = \syn{\namer}{\NB(x)}$ says the two render alike; if their referents differ,
+some dependency differs, and at that dependency's name the same question recurs. The recursion cannot
+continue forever: \cref{def:synhash} records literals, structure and types verbatim, and a referent
+$\namer$ does not name contributes its hash, so a difference that is invisible at every level does not
+exist. It therefore surfaces at some name --- as a conflict if the two versions render differently
+there, which is where the recursion stops. In the two-definition case above it is reported at $y$,
+while $x$ resolves silently, which is the right division of labour: $x$ is not what the parties
+disagree about.
+
+We state this as an argument rather than a theorem. What is checked is the witness: the configuration
+above, with the conflict landing on the dependency and not on the definition resolved for it.
 \end{remark}
 
 % =====================================================================

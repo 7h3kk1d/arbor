@@ -1131,3 +1131,45 @@ The model reproduces the top-level abort and cannot reach the inner path: p21's 
 `let`, so `hash_component` has a single caller and the two-caller divergence that *is* the finding
 cannot arise. Recorded in `p21-unison-model/open-questions.md` as out of reach rather than left as an
 implied debt.
+
+---
+
+## 2026-09-03 — merge, built; and two things §7 had wrong
+
+**Decision.** `p21-unison-model` implements §7 (`src/synhash.re`, `src/merge.re`). 49 statements,
+49 mirrored, 45 tests. Building it corrected the paper twice and settled one open question, which is
+the fifth time the prototype has done that and the reason it exists.
+
+**Correction 1 — `def:mergediff` read as if propagation is discarded.** It said `prop` is "separated
+out and set aside", and the first implementation duly dropped those names entirely. Every clean merge
+then lost half its result: a definition rebuilt by `update` on one branch is still the version that
+branch has, and holding it back from the *diff* (so nobody is asked about it, which is `cor:noedit`)
+is not the same as dropping it from the *namespace*. `def:umerge` step 1 now applies the propagated
+bindings first and the resolved operations on top.
+
+**Correction 2 — `def:umerge` step 2 was too narrow.** It said `D` is the conflicted definitions and
+their transitive dependents. That misses the case with no conflicts at all: a definition neither
+branch touched can still point at a version of a dependency the merge moved, and if it is not rebuilt
+the merged namespace silently keeps a stale reference. Upstream computes this downwards from a core
+dependency set whose second source is easy to miss — *the other* party's changed names resolved on
+this branch, "no matter what its hash is". The same set characterizes upwards and the model does it
+that way: a referent is **superseded** when the ancestor bound a name to it and the merged namespace
+no longer does, and `D` is every name whose definition reaches a superseded referent. An update
+supersedes, a rename supersedes, and a definition whose dependencies still mean what they meant is
+left alone. `ex:merge-dangling` is precisely a no-conflict merge that must still rebuild something,
+so the paper's own example did not typecheck against the paper's own step 2.
+
+**`rem:merge-soundness`, settled enough to state.** The question was whether the silent resolution in
+the second row of `def:mergecombine` — equal syntactic hashes, different referents, Alice wins, no
+report — can hide a real disagreement. It cannot, and the reason is that the collapse cannot go all
+the way down: equal synhashes with different referents means some dependency differs, and at that
+dependency's name the question recurs; `def:synhash` records literals, structure and types verbatim
+and falls back to the content hash for an unnamed referent, so a difference invisible at every level
+does not exist. The witness is now a test — both branches update a shared dependency, `show` resolves
+silently, and the conflict lands on `fmt`, which is the right division of labour since `show` is not
+what the parties disagree about. Stated as an argument, not a theorem, and the remark says so.
+
+**Method note.** Tenth finding entry. Worth recording that the label check passed *before* the tests
+did: 49/49 mirrored with a `diff` that dropped propagated updates on the floor. A mirror check
+verifies that the prototype mentions every statement, not that it implements any of them, and this is
+the first time the gap between those two has been visible. The tests are what caught both corrections.

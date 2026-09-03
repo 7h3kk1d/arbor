@@ -225,12 +225,14 @@ identity. That works, and it is not even slow — but the feedback is a simulati
 than a query about stored objects, and nothing it computes can be cached, because none of it is
 keyed by a hash. arbor's posture buys exactly that: feedback about things that already exist.
 
-**The relation-valued namespace pays for itself only at merge, which is not modelled.** Every
-operation here that touches names begins by demanding unconflictedness, and the demand is
-all-or-nothing — `as_unconflicted` returns the whole namespace or the offending name, never the
-unconflicted part. In a system with no merge, that is a representable state that nothing benefits
-from and one operation refuses. It is evidence *for* the single-valued-`N` position, with the caveat
-that the thing it exists for was out of scope.
+**The relation-valued namespace pays for itself only at merge — now modelled, and it still does not
+pay.** Every operation demands unconflictedness and `as_unconflicted` is all-or-nothing, with no way
+to take the unconflicted part. Merge was the motivating case for making `N` a relation at all, and
+having built it (`src/merge.re`): merge never puts a conflict *into* `N` either. `def:mergepre`
+demands unconflictedness of all three inputs, the merged namespace is assembled only from the
+resolved half of the diff, and conflicted names are **removed** from it and written into a file. So
+the representable-conflict state is not used by the one operation it exists for. That is evidence for
+the single-valued-`N` position gathered with the motivating case present rather than absent.
 
 **Evict-on-failure is better than a residual of names, and it is also silent breakage.** The paper
 calls this the row where Unison is ahead, and using it confirms that: getting the broken code back
@@ -288,4 +290,4 @@ The paper↔prototype link is checked:
 formalism/scripts/check-labels.sh formalism/paper/mini-unison.tex prototypes/p21-unison-model/src
 ```
 
-29 statements, 29 mirrored.
+49 statements, 49 mirrored.

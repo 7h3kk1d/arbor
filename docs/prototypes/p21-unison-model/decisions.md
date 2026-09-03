@@ -153,3 +153,37 @@ that only the interface calls, and the substrate tests reach `Update.run` direct
 never renders cannot see this class of defect, and `project_browser_verification` is the standing note
 about it — `--dump-dom` would not have caught this either, since the button renders in both states and
 only the `disabled` attribute differs.
+
+---
+
+### 2026-09-03 — Merge: three namespaces, one store
+
+**Decision.** `src/synhash.re` and `src/merge.re`. `Merge.run` takes `~st` and three `Names.t` and
+returns `Refused | Merged | Unmerged`.
+
+**Why one store.** `prop:merge-store`: two stores grown independently from a common ancestor union
+without reconciliation, because equal hashes mean equal components up to the identification
+`comphash` makes and closure under references survives union. So a branch is a namespace and nothing
+else, and the signature says so. It also makes the point the paper wants to make — that the property
+content-addressed codebases are sold on is real and nearly vacuous — impossible to lose: there is no
+code here that reconciles stores, because there is nothing for it to do.
+
+**Why `Synhash` is a separate module with its own tag space.** It is `Abt.hash` with one clause
+reversed, and the temptation is to parameterize `Abt.hash` over the reference case. Keeping them
+apart makes the duality legible (`rem:syn-dual`) and makes it impossible to compare a syntactic hash
+against a content hash by accident, which is the one confusion that would silently break the
+classifier.
+
+**`Names.preferring`, added for this.** Left-biased union on the *range*: for each referent, if the
+left namespace names it at all, ignore the right's names for it. It is the operator `def:namer` is
+built from, and it is deliberately next to `shadowing` in the same file, because the two answer
+different questions — `shadowing` asks who else binds this *name*, `preferring` asks who else names
+this *thing* — and the difference is the mechanism behind every rename failure in §7.
+
+**What the tests are for, and what they caught.** All eight name a paper statement. Two of them
+caught defects that the label check could not: the first `diff` dropped propagated updates instead of
+partitioning them, so every clean merge lost half its result; and the first dependent computation
+seeded `Store.transitive_dependents` with the very definitions it was trying to find, which that
+function excludes by design (it drops the seeds' own component members). Both are recorded in
+`formalism/decisions.md` as corrections to the paper, because in both cases the paper said the wrong
+thing first and the implementation is what disagreed.

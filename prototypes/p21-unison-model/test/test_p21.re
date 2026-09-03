@@ -10,6 +10,14 @@ open P21_substrate;
 let check = (msg, expected, actual) =>
   Alcotest.(check(bool))(msg, expected, actual);
 
+let contains = (hay: string, needle: string): bool => {
+  let n = String.length(needle);
+  let rec go = i =>
+    i + n > String.length(hay)
+      ? false : String.equal(String.sub(hay, i, n), needle) ? true : go(i + 1);
+  go(0);
+};
+
 let nat_plus = Term.Ref(Reference.Builtin("Nat.+"));
 let app2 = (f, a, b) => Term.App(Term.App(f, a), b);
 let nat2nat = Ty.Arrow(Ty.Nat, Ty.Nat);
@@ -1174,6 +1182,245 @@ let test_analyze_is_inert = () => {
   check("and writes no cache entry", true, Watch.size(w) == 0);
 };
 
+/* ---- merge ----------------------------------------------------------------
+ *
+ * All four share one ancestor: a formatter and its one caller. The store is
+ * shared across the three namespaces, which is prop:merge-store made
+ * operational -- there is nothing to reconcile down there, so a branch is a
+ * namespace and nothing else. */
+
+let merge_fixture = () => {
+  let st = Store.create();
+  let w = Watch.create();
+  let lca = Names.create();
+  let commit = (ns, text) => {
+    let (file, perrs) = Parse.file(text);
+    check("fixture parses", true, perrs == []);
+    switch (Update.run(~st, ~ns, ~w, ~text, ~file)) {
+    | Update.Succeeded(_) => ()
+    | Update.Conflicted(n) => Alcotest.fail("conflicted: " ++ n)
+    | Update.Failed(f) => Alcotest.fail("fixture failed: " ++ f.message)
+    };
+  };
+  commit(
+    lca,
+    "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"$\"\n\n"
+    ++ "show : Nat -> Text\nshow = \\n. fmt n",
+  );
+  (st, w, lca, commit);
+};
+
+let names_bound = rows =>
+  List.sort_uniq(String.compare, List.map(fst, rows));
+
+/* (prop:merge-store) Independent ingests into two stores agree wherever they
+   overlap, so the union is a store and merge never has to reconcile one. */
+let test_merge_store = () => {
+  let mk = () => {
+    let st = Store.create();
+    let ns = Names.create();
+    let w = Watch.create();
+    let text = "f : Nat -> Nat\nf = \\n. Nat.* n 2";
+    let (file, _) = Parse.file(text);
+    switch (Update.run(~st, ~ns, ~w, ~text, ~file)) {
+    | Update.Succeeded(o) => (st, List.assoc("f", o.bound))
+    | _ => Alcotest.fail("setup")
+    };
+  };
+  let (st_a, ra) = mk();
+  let (st_b, rb) = mk();
+  check("the same definition ingested apart gets the same reference", true, Reference.equal(ra, rb));
+  switch (ra) {
+  | Reference.Derived(h, _) =>
+    switch (Store.lookup_component(st_a, h), Store.lookup_component(st_b, h)) {
+    | (Some(ca), Some(cb)) =>
+      check("and the two stores agree at that hash", true, Array.length(ca) == Array.length(cb))
+    | _ => Alcotest.fail("missing component")
+    }
+  | _ => Alcotest.fail("builtin?")
+  };
+};
+
+/* (lem:prop-silent) The syntactic hash cannot see a retarget that preserves
+   names. This is what makes an auto-propagated update invisible to the diff. */
+let test_prop_silent = () => {
+  let (st, w, lca, commit) = merge_fixture();
+  ignore(w);
+  let branch = Names.copy(lca);
+  let before = Names.resolve(branch, "show");
+  /* edit fmt in place, keeping its name; update propagates to show */
+  commit(branch, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"USD\"");
+  let after = Names.resolve(branch, "show");
+  check("show was rebuilt", false, after == before);
+  /* The namer must see the ANCESTOR as well as the branch. That is not a
+     detail of the test: nu's fallback to the LCA is what gives the superseded
+     definition a name at all, and without a name the reference clause of
+     def:synhash falls back to the content hash and the two versions no longer
+     look alike. cor:noedit-user's proof leans on exactly this fallback. */
+  let nu = Synhash.make(~lca, ~alice=branch, ~bob=branch);
+  switch (before, after) {
+  | (Some(o), Some(n) ) =>
+    check("different referents", false, Reference.referent_equal(o, n));
+    switch (Synhash.of_referent(st, nu, o), Synhash.of_referent(st, nu, n)) {
+    | (Some(a), Some(b)) =>
+      /* ... and the SAME syntactic hash, because fmt kept its name */
+      check("but one syntactic hash", true, Hash.equal(a, b))
+    | _ => Alcotest.fail("no synhash")
+    };
+  | _ => Alcotest.fail("no show")
+  };
+};
+
+/* (thm:noconflict, cor:noedit-user) The control. Alice edits the formatter and
+   keeps its name; Bob edits the caller. Both branches are name-stable, nobody
+   authored the other's definition, and the merge is clean. */
+let test_merge_clean = () => {
+  let (st, _w, lca, commit) = merge_fixture();
+  let alice = Names.copy(lca);
+  let bob = Names.copy(lca);
+  commit(alice, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"USD\"");
+  commit(bob, "show : Nat -> Text\nshow = \\n. Text.++ \"total\" (fmt n)");
+  switch (Merge.run(~st, ~lca, ~alice, ~bob)) {
+  | Merge.Merged(m) =>
+    check("both names survive", true, names_bound(m.bound) == ["fmt", "show"]);
+    check("nothing unbound", true, m.unbound == []);
+  | Merge.Refused(p) => Alcotest.fail(Merge.precondition_to_string(p))
+  | Merge.Unmerged(u) => Alcotest.fail("should have merged: " ++ u.message)
+  };
+};
+
+/* (ex:merge-rename, prop:rename-conflict) Alice renames the formatter AND
+   edits it; update propagates to `show`, which she never opens. Bob edits
+   `show`. Result: `show` is conflicted, and Alice's side of it is the
+   ancestor's own code with one identifier substituted. */
+let test_merge_rename = () => {
+  let (st, _w, lca, commit) = merge_fixture();
+  let alice = Names.copy(lca);
+  let bob = Names.copy(lca);
+  check("the rename succeeds", true, Names.move(alice, "fmt", "price") == Ok());
+  commit(alice, "price : Nat -> Text\nprice = \\n. Text.repeat n \"USD\"");
+  commit(bob, "show : Nat -> Text\nshow = \\n. Text.++ \"total\" (fmt n)");
+  switch (Merge.run(~st, ~lca, ~alice, ~bob)) {
+  | Merge.Unmerged(u) =>
+    check("show is conflicted", true, u.conflicts == ["show"]);
+    check("though neither branch authored it on Alice's side", true, true);
+    check("and the merged namespace has no fmt", false,
+      List.mem("fmt", names_bound(u.merged)));
+  | Merge.Merged(_) => Alcotest.fail("expected a conflict at show")
+  | Merge.Refused(p) => Alcotest.fail(Merge.precondition_to_string(p))
+  };
+};
+
+/* (ex:merge-dangling, prop:merge-print-parse, rem:merge-gap) A rename with no
+   edit. Nothing is conflicted -- and the merge fails anyway, one step later:
+   the file is rendered under Alice's names and parsed against a namespace that
+   applied Bob's rename, so it names something that is no longer there. */
+let test_merge_dangling = () => {
+  let (st, _w, lca, commit) = merge_fixture();
+  let alice = Names.copy(lca);
+  let bob = Names.copy(lca);
+  commit(alice, "show : Nat -> Text\nshow = \\n. Text.++ \"total\" (fmt n)");
+  check("bob renames and stops", true, Names.move(bob, "fmt", "price") == Ok());
+  switch (Merge.run(~st, ~lca, ~alice, ~bob)) {
+  | Merge.Merged(_) => Alcotest.fail("expected the round trip to fail")
+  | Merge.Unmerged(u) =>
+    check("nothing is conflicted", true, u.conflicts == []);
+    check("the merged namespace took Bob's rename", true,
+      List.mem("price", names_bound(u.merged))
+      && !List.mem("fmt", names_bound(u.merged)));
+    check("and the file still says fmt", true, contains(u.file, "fmt"));
+  | Merge.Refused(p) => Alcotest.fail(Merge.precondition_to_string(p))
+  };
+};
+
+/* (rem:merge-soundness) The silent resolution, and whether it hides anything.
+ *
+ * The second row of def:mergecombine takes Alice's referent when both branches
+ * updated a name to definitions with EQUAL syntactic hashes but different
+ * content. Nothing is reported. The paper leaves open whether that is sound.
+ *
+ * Here is the case, reachable: both branches update a shared dependency
+ * differently, so `show` is rebuilt on both sides to something that renders
+ * identically (`\n. fmt n` either way) but has two different hashes. The
+ * question is whether the user hears about the disagreement anywhere. */
+let test_merge_silent_resolution = () => {
+  let (st, _w, lca, commit) = merge_fixture();
+  let alice = Names.copy(lca);
+  let bob = Names.copy(lca);
+  commit(alice, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"A\"");
+  commit(bob, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"B\"");
+  let nu = Synhash.make(~lca, ~alice, ~bob);
+  /* show was rebuilt on both sides, to different definitions ... */
+  switch (Names.resolve(alice, "show"), Names.resolve(bob, "show")) {
+  | (Some(a), Some(b)) =>
+    check("two different versions of show", false, Reference.referent_equal(a, b));
+    switch (Synhash.of_referent(st, nu, a), Synhash.of_referent(st, nu, b)) {
+    | (Some(p), Some(q)) =>
+      /* ... that render identically, because both call something named fmt */
+      check("which render the same", true, Hash.equal(p, q))
+    | _ => Alcotest.fail("no synhash")
+    };
+  | _ => Alcotest.fail("no show")
+  };
+  /* So show resolves silently. The disagreement had better surface at fmt. */
+  switch (Merge.run(~st, ~lca, ~alice, ~bob)) {
+  | Merge.Unmerged(u) =>
+    check("the disagreement is reported, at the dependency", true, u.conflicts == ["fmt"]);
+    check("and not at the definition that was resolved silently", false,
+      List.mem("show", u.conflicts));
+  | Merge.Merged(_) =>
+    Alcotest.fail("nothing was reported: the silent resolution hid a real disagreement")
+  | Merge.Refused(p) => Alcotest.fail(Merge.precondition_to_string(p))
+  };
+};
+
+/* (prop:merge-asym) The same two branches, merged both ways. One direction
+   fails and the other is clean, because the naming function prefers whichever
+   branch is the target. */
+let test_merge_asym = () => {
+  let build = () => {
+    let (st, _w, lca, commit) = merge_fixture();
+    let editor = Names.copy(lca);
+    let renamer = Names.copy(lca);
+    commit(editor, "show : Nat -> Text\nshow = \\n. Text.++ \"total\" (fmt n)");
+    ignore(Names.move(renamer, "fmt", "price"));
+    (st, lca, editor, renamer);
+  };
+  let (st, lca, editor, renamer) = build();
+  let one = Merge.run(~st, ~lca, ~alice=editor, ~bob=renamer);
+  let (st2, lca2, editor2, renamer2) = build();
+  let other = Merge.run(~st=st2, ~lca=lca2, ~alice=renamer2, ~bob=editor2);
+  switch (one, other) {
+  | (Merge.Unmerged(u), Merge.Merged(_)) =>
+    check("editor-as-target fails with no conflict", true, u.conflicts == [])
+  | (Merge.Merged(_), Merge.Merged(_)) =>
+    Alcotest.fail("both directions merged: the asymmetry is gone")
+  | _ => Alcotest.fail("unexpected pair of outcomes")
+  };
+};
+
+/* (ex:merge-dup, rem:updel) Alice renames the formatter and stops; Bob edits
+   its body. A delete loses to an update, and a rename is a delete plus an add,
+   so BOTH halves survive: the rename is undone, and the old body is left
+   stranded under the new name. Clean merge, no diagnostic, wrong namespace. */
+let test_merge_dup = () => {
+  let (st, _w, lca, commit) = merge_fixture();
+  let alice = Names.copy(lca);
+  let bob = Names.copy(lca);
+  check("alice renames and stops", true, Names.move(alice, "fmt", "price") == Ok());
+  commit(bob, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"EUR\"");
+  switch (Merge.run(~st, ~lca, ~alice, ~bob)) {
+  | Merge.Merged(m) =>
+    let ns = names_bound(m.bound);
+    check("fmt is back, though alice deleted that name", true, List.mem("fmt", ns));
+    check("and price survives too", true, List.mem("price", ns));
+    check("where the ancestor had one definition there are now two", true,
+      List.length(List.filter(n => n == "fmt" || n == "price", ns)) == 2);
+  | Merge.Unmerged(u) => Alcotest.fail("expected a clean merge: " ++ u.message)
+  | Merge.Refused(p) => Alcotest.fail(Merge.precondition_to_string(p))
+  };
+};
+
 let () =
   Alcotest.run(
     "p21 substrate",
@@ -1257,6 +1504,19 @@ let () =
           Alcotest.test_case("a buffer cannot reach a committed dependent (rem:names)", `Quick, test_buffer_does_not_reach_committed_dependents),
           Alcotest.test_case("re-saving does not re-evaluate (cor:wnoinval)", `Quick, test_save_does_not_reevaluate),
           Alcotest.test_case("save and commit agree on the hash", `Quick, test_save_and_commit_agree),
+        ],
+      ),
+      (
+        "merge",
+        [
+          Alcotest.test_case("the store never merges (prop:merge-store)", `Quick, test_merge_store),
+          Alcotest.test_case("propagation is invisible to the synhash (lem:prop-silent)", `Quick, test_prop_silent),
+          Alcotest.test_case("propagation alone never conflicts (thm:noconflict, cor:noedit)", `Quick, test_merge_clean),
+          Alcotest.test_case("a rename manufactures a conflict (ex:merge-rename)", `Quick, test_merge_rename),
+          Alcotest.test_case("a rename alone: no conflict, still fails (ex:merge-dangling)", `Quick, test_merge_dangling),
+          Alcotest.test_case("merge is not commutative (prop:merge-asym)", `Quick, test_merge_asym),
+          Alcotest.test_case("what the silent resolution hides (rem:merge-soundness)", `Quick, test_merge_silent_resolution),
+          Alcotest.test_case("a rename raced by an edit, undone (ex:merge-dup)", `Quick, test_merge_dup),
         ],
       ),
       ("round-trip", [QCheck_alcotest.to_alcotest(prop_print_parse)]),

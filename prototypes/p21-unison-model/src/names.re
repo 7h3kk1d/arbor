@@ -174,3 +174,26 @@ let move = (n: t, from_: string, to_: string): result(unit, gesture_error) =>
 
 /* Total: the store keeps the definition, it just stops being reachable. */
 let delete = (n: t, name: string): unit => remove_name(n, name);
+
+/* preferring(a, b) -- left-biased union on the RANGE, not the domain.
+ * (def:namer)
+ *
+ * For each distinct REFERENT, if `a` names it at all, use those names and
+ * ignore `b`'s. This is the operator the merge naming function is built from,
+ * and the by-referent bias is what makes it different from `shadowing` above:
+ * `shadowing` asks "who else binds this name?", this asks "who else names this
+ * thing?". A definition Alice has renamed keeps only her name for it here, even
+ * though Bob still calls it something else -- which is the mechanism behind
+ * every rename failure in the merge section. */
+let preferring = (a: t, b: t): t => {
+  let a_referents = List.map(snd, a.rows);
+  {
+    rows:
+      a.rows
+      @ List.filter(
+          ((_, r)) =>
+            !List.exists(x => Reference.referent_equal(x, r), a_referents),
+          b.rows,
+        ),
+  };
+};
