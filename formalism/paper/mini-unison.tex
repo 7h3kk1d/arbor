@@ -78,7 +78,7 @@ the namespace as a relation in which conflicts are representable; the watch cach
 re-typechecking them; and \texttt{merge}, which reconciles two independently edited namespaces by
 comparing a second hash computed from names rather than from content.
 
-Three results are perhaps not obvious from the source. \textbf{(i)} Presentation-independence of
+Four results are perhaps not obvious from the source. \textbf{(i)} Presentation-independence of
 component hashing is \emph{conditional}: when two members of a recursive cycle are structurally
 equivalent modulo intra-cycle references, the component's hash depends on the members' \emph{names}.
 The condition is decidable and Unison computes it, aborting rather than storing such a hash --- at the
@@ -180,23 +180,21 @@ things.
   \item \Cref{prop:follow-only} --- \texttt{update} admits exactly one propagation strategy.
   \item \Cref{prop:merge-store} --- two independently grown stores union without reconciliation, which
         is the formal content of ``content-addressed codebases have no merge conflicts''. Nothing a
-        user calls a conflict lives there.
-  \item \Cref{def:synhash}, \cref{rem:syn-dual} --- merge's syntactic hash is the exact dual of the
-        content hash: same recursion, names substituted for references instead of the reverse. It is
-        never stored.
-  \item \Cref{rem:syn-only} --- once two syntactic hashes differ, no content hash is consulted again.
-        Merges are decided by name.
-  \item \Cref{thm:noconflict}, \cref{cor:noedit} --- a definition nobody authored cannot conflict,
-        conditionally: every dependency it gained must keep the name the merge gives it.
-  \item \Cref{cor:noedit-user} --- the same statement in terms of what people did. If neither party
-        moves, aliases or deletes a name, then nobody is ever asked about a definition nobody wrote.
-        Contrapositively (\cref{rem:onlyrenames}): renaming is the only user action that can do it.
+        user calls a conflict lives there; it is all in the namespace.
+  \item \Cref{def:synhash}, \cref{rem:syn-only} --- merge decides what a human wrote using a second
+        hash, the exact dual of the first: same recursion, names substituted for references instead of
+        the reverse. It is never stored, and once two of them differ no content hash is consulted
+        again. A content-addressed system decides its merges by name.
+  \item \Cref{thm:noconflict}, \cref{cor:noedit-user} --- a definition nobody authored cannot conflict,
+        provided neither party moves, aliases or deletes a name. Contrapositively
+        (\cref{rem:onlyrenames}): renaming is the only user action that can put someone in front of a
+        conflict in code they never opened.
   \item \Cref{def:gestures}, \cref{rem:renamefree} --- renaming costs one row and cannot break a
         caller or a cached result, which is the usual argument for content addressing. Merge is the
         one operation that reads names as though they were content, and is where that stops.
-  \item \Cref{prop:rename-conflict}, \cref{cor:unchecked} --- renaming defeats that condition, and
-        unlike \cref{cor:detect} the condition is neither checked nor reported. The information that
-        would discharge it is computed and passed to a debug printer.
+  \item \Cref{prop:rename-conflict}, \cref{cor:unchecked} --- and it does stop: a rename defeats the
+        condition above. Unlike \cref{cor:detect} the condition is neither checked nor reported,
+        though the information that would discharge it is computed and passed to a debug printer.
   \item \Cref{prop:merge-asym} --- merge is not commutative: the same two branches can merge cleanly
         in one direction and fail in the other, with no conflict either way.
   \item \Cref{prop:merge-print-parse} --- merge's round trip renders under one namespace and parses
@@ -610,9 +608,9 @@ description of the algorithm we are aware of mentions that there are two.
 
 \begin{definition}[Ingest]\label{def:uingest}
 \src{abt:106-134; ufile:274-284} $\hashcomps(F)$ decomposes $\bg \cup \overline{w}$ into strongly
-connected components in topological order and folds \cref{def:comphash} over them, substituting
-$\UDer{h}{i}$ for the names of already-hashed components before hashing the next. It returns a
-reference for \emph{every} member, definitions and watches alike.
+connected components in topological order and folds \cref{def:comphash} over them, replacing the
+names of already-hashed components with $\UDer{h}{i}$ before hashing the next. It returns a reference
+for \emph{every} member, definitions and watches alike.
 
 $\hashcomps$ \emph{only} computes references. It extends neither $\UStore$ nor $\UNames$; those are
 the business of the two transitions below, and separating them is not tidiness --- see
@@ -637,12 +635,12 @@ $\UNames$ is unchanged: a save names nothing. What a save does is \emph{confer i
 \end{definition}
 
 \begin{remark}[Identity is conferred by typechecking, not by committing]\label{rem:saveident}
-It is tempting --- and this document did it until the distinction was pointed out --- to read the
-commit gate of \cref{rem:mutrec} as saying that a definition acquires its identity when it is
-\emph{added}. It does not. It acquires its identity when the file \emph{typechecks}, which happens
-on every save, and the implementation keeps it: a \texttt{TypecheckedUnisonFile} carries a
+A definition acquires its identity when the file \emph{typechecks}, which happens on every save, not
+when it is added. The implementation keeps it there: a \texttt{TypecheckedUnisonFile} carries a
 reference $r$ (\cref{def:uref}) for every member in its \texttt{hashTermsId} field, and nothing has
-been added to anything. \Cref{def:update} then \emph{stores and binds} what already has a hash.
+been added to anything. \Cref{def:update} then \emph{stores and binds} what already has a hash. The
+commit gate of \cref{rem:mutrec} is easily misread as putting identity at the \texttt{add}; it does
+not.
 
 Two consequences that are hard to see otherwise. First, the gate is a gate on \emph{identity}, not on
 storage --- which is why a buffer that does not typecheck has nothing to talk about at all, rather
@@ -749,13 +747,11 @@ members by permutation hash. \texttt{doHashCycle} does exactly this and emits
 \end{corollary}
 
 \begin{remark}[Total function, conditional guarantee, aborting caller]\label{rem:notpartial}
-It is tempting to summarize \cref{thm:ordering} as ``canonical ordering is a partial function'' and
-``Unison refuses''. Both are slightly off, and the accurate version is more interesting.
-
 $\comphash$ is a \emph{total} function: on the ambiguous input it returns a hash. What fails is not
 definedness but \emph{presentation-independence} --- the property content addressing exists to
-provide. The fallback is alphabetical order of user-chosen names, which is precisely the kind of
-dependency the design is meant to eliminate.
+provide. The fallback is alphabetical order of user-chosen names, precisely the kind of dependency the
+design is meant to eliminate. So the usual summary --- ``canonical ordering is a partial function'',
+``Unison refuses'' --- is wrong twice over, and the accurate version is more interesting.
 
 The refusal is at the \emph{caller}. \texttt{doHashCycle} returns the condition as a warning, and its
 own comment says ``hashing always succeeds even if it generates warnings'';
@@ -1155,10 +1151,10 @@ It is the formal content of the claim, often made for content-addressed codebase
 cannot conflict in the code. The claim is true, and \cref{prop:merge-store} is why: the store is
 append-only and keyed by content, so a union is always a store and never needs a decision.
 
-It is also close to vacuous, and it is worth saying why rather than resting on it. Nothing a user
-would call a merge conflict lives in $\UStore$. Conflicts live in $\UNames$, which is not content-addressed
---- it is a relation over names people choose. Everything in the rest of this section is about
-$\UNames$, and none of it follows from \cref{prop:merge-store}.
+It is also close to vacuous. Nothing a user would call a merge conflict lives in $\UStore$; conflicts
+live in $\UNames$, which is not content-addressed --- it is a relation over names people choose.
+Everything in the rest of this section is about $\UNames$, and none of it follows from
+\cref{prop:merge-store}.
 \end{remark}
 
 \begin{definition}[Merge preconditions]\label{def:mergepre}
@@ -1202,12 +1198,10 @@ The content hash is the definition's identity and is stored; the syntactic hash 
 merge, used to make one decision, and discarded --- it appears in no table, and there is no operation
 that retrieves a definition by it.
 
-Two consequences follow directly from the definition. First, $\syn{\namer}{t}$ is a function of the
-namespace as well as the term: the same stored definition has different syntactic hashes in different
-namespaces. Second, equality of syntactic hashes is equality of \emph{rendered} form: two definitions
-share a syntactic hash exactly when substituting $\namer$ through both yields the same syntax, which
-is to say when a reader shown both under $\namer$ would see the same code. \Cref{def:mergediff} is
-built entirely on that reading.
+Two consequences follow. First, $\syn{\namer}{t}$ is a function of the namespace as well as the term:
+the same stored definition has different syntactic hashes in different namespaces. Second, equality of
+syntactic hashes is equality of \emph{rendered} form --- a reader shown both under $\namer$ would see
+the same code. \Cref{def:mergediff} is built entirely on that reading.
 \end{remark}
 
 \begin{lemma}[Propagation is invisible to the syntactic hash]\label{lem:prop-silent}
@@ -1337,68 +1331,60 @@ The first case gives $\delta_{\NA}(x) = \dnil$; the second gives $\dprop$ by
 \cref{lem:prop-silent}. Apply \cref{thm:noconflict}.
 \end{proof}
 
-\begin{remark}[Where the weight sits]\label{rem:cor-weight}
-\Cref{cor:noedit} is the property one wants from a system that propagates edits automatically: if you
-did not touch a definition, you cannot be asked to resolve a conflict in it. But its hypothesis is
-about $\namer$, and no user has ever thought about $\namer$. What follows restates it as a condition
-on what people did.
-\end{remark}
-
 \begin{definition}[Authored; name-stable]\label{def:namestable}
-Fix a branch $P$ reached from $\NO$ by a sequence of gestures --- each one an \texttt{update}
-(\cref{def:update}) or a \texttt{move}, \texttt{alias} or \texttt{delete} (\cref{def:gestures}).
+\Cref{cor:noedit}'s hypothesis is about $\namer$, and no user has ever thought about $\namer$. Restated
+as a condition on what people did: fix a branch $P$ reached from $\NO$ by a sequence of gestures, each
+an \texttt{update} (\cref{def:update}) or a \texttt{move}, \texttt{alias} or \texttt{delete}
+(\cref{def:gestures}).
 \begin{itemize}[nosep]
   \item A name $x$ is \textbf{authored on $P$} if some \texttt{update} in the sequence submitted a
         file binding $x$. Names that changed only because \texttt{update} rebuilt their dependents
         are not authored.
-  \item $P$ is \textbf{name-stable} if no gesture in the sequence is a \texttt{move}, an
-        \texttt{alias} or a \texttt{delete}, and no \texttt{update} in it binds a name to a
-        definition that already has one. The last clause is not redundant with \texttt{alias}: by
-        \cref{thm:ualpha}, writing out a definition that already exists produces the same referent,
-        so a duplicate is an alias arrived at without asking for one.
+  \item $P$ is \textbf{name-stable} if no gesture is a \texttt{move}, an \texttt{alias} or a
+        \texttt{delete}, and no \texttt{update} binds a name to a definition that already has one.
+        That last clause is not redundant with \texttt{alias}: by \cref{thm:ualpha} writing out a
+        definition that already exists produces the same referent, so a duplicate is an alias arrived
+        at without asking for one.
 \end{itemize}
 \end{definition}
 
 \begin{corollary}[Nobody is asked about code nobody wrote, if nothing is renamed]\label{cor:noedit-user}
-If $\NA$ and $\NB$ are both name-stable, then no name authored on neither branch is conflicted.
+If $\NA$ and $\NB$ are both name-stable (\cref{def:namestable}), then no name authored on neither
+branch is conflicted.
 \end{corollary}
 \begin{proof}
 Let $x$ be authored on neither. If $x \notin \dom(\NO)$ then, since neither branch moves or aliases,
-$x$ is bound on a branch only if authored there, so $x$ is in neither $\NA$ nor $\NB$ and does not
-appear in the diff. Otherwise $x \in \dom(\NO)$, and by \cref{thm:noconflict} it is enough to show
-$\delta_{\NA}(x) \neq \dupd$; by \cref{cor:noedit} it is enough to show $\namer(r) = \namer(r')$
-for each reference $r$ of $\NO(x)$ that \cref{def:update} retargeted to $r'$.
+$x$ is bound on a branch only if authored there, so it appears in no diff. Otherwise $x \in \dom(\NO)$,
+and by \cref{thm:noconflict} and \cref{cor:noedit} it is enough to show $\namer(r) = \namer(r')$ for
+each reference $r$ of $\NO(x)$ that \cref{def:update} retargeted to $r'$.
 
 Let $y$ be the name at which that dependency sits, so $\NO(y) = r$ and $\NA(y) = r'$. Since $\NA$ is
-name-stable, $y$ is $\NA$'s only name for $r'$, so $\namer(r') = y$. And $\NA$ has no name for $r$ at
-all: $y$ now denotes $r'$, and no alias or duplicate gave $r$ another. So $\namer(r)$ falls through to
-$\NB$, which by its own name-stability names $r$ either at $y$ or nowhere --- at $y$ if it left the
-dependency alone, nowhere if it updated it, in which case $\namer(r)$ falls through again to $\NO$,
-where $r$ is named $y$. Either way $\namer(r) = y = \namer(r')$.
+name-stable, $y$ is its only name for $r'$, so $\namer(r') = y$; and $\NA$ has no name for $r$ at all,
+since $y$ now denotes $r'$ and no alias or duplicate gave $r$ another. So $\namer(r)$ falls through to
+$\NB$, which by its own name-stability names $r$ at $y$ or nowhere --- at $y$ if it left the dependency
+alone, nowhere if it updated it, in which case $\namer(r)$ falls through again to $\NO$, where $r$ is
+named $y$. Either way $\namer(r) = y = \namer(r')$.
 \end{proof}
 
 \begin{remark}[Which is to say: only renaming does this]\label{rem:onlyrenames}
-Read contrapositively, \cref{cor:noedit-user} says that the \emph{only} user action that can put
-someone in front of a conflict in a definition they never opened is a name moving. Adding, updating
-and deleting are all safe, at any depth of the dependency graph and in any combination --- which is
-the property one wanted, and it holds. \Cref{def:gestures} is the exception, and it is the one class
-of gesture that costs nothing anywhere else in the system.
+Contrapositively: the \emph{only} user action that can put someone in front of a conflict in a
+definition they never opened is a name moving. Adding, updating and deleting are safe at any depth and
+in any combination. \Cref{def:gestures} is the exception --- and it is the one class of gesture that
+costs nothing anywhere else in the system.
 
-Three details of the hypothesis are worth drawing out.
+Three details of the hypothesis do not survive paraphrase.
 
-\emph{It is required of both branches, not just the one that did not edit.} If $\NA$ updates a
-dependency in place and $\NB$ renames it, then $\namer$ takes $\NB$'s new name for the old version and
-$\NA$'s unchanged name for the new one, and $\NA$'s untouched dependents are classified as authored.
-$\NA$ can be perfectly disciplined and still be asked about code it never wrote.
+\emph{It binds both branches, not only the one that abstained.} If $\NA$ updates a dependency in place
+and $\NB$ renames it, $\namer$ takes $\NB$'s new name for the old version and $\NA$'s unchanged name
+for the new one, and $\NA$'s untouched dependents are classified as authored. $\NA$ can be perfectly
+disciplined and still be asked about code it never wrote.
 
-\emph{An alias is enough; a \texttt{move} is not needed.} $\namer$ chooses among a referent's names by
-a fixed priority --- relative before absolute, then fewest name segments \src{ppenames:141-151} ---
-so aliasing an updated definition to a shorter name changes which name it renders under, with the same
-effect as renaming it.
+\emph{An alias suffices; a \texttt{move} is not needed.} $\namer$ chooses among a referent's names by a
+fixed priority --- relative before absolute, then fewest segments \src{ppenames:141-151} --- so
+aliasing an updated definition to a shorter name changes what it renders as.
 
-\emph{Unconflicted is not the same as unseen.} Step 2 of \cref{def:umerge} pulls the dependents of
-every conflict into the same file, so a definition can appear in front of the user without being
-conflicted. What \cref{cor:noedit-user} rules out is being asked to \emph{choose}.
+\emph{Unconflicted is not unseen.} Step 2 of \cref{def:umerge} pulls the dependents of every conflict
+into the same file. What \cref{cor:noedit-user} rules out is being asked to \emph{choose}.
 \end{remark}
 
 \begin{proposition}[Renaming defeats the side condition]\label{prop:rename-conflict}
@@ -1409,59 +1395,50 @@ $y$ on which $x$ depends and change $y$'s name in the same operation, and that $
 \begin{proof}
 Let $\NO$ bind $y \mapsto r$ and $x \mapsto d$ with $r$ occurring in $d$. Let $\NA$ bind
 $y' \mapsto r'$ and $x \mapsto d'$, where $d'$ is $d$ with $r$ replaced by $r'$ --- the propagation
-\cref{def:update} performs. Since $\NA$ has no name for $r$ and $\NB$ does, $\namer(r)$ is $y$; since
+\cref{def:update} performs. Since $\NA$ has no name for $r$ and $\NB$ does, $\namer(r) = y$; since
 $\NA$ names $r'$, $\namer(r') = y'$. So $\syn{\namer}{d} \neq \syn{\namer}{d'}$ and
 $\delta_{\NA}(x) = \dupd$. If $\NB$ edits $x$ then $\delta_{\NB}(x) = \dupd$ with a different
-syntactic hash, and $x$ is conflicted by \cref{def:mergecombine}. \Cref{ex:merge-rename} is this
-configuration with three definitions.
+syntactic hash, and $x$ is conflicted by \cref{def:mergecombine}.
 \end{proof}
 
-\begin{remark}[Renaming and editing are two gestures and one intention]\label{rem:rename-gesture}
-The hypothesis of \cref{prop:rename-conflict} is not exotic. Renaming is \texttt{move}
-(\cref{def:gestures}) and editing is \texttt{update}, so they are two commands --- but ``this is
-badly named and also wrong'' is one thought, and it is discharged by running them back to back. That
-is all \cref{ex:merge-rename} does.
-
-A \texttt{move} with no \texttt{update} is a different matter and does \emph{not} produce a conflict:
-$\namer$ follows the referent, so the ancestor's version of $x$ renders under the new name too and the
-two syntactic hashes agree. \Cref{ex:merge-dangling} shows what it produces instead, and
-\cref{ex:merge-dup} what happens when the other branch edits the definition being renamed. The three
-are disjoint, and \cref{cor:noedit-user} fails in all three.
+\begin{remark}[Two gestures, one intention]\label{rem:rename-gesture}
+The hypothesis is not exotic. Renaming is \texttt{move} and editing is \texttt{update}, so they are
+two commands --- but ``this is badly named and also wrong'' is one thought, discharged by running them
+back to back. A \texttt{move} with no \texttt{update} does \emph{not} conflict: $\namer$ follows the
+referent, so the ancestor's version of $x$ renders under the new name too and the two syntactic hashes
+agree. It fails differently. \Crefrange{ex:merge-rename}{ex:merge-dup} are the three cases.
 \end{remark}
 
 \begin{corollary}[The side condition is computed, and discarded]\label{cor:unchecked}
 \src{mrename:31-96; mdiffblob:171-177} Merge builds, for each definition, the set of names it gained
 and the set it lost between $\NO$ and each branch, and narrows that to the one-to-one cases --- the
-renames. At \texttt{db60ce2} the result is passed to a debug printer and to nothing else. No part of
-the diff, the combination, $\NM$ or the rendered file consults it.
+renames. At \texttt{db60ce2} the result reaches a debug printer and nothing else: no part of the diff,
+the combination, $\NM$ or the rendered file consults it.
 \end{corollary}
 
 \begin{remark}[Compare \cref{cor:detect}]\label{rem:two-side-conditions}
-This document now has two conditional guarantees. \Cref{thm:ordering} holds unless two members of a
-cycle are indistinguishable; that condition is decided at ingest and the implementation aborts rather
-than proceed (\cref{cor:detect}, \cref{rem:notpartial}). \Cref{cor:noedit} holds unless a name moved;
-that condition is computed and discarded, and merge proceeds either way, reporting a conflict it
-cannot distinguish from a real one.
+Two conditional guarantees now stand, handled oppositely. \Cref{thm:ordering} fails when two members
+of a cycle are indistinguishable; that is decided at ingest and the implementation aborts
+(\cref{cor:detect}). \Cref{cor:noedit} fails when a name moves; that is computed and discarded, and
+merge proceeds either way, reporting a conflict it cannot tell from a real one.
 
-The two are not equally tractable. The rename detection of \cref{cor:unchecked} groups definitions by
-\emph{syntactic hash}, so it finds a name that moved while the definition stayed put --- and that is
-the case \cref{rem:rename-gesture} says does not produce a conflict. The case that does produce one
-is a rename \emph{and} an edit, where the syntactic hash changes too and the two versions are not
-grouped. So the machinery that exists addresses the harmless case; the harmful case needs a signal
-that a diff of two namespaces does not contain.
+They are not equally tractable. \Cref{cor:unchecked}'s detection groups definitions by \emph{syntactic
+hash}, so it finds a name that moved while the definition stayed put --- the case
+\cref{rem:rename-gesture} says does not conflict. The case that does is a rename \emph{and} an edit,
+where the syntactic hash moves too and the two versions are never grouped. The machinery that exists
+addresses the harmless case; the harmful one needs a signal a diff of two namespaces does not carry.
 \end{remark}
 
 \begin{remark}[The one place the condition is repaired]\label{rem:libcanon}
-\src{mdiffblob:463-505} There is an exception, and it is instructive. Before $\namer$ is built, names
-under $\lib$ have a trailing mangled version number stripped, so that \texttt{lib.base\_1\_0\_0.foo}
-and \texttt{lib.base\_2\_0\_0.foo} receive the same name. The purpose is stated: it is done ``to make
-it more likely that we classify things that are \emph{probably} true propagated updates as such'',
-and it is described in the source as a hack.
+\src{mdiffblob:463-505} Before $\namer$ is built, names under $\lib$ have a trailing mangled version
+number stripped, so that \texttt{base\_1\_0\_0} and \texttt{base\_2\_0\_0} become one name.
+The source says why --- ``to make it more likely that we classify things that are \emph{probably} true
+propagated updates as such'' --- and calls it a hack.
 
-It is the hypothesis of \cref{cor:noedit} being restored by hand. Upgrading a library renames
-everything in it, so without this every definition that mentions the library would be classified as
-authored, and every concurrent edit would conflict. Rather than track the rename, merge forces the old
-and new names to be equal. That works for the one renaming scheme whose shape is known in advance.
+It is \cref{cor:noedit}'s hypothesis restored by hand. Upgrading a library renames everything in it,
+so without this every definition mentioning the library classifies as authored and every concurrent
+edit conflicts. Rather than track the rename, merge forces the two names equal --- which works for the
+one renaming scheme whose shape is known in advance.
 \end{remark}
 
 \begin{proposition}[Merge is not commutative]\label{prop:merge-asym}
@@ -1486,12 +1463,11 @@ environment that parses: $\rnamer$ prefers $\NA$'s names, while $\NM$ has applie
 deletions and additions. And nothing requires that a name $\rnamer$ emits still exists in $\NM$.
 \end{proposition}
 \begin{remark}[The gap is reachable]\label{rem:merge-gap}
-If $\NB$ renames a definition and $\NA$ does not, then $\NM$ contains $\NB$'s new name and not the old
-one --- the rename is an unconflicted delete and an unconflicted add, so both halves are applied. But
-$\rnamer$ prefers $\NA$'s names, and $\NA$ still calls that definition by the old one. The file is
-therefore written using a name the namespace it will be parsed against no longer has, and step 4
-fails. \Cref{ex:merge-dangling} is this, in three definitions. Reversing the roles removes the
-mismatch, which is \cref{prop:merge-asym}.
+If $\NB$ renames a definition and $\NA$ does not, $\NM$ holds $\NB$'s new name and not the old one ---
+a rename is an unconflicted delete plus an unconflicted add, so both halves apply. But $\rnamer$
+prefers $\NA$'s names, and $\NA$ still calls it by the old one. The file is written using a name the
+namespace it will be parsed against no longer has, and step 4 fails (\cref{ex:merge-dangling}).
+Reversing the roles removes the mismatch, which is \cref{prop:merge-asym}.
 \end{remark}
 
 \begin{remark}[What is not claimed]\label{rem:merge-soundness}
@@ -1764,29 +1740,30 @@ $\uparse$ turns back into \texttt{double}, differing only in what \texttt{scale}
 
 The next three examples share a common ancestor with two definitions, a formatter and its one caller:
 \[
-  \NO = \{\,\texttt{fmt} \mapsto \UDer{\texttt{\#f}}{0},\quad
-           \texttt{show} \mapsto \UDer{\texttt{\#c}}{0}\,\}
+  \NO = \{\,\texttt{fmt} \mapsto \texttt{\#f},\quad
+           \texttt{show} \mapsto \texttt{\#c}\,\}
   \qquad
-  \UStore(\texttt{\#c})_0 = \ulam{n}{\uapp{\uref{\UDer{\texttt{\#f}}{0}}}{\uvar n}}
+  \UStore(\texttt{\#c})_0 = \ulam{n}{\uapp{\uref{\texttt{\#f}}}{\uvar n}}
 \]
-with $\texttt{fmt} : \uarr{\TNat}{\TText}$. In each example one branch is the merge target $\NA$ and
-the other the source $\NB$; nobody edits a definition twice, and every branch is the result of a
-single \texttt{update}. The three differ only in who does what.
+with $\texttt{fmt} : \uarr{\TNat}{\TText}$. Every component here is a singleton, so throughout these
+three examples we write $\texttt{\#f}$ for $\UDer{\texttt{\#f}}{0}$. In each one branch is the merge
+target $\NA$ and the other the source $\NB$; nobody edits a definition twice, and every branch is the
+result of a single \texttt{update}. The three differ only in who does what.
 
 \subsection{A rename manufactures a conflict}\label{ex:merge-rename}
 
 $\NA$ rewrites the formatter and renames it in the same edit; \cref{def:update} propagates to
 \texttt{show}, which $\NA$ never opens. $\NB$ edits \texttt{show} and leaves the formatter alone.
 \[
-  \NA = \{\texttt{price} \mapsto \UDer{\texttt{\#f}'}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}'}{0}\}
+  \NA = \{\texttt{price} \mapsto \texttt{\#f}',\ \texttt{show} \mapsto \texttt{\#c}'\}
   \qquad
-  \NB = \{\texttt{fmt} \mapsto \UDer{\texttt{\#f}}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}''}{0}\}
+  \NB = \{\texttt{fmt} \mapsto \texttt{\#f},\ \texttt{show} \mapsto \texttt{\#c}''\}
 \]
 \[
 \begin{array}{r@{\;}l@{\quad}l}
-  \namer(\UDer{\texttt{\#f}'}{0}) &= \texttt{price}
+  \namer(\texttt{\#f}') &= \texttt{price}
     & \just{$\NA$ names it, \cref{def:namer}} \\[3pt]
-  \namer(\UDer{\texttt{\#f}}{0}) &= \texttt{fmt}
+  \namer(\texttt{\#f}) &= \texttt{fmt}
     & \just{$\NA$ does not; $\NB$ does} \\[3pt]
   \syn{\namer}{\NO(\texttt{show})} &= \syn{\namer}{\ulam{n}{\uapp{\uvar{\texttt{fmt}}}{\uvar n}}} & \\[3pt]
   \syn{\namer}{\NA(\texttt{show})} &= \syn{\namer}{\ulam{n}{\uapp{\uvar{\texttt{price}}}{\uvar n}}}
@@ -1800,7 +1777,7 @@ $\NA$ rewrites the formatter and renames it in the same edit; \cref{def:update} 
 \]
 The fourth line is the whole failure. $\NA$'s \texttt{show} is the ancestor's own definition with one
 identifier substituted by propagation, and it is presented to the user as one side of a conflict to be
-resolved against $\NB$'s. Two further consequences are worth noting. $\delta_{\NA}(\texttt{fmt}) = \ddel$
+resolved against $\NB$'s. Two further consequences. $\delta_{\NA}(\texttt{fmt}) = \ddel$
 resolves unopposed, so $\NM$ has no \texttt{fmt} --- and $\NB$'s half of the conflict, which the user
 must now edit, refers to \texttt{fmt}. Whichever side the user keeps, the rename has to be applied by
 hand, which is the work \cref{prop:merge-store} was supposed to have removed.
@@ -1809,9 +1786,9 @@ hand, which is the work \cref{prop:merge-store} was supposed to have removed.
 
 Now the rename carries no edit. $\NB$ renames the formatter and stops; $\NA$ edits \texttt{show}.
 \[
-  \NA = \{\texttt{fmt} \mapsto \UDer{\texttt{\#f}}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}'}{0}\}
+  \NA = \{\texttt{fmt} \mapsto \texttt{\#f},\ \texttt{show} \mapsto \texttt{\#c}'\}
   \qquad
-  \NB = \{\texttt{price} \mapsto \UDer{\texttt{\#f}}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}}{0}\}
+  \NB = \{\texttt{price} \mapsto \texttt{\#f},\ \texttt{show} \mapsto \texttt{\#c}\}
 \]
 \[
 \begin{array}{r@{\;}l@{\quad}l}
@@ -1821,8 +1798,8 @@ Now the rename carries no edit. $\NB$ renames the formatter and stops; $\NA$ edi
     & \just{a rename is a delete and an add} \\[3pt]
   \text{conflicted} &= \emptyset
     & \just{no name appears on both sides} \\[3pt]
-  \NM &= \{\texttt{price} \mapsto \UDer{\texttt{\#f}}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}'}{0}\} & \\[3pt]
-  \rnamer(\UDer{\texttt{\#f}}{0}) &= \texttt{fmt}
+  \NM &= \{\texttt{price} \mapsto \texttt{\#f},\ \texttt{show} \mapsto \texttt{\#c}'\} & \\[3pt]
+  \rnamer(\texttt{\#f}) &= \texttt{fmt}
     & \just{$\rnamer$ prefers $\NA$, \cref{def:umerge}} \\[3pt]
   \render(\rnamer, \NM(\texttt{show})) &= ``\texttt{show = }\ulam{n}{\uapp{\uvar{\texttt{fmt}}}{\uvar n}}\text{''} & \\[3pt]
   \uparse(\NM, \cdot) &\text{ fails}
@@ -1843,9 +1820,9 @@ success.
 $\NA$ renames the formatter and stops. $\NB$ edits the formatter's body, and \cref{def:update}
 propagates to \texttt{show}.
 \[
-  \NA = \{\texttt{price} \mapsto \UDer{\texttt{\#f}}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}}{0}\}
+  \NA = \{\texttt{price} \mapsto \texttt{\#f},\ \texttt{show} \mapsto \texttt{\#c}\}
   \qquad
-  \NB = \{\texttt{fmt} \mapsto \UDer{\texttt{\#f}'}{0},\ \texttt{show} \mapsto \UDer{\texttt{\#c}'}{0}\}
+  \NB = \{\texttt{fmt} \mapsto \texttt{\#f}',\ \texttt{show} \mapsto \texttt{\#c}'\}
 \]
 \[
 \begin{array}{r@{\;}l@{\quad}l}
@@ -1855,9 +1832,9 @@ propagates to \texttt{show}.
     & \just{$\namer$ separates \texttt{price} from \texttt{fmt}} \\[3pt]
   \texttt{fmt} &: (\ddel, \dupd) \mapsto \text{the update}
     & \just{\cref{def:mergecombine}, \cref{rem:updel}} \\[3pt]
-  \NM &= \{\texttt{fmt} \mapsto \UDer{\texttt{\#f}'}{0},\
-            \texttt{price} \mapsto \UDer{\texttt{\#f}}{0},\
-            \texttt{show} \mapsto \UDer{\texttt{\#c}'}{0}\} &
+  \NM &= \{\texttt{fmt} \mapsto \texttt{\#f}',\
+            \texttt{price} \mapsto \texttt{\#f},\
+            \texttt{show} \mapsto \texttt{\#c}'\} &
 \end{array}
 \]
 This merge succeeds, reports nothing, and is wrong in a way no diagnostic covers. The rename has been
@@ -1947,11 +1924,21 @@ Update failure
 Round-trip lemma
 & Load-bearing, unstated, maintained by a golden corpus (\cref{rem:printparse})
 & \coreref{prop:print-elab}, proved --- and not depended upon \\
+\addlinespace
+Merging two edited namespaces
+& Nothing in the store is reconciled (\cref{prop:merge-store}); all of it happens in $\UNames$
+& The same, and for the same reason --- which is why an immutable store buys less here than the usual
+  summary suggests \\
+\addlinespace
+Telling an authored edit from a propagated one
+& The syntactic hash: did it \emph{render} differently (\cref{def:synhash})
+& No design recorded. arbor has the reverse index a different answer would need, and has not been
+  asked the question \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\subsection*{Two observations we take from the comparison}
+\subsection*{Three observations we take from the comparison}
 
 \textbf{On the round-trip property.} \Cref{prop:print-parse} identifies a correctness obligation that
 a shipping system carries and maintains by testing. arbor happens to have the corresponding theorem
@@ -1967,6 +1954,18 @@ think Unison is ahead. arbor's migration commits and reports a residual --- a se
 longer typecheck. Unison's answer is strictly more useful: the broken definitions leave the namespace
 and come back as code, in a file, ready to edit. The namespace never holds a broken state, and the
 report is the work itself rather than a description of it.
+
+\textbf{On where the difficulty actually lives.} \Cref{prop:merge-store} is the property a
+content-addressed codebase is usually sold on, and it is true: two independently grown stores union
+without reconciliation, because the store is append-only and keyed by content. It is also nearly all
+of what immutability buys at merge time. Every hard case in \cref{sec:umerge} is in $\UNames$ --- a
+relation over names people chose, with no content addressing anywhere in it --- and the mechanism
+Unison built to cope, the syntactic hash, works by putting the names \emph{back into} a hash
+(\cref{def:synhash}). The design's central move is to get names out of the identity; its merge
+algorithm's central move is to put them back for the duration of one comparison. We do not read that
+as incoherent, and \cref{lem:prop-silent} shows why it is the right instinct. But it does locate the
+residual difficulty precisely, and a system inheriting the store model should not expect to inherit an
+easier merge along with it.
 
 % =====================================================================
 \appendix
@@ -1984,7 +1983,7 @@ statements in \crefrange{sec:ulang}{sec:uupdate} is a test in it that names the 
 \Cref{sec:umerge} is not yet part of that reimplementation; its evidence is of a different kind, and
 is described two paragraphs below. It is not Unison and cannot
 settle a question about Unison's intent; what it settles is whether our own definitions say what we
-claim they say. Three things came back differently from how they were first written:
+claim they say. Three statements it changed:
 \cref{rem:transparency-limit} (confirmed, and at $k = 1$), \cref{thm:ordering}(b) (which had to
 split, because renaming a tied member does not always move $\comphash$), and \cref{prop:print-parse}
 (whose first implementation failed the property on a printer that dropped parentheses around an
