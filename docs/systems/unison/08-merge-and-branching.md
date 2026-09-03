@@ -224,9 +224,161 @@ the banner above is **not always true**: `identifyCoreDependencies` also pulls i
 *own unconflicted* updates (`Mergeblob.hs:271-274`), which the upstream transcript flags as a bug
 (`merge.md:2696`, "This test demonstrates a bug").
 
-Git-style markers exist only on the `UCM_MERGETOOL` path (`Merge2.hs:562-604`), and they are
-**diff3-shaped but not git-diff3 syntax** — `<<<<<<< / ======= / ======= / >>>>>>>`, where git writes
-`|||||||` for the middle delimiter. A tool configured for git's diff3 will mis-parse it.
+Git-style markers exist only on the `UCM_MERGETOOL` path, covered in full below.
+
+## `UCM_MERGETOOL` — the textual escape hatch `[verified empirically]`
+
+Undocumented: `grep -rn 'MERGETOOL' docs/ README.md development.markdown` in the Unison repo returns
+nothing. Renamed from `MERGETOOL` in `42d3193f3`. Everything below was confirmed by running it
+(2026-09-03, `release/1.1.1`), not only read.
+
+`UCM_MERGETOOL` is a **shell command string**, not a program path, read from the environment at the
+moment a merge fails. `Merge2.hs:375-380` carries the decision table as a comment:
+
+```
+Merge conflicts?    Have UCM_MERGETOOL?    Result
+----------------    -------------------    ------------------------------------------------------------
+              No                     No           Put code that doesn't parse or typecheck in scratch.u
+              No                    Yes           Put code that doesn't parse or typecheck in scratch.u
+             Yes                     No    Put code that doesn't parse (because conflicts) in scratch.u
+             Yes                    Yes                                              Run that cool tool
+```
+
+Row 2 is the surprising one and it is real: a merge that fails **only because propagated updates no
+longer typecheck** never invokes the tool, even when the variable is set. Confirmed — alice retypes
+`foo : Nat` to `Text`, main independently adds `baz = foo + 5`; nothing is conflicted, the merge
+fails, `scratch.u` is written and the tool is not run.
+
+### The four files
+
+`$BASE`, `$LOCAL`, `$MERGED`, `$REMOTE` are substituted by plain `Text.replace` — **no quoting, no
+escaping** — and the result is handed to `Process.shell` (`Merge2.hs:422-439`) with
+`delegate_ctlc = True`; UCM blocks on `waitForProcess`.
+
+| Placeholder | Path | Contents |
+|---|---|---|
+| `$BASE` | `<tmpdir>/unisonXXXX/<alice>-<bob>-base.u` | the LCA rendering |
+| `$LOCAL` | `<tmpdir>/unisonXXXX/<alice>.u` | the **target** branch (the one you ran `merge` from) |
+| `$REMOTE` | `<tmpdir>/unisonXXXX/<bob>.u` | the **source** branch |
+| `$MERGED` | **`<cwd>/<alice>-<bob>-merged.u`** | line-based diff3 of the three, with markers |
+
+`$MERGED` landing in the **current working directory** rather than the temp dir is load-bearing, not
+incidental — see "How the result gets back in" below. It is `removeFile`d before writing because
+`writeSource` prepends rather than overwrites. The temp directory is never cleaned up.
+
+The three input files are each a **complete, parseable `.u` file** holding only the conflicted
+definitions plus their dependents, in alphabetical order, ending with Unison's fold line. Unlike the
+`scratch.u` path they carry **no `-- scratch/alice` author comments** — deliberate
+(`Render.hs:237-258`, `makePrettySoloUnisonFile`), since those comments would be spurious textual
+conflicts. Dependents are rendered identically in all three so they sync-point rather than conflict
+(`Render.hs:255-256`: "we want the mergetool to copy over all dependents after resolving the real
+conflicts above the fold").
+
+### `$MERGED` and its markers
+
+Observed, for `foo = 1` (lca) / `foo = 3` (main, target) / `foo = 2` (alice, source):
+
+```
+foo : Nat
+<<<<<<< main
+foo = 3
+=======
+foo = 1
+=======
+foo = 2
+>>>>>>> alice
+```
+
+Two things to notice. The middle delimiter is `=======`, where git's diff3 style writes `|||||||`,
+so **a tool configured for git diff3 mis-parses this** — it reads the LCA as part of "theirs". And
+the signature line sits *above* the markers: `makeMergedFileContents` (`Merge2.hs:562-604`) runs a
+**line-based** diff3 over the pretty-printed files, so lines the three renderings share become sync
+points. The textual conflict region is therefore not the semantic conflict; the semantic layer chose
+*which definitions* to render, and the line differ independently chose *which lines* to bracket.
+
+The diff3 is hand-rolled — `lib/unison-util-diff3/src/Unison/Util/Diff3.hs`, 87 lines over
+`Data.Algorithm.Diff` — and its own comment concedes the limitation: `lca = A B`, `alice = X B`,
+`bob = A Y` "will be classified as a conflict, not as two independent edits."
+
+### How the result gets back in
+
+UCM **never reads `$MERGED`**. After `waitForProcess` it goes straight to
+`Output.MergeFailureWithMergetool`, which only prints. The loop is closed by the **file watcher**:
+`$MERGED` is in the watched directory and ends in `.u`, so writing it looks exactly like the user
+typing in a scratch file. Observed, with a tool that does `cp $REMOTE $MERGED`:
+
+```
+🧩 scratch/merge-alice-into-main>
+  Loading changes detected in .../main-alice-merged.u.
+
+  ~ bar : Nat
+  ~ foo : Nat
+
+  Run `update` to apply these changes to your codebase and complete the merge,
+  or `cancel` to cancel the merge.
+
+🧩 scratch/merge-alice-into-main> update
+  I fast-forward merged scratch/merge-alice-into-main into scratch/main.
+  Done.
+scratch/main> view foo
+  foo : Nat
+  foo = 2
+```
+
+So there is no return channel and no protocol. The tool's job is to leave a parseable `.u` file
+where the watcher will see it, which is the same channel the scratch file already uses.
+
+### The exit code is reported, not acted on
+
+Exit code 0 and non-zero produce **different messages and identical state**. Non-zero:
+*"I tried to run your UCM_MERGETOOL … but it failed with exit code 7."* Zero: *"I'm running your
+UCM_MERGETOOL … when you're done, you can run `update` … or `cancel`."* Either way you are left on
+the temporary branch with `$MERGED` on disk. A tool that fails does not abort the merge.
+
+The realistic bad case is quitting the editor without resolving. Observed:
+
+```
+  Loading changes detected in main-alice-merged.u.
+  I got confused here:
+      2 | <<<<<<< main
+  I was surprised to find a <<<<<<< here.
+
+🧩 scratch/merge-alice-into-main> update
+  😶
+  There's nothing for me to add right now.
+```
+
+Nothing is lost, but nothing advances either: the parse failed, so no file is loaded, so `update`
+has nothing to apply. You are parked on the temporary branch until you fix the file or run `cancel`.
+
+### It does not work under `ucm transcript` `[verified empirically]`
+
+The gate is `not env.isTranscriptTest` (`Merge2.hs:383`), and `isTranscriptTest` is set from
+`Config.isTest`, which is `False` in `defaultConfig` and `True` only in the *test suite's*
+`testConfig` (`Runner.hs:571`). So a plain `ucm transcript` passes the gate and **does** spawn the
+tool — but the transcript runner's `writeSource` (`Runner.hs:486-492`) writes to an in-memory
+`Map ScratchFileName Text`, never to disk. Observed: the tool runs, and all four paths it is handed
+do not exist. This is why no transcript in the repo covers the feature.
+
+### `UCM_DIFFTOOL`, for comparison
+
+`diff.branch` has the analogous hook (`DiffBranch.hs:236-349`) and it is read-only — all three files
+go to the temp dir, nothing lands in the watched directory, so there is no way for the tool's output
+to re-enter. Two quirks, both confirmed by running it: **`$BASE` and `$MERGED` are substituted with
+the same path** (`DiffBranch.hs:304-309`, both `filenames.lca`) — a file named `<a>-<b>-merged.u`
+holding the LCA rendering; and the exit code is captured, threaded all the way to the output
+constructor, and then discarded (`OutputMessages.hs:2538` binds it `_maybeDifftoolResult`). A tool
+exiting 42 changes nothing and prints nothing.
+
+### Why this matters for arbor
+
+The whole pitch of the semantic merge is that conflicts are not textual. `UCM_MERGETOOL` is where
+that stops: it exists because the textual tools are the ones people already have. The two layers do
+not share a notion of conflict — the semantic layer picks the definitions, a line differ picks the
+markers — and they disagree in both directions (adjacent independent edits become one conflict;
+shared signature lines fall outside the markers). Worth keeping as the concrete demonstration that
+"structured conflicts" and "an editor to resolve them in" are separate problems, and that solving
+the first does not supply the second.
 
 ## `lib` is a magic name segment, and it is the only pin Unison has
 
