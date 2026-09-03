@@ -102,10 +102,16 @@ TermRef (ReferenceDerived h i) ->
 
 Transparency and the component model are therefore not independent features, and the boundary between them falls at position 0. Stated as `prop:transparent` in mini-unison.
 
-With that scoped, two consequences, and the second is the strong one:
+*(Corrected 2026-09-02. This section used to draw two definition-level consequences from the term-level property — that `x = 1 + 1` and `y = x` are one object, and that inlining is hash-preserving. **Both are false**, and the source comment they were read off is illustrating something narrower than it appears to. See below.)*
 
-1. A definition whose whole body is a bare reference *is* the referenced definition — `x = 1 + 1` and `y = x` are one object, not two.
-2. **Inlining is hash-preserving.** `App(Ref h₁, Ref h₂)` hashes identically to the term with both callees' bodies substituted in, because each `Ref` already contributed exactly what the inlined body would have. Factoring a subterm out into its own definition, or folding it back in, changes nothing about identity.
+What is true is exactly the term-level statement: a position-0 reference contributes literally the referent's hash, so inside any enclosing hash it is interchangeable with **any term hashing to `h`**.
+
+What does not follow is anything about definitions. A position-0 reference contributes the referent's **component** hash; inlining its body would contribute the referent's **term** hash; and `hashComponent` puts two accumulations between them — `commonTokens = Tag 1 : map Hashed hashes`, then `overallHash = acc (map Hashed hashes')` — *even for a singleton component*. So:
+
+1. `x = 1 + 1` and `y = x` receive **different** hashes. The source comment says they "hash the same", and its own caveat is the condition under which that would hold: "so long as `Reference.Derived` ctors are created using the same hashing function as is used here." There *is* a construction satisfying it — `hashClosedTerm tm = ReferenceId (ABT.hash tm) 0` — but it is used for anonymous and evaluated expressions, never for storing a named definition. The component path is not that way.
+2. **Inlining is not hash-preserving.** Factoring a subterm out into its own definition, or folding it back in, changes the enclosing definition's identity.
+
+Stated as `rem:transparency-limit` in mini-unison, and **verified by computation** in `prototypes/p21-unison-model/` (`test_transparency_limit`), which reimplements `def:comphash` faithfully and gets three different hashes where this section previously claimed one.
 
 **Be precise about what this fork is and is not.** It is *not* "Unison has no `Ref` node" — the node exists and is stored, which is why the dependents index can be populated at save time (`03-namespace-and-history.md` §"Primary state vs. derived indices"). It is that in Unison, `Ref(h)` and the definition at `h` are **hash-indistinguishable**, whereas arbor's `nRef(h)` has its own tagged encoding and so hashes differently from what it points at.
 

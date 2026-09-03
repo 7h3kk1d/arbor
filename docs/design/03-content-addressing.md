@@ -85,7 +85,9 @@ Following the procedure-identity decision from `02-definitions-and-derived-data.
 
 The "no silent breakage" property is what we get from the substrate alone: a call resolves to exactly the definition it referenced at authoring time, or the reference is dead in a visible way. Bulk-update and refactoring UX is additive, handled by the naming layer and interfaces.
 
-**Sourcing.** This section cited nothing until 2026-08-07; it now rests on a source read of the implementation, pinned to a commit, in `../systems/unison/`. Note one adopted item where the two systems in fact diverge: Unison's hash-based references are **hash-transparent** — a reference node contributes the referent's hash directly, so inlining is identity-preserving and `y = x` *is* `x` — whereas `formalism/`'s `Ref(hash)` has its own encoding. Both keep the indirection; only the hashing differs. `../systems/unison/02-store-and-hashing.md` §"Reference transparency".
+**Sourcing.** This section cited nothing until 2026-08-07; it now rests on a source read of the implementation, pinned to a commit, in `../systems/unison/`. Note one place the two systems differ, and one place they were wrongly said to: Unison's hash-based references are **hash-transparent at position 0** — a reference node contributes the referent's hash verbatim — whereas `formalism/`'s `Ref(hash)` has its own tagged encoding. Both keep the indirection; only the hashing differs.
+
+*(Corrected 2026-09-02. This sentence used to add "so inlining is identity-preserving and `y = x` *is* `x`". That does not follow and is false: transparency passes along the referent's **component** hash, inlining would contribute its **term** hash, and component hashing separates the two even for a singleton definition. Inlining changes identity in Unison as it does here. `../systems/unison/02-store-and-hashing.md` §"Reference transparency"; computed in `prototypes/p21-unison-model/`.)*
 
 ## Hash representation
 

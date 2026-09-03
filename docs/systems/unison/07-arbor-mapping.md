@@ -11,7 +11,7 @@
 | arbor | Unison | The fork |
 |---|---|---|
 | `Σ : Hash ⇀ Node` | `Hash ⇀ Node⁺`; a definition is `(Hash, Pos)` | Mutual recursion changes the *type* of the store |
-| `Ref(h)` opaque | `Ref(h)` hash-transparent | Inlining is identity-preserving there, not here |
+| `Ref(h)` opaque | `Ref(h)` hash-transparent at `Pos = 0` | A reference is interchangeable with any *term* of that hash — but not with the *definition*; see below |
 | `Θ` derived, observational | type is *inside* the term hash | Signature change = new definition there |
 | `N : Name ⇀ Hash`, exact | `Map NameSegment (Map Referent _)` + suffixes + `lib`-priority | Conflict is a representable state, not an error |
 | `H` per-name, flat, append-only | `Causal` — hash-consed DAG, per-subtree, parents a set | arbor's `H` cannot express a common ancestor |
@@ -31,9 +31,11 @@ arbor has deferred this. `../../design/03-content-addressing.md:141` files it as
 
 ### `Ref` — hash-transparency, and what it is not
 
-`02-store-and-hashing.md` §"Reference transparency". The precise fork: both systems store a `Ref` node; in Unison it hashes to the referent's hash, so **inlining is hash-preserving**. `formalism/decisions.md`'s rationale for reintroducing `Ref` — that the callers metatheory is vacuous without indirection — is untouched, because Unison keeps the indirection too.
+`02-store-and-hashing.md` §"Reference transparency". The precise fork: both systems store a `Ref` node; in Unison, at position 0, it hashes to the referent's hash, so it is interchangeable inside an enclosing hash with any *term* of that hash. `formalism/decisions.md`'s rationale for reintroducing `Ref` — that the callers metatheory is vacuous without indirection — is untouched, because Unison keeps the indirection too.
 
-What is actually at stake is whether the *factoring* the author chose is part of identity. arbor says yes; Unison says no. `../../design/12-type-abstraction.md`'s projection-inlining dependency model needs arbor's answer, since its whole point is that inlining a projection changes what a definition depends on. Filed as a modeling question, not a defect.
+*(Corrected 2026-09-02. This section said "inlining is hash-preserving" and that the fork is whether the author's chosen factoring is part of identity. **It is not that.** A position-0 reference contributes the referent's *component* hash, inlining would contribute its *term* hash, and component hashing puts two accumulations between them even for a singleton. So inlining changes the enclosing definition's hash in Unison too, and `x = 1 + 1` / `y = x` are two objects there as well. See `rem:transparency-limit` in mini-unison, and `test_transparency_limit` in `prototypes/p21-unison-model/`, which computes it.)*
+
+So the fork is **narrower than this file claimed**. Both systems make the author's factoring part of identity. What differs is only what a reference contributes at the *term* layer: in Unison it is the referent's component hash verbatim, in arbor a tagged encoding. `../../design/12-type-abstraction.md`'s projection-inlining dependency model wanted arbor's answer on the grounds that Unison gave the other one; it does not, and that argument should not be made.
 
 ### Θ — type as aspect vs. type in the hash
 
