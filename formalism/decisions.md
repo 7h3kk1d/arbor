@@ -988,3 +988,146 @@ entry recorded that watches were missing entirely; this one records that the ste
 missing too. Both were invisible to a test suite that exercised `Update.run` and never modelled the
 gesture that precedes it. Having no `save` in the code is why the paper could keep `save` fused into
 `ingest` without anything complaining.
+
+---
+
+## 2026-09-03 — mini-unison gains a merge section, and the no-conflict property is conditional
+
+**Decision.** Model `merge` in `mini-unison.tex` as §7, a function of three namespaces over one
+store, and state the property "if you didn't edit a definition it can't conflict" in the only form in
+which it is true: conditional on names being stable. Fourteen new statements
+(`prop:merge-store` … `prop:merge-print-parse`), three new worked examples.
+
+**Why the conditional form.** The natural statement — *a definition neither party authored is never
+conflicted* — is false, and the counterexample is not exotic. Merge classifies each name's change by
+comparing a **syntactic hash**: the definition's hash recomputed with each reference replaced by the
+*name* the merge gives it (`def:synhash`). Propagation is invisible to that hash, because an updated
+dependency keeps its name and so both versions render the same (`lem:prop-silent`) — that is the whole
+idea, and it is what makes automatic propagation compatible with three-way merge. But the hypothesis
+it needs is `ν(r) = ν(r′)`, and a rename breaks it. Renaming a dependency while editing it makes every
+dependent look hand-written.
+
+So `thm:noconflict` is stated over the classifier's own vocabulary (a conflict needs two *syntactic*
+changes), and `cor:noedit` carries the side condition explicitly. `rem:cor-weight` says where the
+weight sits, because the corollary reads like the unconditional property until you look at its
+hypothesis.
+
+**The structural parallel worth keeping.** The paper now has two conditional guarantees with
+computable side conditions and opposite handling. `thm:ordering` fails when two cycle members are
+indistinguishable; that is decided at ingest and the implementation *aborts* (`cor:detect`).
+`cor:noedit` fails when a name moved; that is computed — `Merge/Rename.hs` builds exactly the
+gained/lost name partition needed — and at `db60ce2` is consumed only by a debug printer
+(`cor:unchecked`). Merge proceeds either way and reports a conflict it cannot distinguish from a real
+one. Sharper still: the rename detection groups by *syntactic hash*, so it finds renames that carry no
+edit — the case that does **not** conflict — and structurally cannot find the case that does.
+
+`rem:libcanon` is the exception that proves it: `canonicalizeNamesForSynhashing` strips a mangled
+semver off `lib.base_1_0_0`, forcing old and new library names to be equal, expressly "to make it more
+likely that we classify things that are *probably* true propagated updates as such." That is the side
+condition being restored by hand for the one renaming scheme whose shape is known in advance.
+
+**Three failure modes, not one.** Running the same ancestor three ways against `ucm` 1.1.1 gave three
+different wrong answers, all from the same cause:
+
+| what the other branch does | outcome |
+|---|---|
+| renames a dependency **and** edits it | spurious conflict; the reported side is the ancestor's own code (`ex:merge-rename`) |
+| renames a dependency, no edit | **no conflict**, merge still fails — the file renders a name the merged namespace deleted (`ex:merge-dangling`) |
+| edits a dependency the other branch renamed | **clean merge**, rename silently undone, stale alias left behind (`ex:merge-dup`) |
+
+The third is the worst and was the least expected: `(delete, update)` is not a conflict, the delete is
+discarded ("perhaps only temporarily, because it's easier to implement"), and a rename is a delete
+plus an add — so the add survives, the delete does not, and where the ancestor had one definition the
+result has two.
+
+The second yielded `prop:merge-asym`: merge is **not commutative**. The rendering environment prefers
+the *target* branch's names while the merged namespace applies *both* branches' renames, so the same
+two branches merge cleanly in one direction and fail in the other. Verified by running one pair both
+ways.
+
+**What this does to `prop:print-parse`.** It generalizes rather than repeats. Update's round trip is
+within one namespace; merge renders under one naming environment and parses under a different one
+(`prop:merge-print-parse`), and nothing requires the names it emits to exist in the second. That is
+not a hypothetical gap — it is exactly the mechanism of `ex:merge-dangling`.
+
+**Also recorded.** `prop:merge-store` — two independently grown stores union without reconciliation,
+which is the formal content of "content-addressed codebases have no merge conflicts". It is true, and
+`rem:merge-store` says plainly that it is close to vacuous: nothing anyone calls a conflict lives in Σ.
+And `rem:syn-only` — `Eq (Synhashed a)` compares only the syntactic hash, so once two definitions
+render differently no content hash is ever consulted. A content-addressed system decides its merges by
+name.
+
+**Stated twice, once for machines and once for people.** `cor:noedit`'s hypothesis is about `ν`, and
+no user has ever thought about `ν`, so the section states it again over user gestures.
+`def:gestures` (new, in §4) gives `move`/`alias`/`delete` as the three operations that touch only `N`;
+`rem:renamefree` says plainly that these are free everywhere in §§3–6 — one row, no caller broken, no
+cache invalidated, nothing rewritten because no definition contains a name — which is the usual
+argument for content addressing, and true. `def:namestable` then defines *authored on a branch* and
+*name-stable* (no move, alias or delete, and no update that binds a name to a definition that already
+has one — the last clause is not redundant, because by `thm:ualpha` writing out an existing definition
+produces an alias without asking for one). `cor:noedit-user`: **if both branches are name-stable, no
+name authored on neither branch is conflicted.**
+
+Contrapositively (`rem:onlyrenames`), which is the sentence worth keeping: *the only user action that
+can put someone in front of a conflict in a definition they never opened is a name moving.* Adding,
+updating and deleting are safe at any depth. Three details of the hypothesis are drawn out — it binds
+**both** branches, not only the one that abstained; an `alias` suffices without a `move`, because the
+PPE picks the fewest-segment name (`PrettyPrintEnv/Names.hs:141-151`); and unconflicted is not unseen,
+since `def:umerge` step 2 pulls dependents of conflicts into the same file.
+
+**Evidence, and a drift.** §7's basis is different from the rest of the paper's: the three examples
+were *observed* against `ucm`, not computed by the model. `sec:paths` says so. `check-labels.sh` now
+reports 49 statements, 17 not mirrored — the merge section plus the three user-level statements. That
+is the check working; p21 has not caught up, and `p21-unison-model/open-questions.md` records what
+implementing it would take. `def:gestures` is the cheap one and could land on its own: three functions
+on the namespace relation, no hashing involved.
+
+**Method note.** Eighth finding entry, and the first where the correction was to a property the *user*
+proposed rather than one an earlier draft asserted. The proposed property was the right property to
+want; it is simply not the one the algorithm has.
+
+---
+
+## 2026-09-03 — the presentation-independence guarantee is a property of a call site, not of the hash
+
+**Decision.** Correct `rem:notpartial`, retitle `cor:detect` ("is checked" → "is computed"), and add
+`rem:innercycle`. The claim that Unison "never silently produces a name-dependent identity" is true of
+top-level components and false one nesting level down.
+
+**What was wrong.** Both the paper and `docs/systems/unison/02-store-and-hashing.md` said internal
+`let rec` bindings ignore the ambiguity warning *"because there the ordering is not observable."* That
+gloss was ours. The source gives no such reason — only *"we don't want to error on that when hashing
+internal let-bindings"* (`ABT.hs:171-172`) — and the ordering **is** observable, in the enclosing
+definition's hash.
+
+**Witness**, `ucm` 1.1.1, three definitions of the same function:
+
+| | hash | |
+|---|---|---|
+| `m1 n = (a x = b x; b x = a x; a n)` | `#2d5bs110vr` | |
+| `m2 n = (p x = q x; q x = p x; p n)` | `#2d5bs110vr` | members renamed — no change |
+| `m3 n = (b x = a x; a x = b x; a n)` | `#qqn1r2c1od` | members reordered — different definition |
+
+`m1 = m2` is `thm:ualpha` behaving as advertised. `m1 ≠ m3` is the finding, and the pair together
+rules out the listing being by name. Lifting the same `a`/`b` bindings to the top level aborts with
+`E253299`.
+
+**Mechanism**, already half-stated in `def:comphash`: step 2's `sortOn` is stable, so tied members keep
+their listing order, that order fixes their de Bruijn indices, and the indices are inside the enclosing
+hash. The footnote about `Map.toList` and `Var.reset` covers the top-level and re-hash paths; the inner
+path is a third listing order the footnote did not consider.
+
+**Why the correction is worth its own entry.** The coordinate moved. `thm:ordering`'s failure is
+*name*-dependence; this one is *source-order* dependence, and `m1` and `m3` are indistinguishable to a
+reader in a way that `foo`/`bar` are not. And it generalizes: `hashComponent` is total and warns, and
+whether the warning becomes an abort is a policy decision taken independently by each caller. Unison
+has two callers and they decided oppositely. Any substrate that hashes recursive groups inherits that
+shape — side condition in the substrate, abort at the caller, and the callers have to agree.
+
+**Method note.** Ninth finding entry. The evidence had been sitting in a scratch transcript since
+2026-09-02 and was recorded then only as an aside about let-binder names; it took writing §7 (which
+needed `thm:ualpha` to be exactly right) to notice it contradicted a sentence already in the paper.
+The model reproduces the top-level abort and cannot reach the inner path: p21's object language has no
+`let`, so `hash_component` has a single caller and the two-caller divergence that *is* the finding
+cannot arise. Recorded in `p21-unison-model/open-questions.md` as out of reach rather than left as an
+implied debt.

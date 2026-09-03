@@ -222,8 +222,62 @@ dependent rendered as `usesDep = dep + 999`, where `dep` is a name the merged na
 has. Not a conflict to resolve; a dangling rendering to repair. The temporary branch holds only
 `renamed`.
 
-Both are invisible to a single user. The cost is proportional to concurrency, which is why it does
-not show up in a demo.
+The mechanism, found on the second pass: two *different* name environments are in play. The file is
+rendered by a PPE that **prefers the target branch's names** — `Render.hs:93-116`, `Names.preferring`
+biased by referent, with the stated goal that the result "look familiar to Alice (the one merging in
+Bob's changes)". But the merged namespace applies **both** branches' deletes and adds, so the source
+branch's rename lands in it. Nothing requires the two to agree, and here they do not: the file names
+`dep`, the namespace has only `renamed`, and the parse fails.
+
+**So merge is not commutative** `[verified empirically]`. Same two branches, both directions:
+
+| | outcome |
+|---|---|
+| `main> merge /renamer` | fails; scratch.u holds `checkout` calling the deleted `formatPrice` |
+| `renamer> merge /main` | **clean**; `checkout` rebound, renders as `showPrice` |
+
+**A third hazard, and the worst of the three.** Reverse who renames: one branch renames `formatPrice`
+to `showPrice` and stops; the other edits `formatPrice`'s body. Result:
+
+```
+scratch/main> merge /other
+  I merged scratch/other into scratch/main.
+
+scratch/main> ls
+  1. checkout    (Nat -> Text)
+  2. formatPrice (Nat -> Text)     <- back from the dead, holding the new body
+  3. showPrice   (Nat -> Text)     <- the rename's other half, holding the OLD body
+  4. withTax     (Nat -> Nat)
+```
+
+A clean merge, no diagnostic, and the namespace is wrong: the rename is undone and a stale duplicate
+is left behind. Cause is one line of `CombineDiffs.hs:60-63` — *"These two are not a conflicts,
+perhaps only temporarily, because it's easier to implement. We just ignore these deletes and keep the
+updates."* A rename is a delete plus an add; the delete loses to the update, the add survives
+unopposed.
+
+**The rename relation is computed, and thrown away.** `Merge/Rename.hs` (96 lines) builds exactly the
+thing that would fix this: for each definition, the names it gained and lost between the LCA and each
+branch (`makeRenames`), narrowed to the one-to-one cases (`makeSimpleRenames`). At `db60ce2` its only
+consumers are `Merge2.hs:981-1030` — `realDebugRenames` and `realDebugSimpleRenames`. Nothing in the
+diff, the combination, the merged namespace or the render reads it. And note the limit: it groups by
+`Synhashed Referent`, so it detects renames that carry *no* edit — the case that does not conflict —
+and structurally cannot detect a rename that accompanies an edit, which is the case that does.
+
+**One place the problem is patched.** `Diffblob.hs:463-505`, `canonicalizeNamesForSynhashing`: before
+the synhash PPE is built, a trailing mangled semver is stripped from `lib` names, so
+`lib.base_1_0_0.foo` and `lib.base_2_0_0.foo` hash under the same name. The comment is candid — *"This
+is just a hack that we perform to make it more likely that we classify things that are **probably**
+true propagated updates as such."* Upgrading a library renames everything in it; without this, every
+dependent would classify as authored and every concurrent edit would conflict. It is the failure mode
+being repaired by hand for the one renaming scheme whose shape is known in advance.
+
+All of this is invisible to a single user. The cost is proportional to concurrency, which is why it
+does not show up in a demo.
+
+These four findings are stated formally, with the classifier's guarantee written in the conditional
+form that is actually true, in `formalism/paper/mini-unison.tex` §7 (`prop:merge-store` through
+`prop:merge-print-parse`, added 2026-09-03).
 
 ## What the conflict file actually looks like
 

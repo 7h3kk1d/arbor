@@ -61,7 +61,7 @@ The algorithm has a real, shipped failure mode. If two cycle members are structu
 for_ structurallyEquivalentElements \vs ->
   ([IncompleteElementOrderingError ...], ())
 ```
-`ABT.hs:190-192`, with the error type at `:33-36` pointing at [unisonweb/unison#2787](https://github.com/unisonweb/unison/issues/2787). The user-facing workaround is to perturb one definition — literally, add a dummy binding like `_ = "this is the foo definition"`. The storage layer mirrors it as `HashingFailure` (`codebase2/codebase-sqlite/U/Codebase/Sqlite/HashHandle.hs:33-55`). Internal `let rec` bindings deliberately suppress the warning rather than fail (`ABT.hs:169-174`), because there the ordering is not observable.
+`ABT.hs:190-192`, with the error type at `:33-36` pointing at [unisonweb/unison#2787](https://github.com/unisonweb/unison/issues/2787). The user-facing workaround is to perturb one definition — literally, add a dummy binding like `_ = "this is the foo definition"`. The storage layer mirrors it as `HashingFailure` (`codebase2/codebase-sqlite/U/Codebase/Sqlite/HashHandle.hs:33-55`). Internal `let rec` bindings deliberately suppress the warning rather than fail (`ABT.hs:169-174`) — see the correction below, which is that the ordering *is* observable there.
 
 **Correction owed to arbor.** `../../design/03-content-addressing.md:141` says: *"When a language introduces mutually recursive definitions, we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point."* Two things are understated. First, the commitment is larger than an ordering — it changes the *type of the store*, from hash-to-node to hash-to-component, and every reference from a hash to a pair. Second, **the known starting point has a known defect**: canonical ordering of a cycle is not always possible, and the mature implementation's answer is to detect the case and ask the user to break the tie by hand. That is worth writing down before arbor reaches recursion.
 
@@ -69,9 +69,31 @@ for_ structurallyEquivalentElements \vs ->
 
 `hashComponent` is **total** — on the ambiguous input it returns a hash. What fails is not definedness but **presentation-independence**, the property content addressing exists to provide. The tie-break is `sortOn`, which is *stable*, so equal permutation hashes preserve the input list order — and the list is always `Map.toList`, i.e. **sorted by name**. So in the ambiguous case the component's hash, and every reference into it, is a function of the members' **names**.
 
-And the implementation does not "refuse" at the hashing layer. `doHashCycle` returns the condition as a *warning*, and its own comment says *"Hashing always succeeds even if it generates warnings"* (`ABT.hs:175-192`). The refusal is at the **caller**: `crashOnHashingWarning` (`ABT.hs:65-71`) turns it into an exception, the main term-component path takes that route (`parser-typechecker/src/Unison/UnisonFile.hs:284`), and `unison-cli/src/Unison/Main.hs:116` renders it as bug `E253299` with the add-a-dummy-binding workaround. Internal `let rec` bindings deliberately ignore the warning, since there the ordering is not observable (`ABT.hs:167-172`).
+And the implementation does not "refuse" at the hashing layer. `doHashCycle` returns the condition as a *warning*, and its own comment says *"Hashing always succeeds even if it generates warnings"* (`ABT.hs:175-192`). The refusal is at the **caller**: `crashOnHashingWarning` (`ABT.hs:65-71`) turns it into an exception, the main term-component path takes that route (`parser-typechecker/src/Unison/UnisonFile.hs:284`), and `unison-cli/src/Unison/Main.hs:116` renders it as bug `E253299` with the add-a-dummy-binding workaround.
 
-So the precise statement is: **a decidable side condition guards presentation-independence, and the implementation aborts rather than store a hash that violates it.** That is a stronger engineering position than "the function is partial", and a sharper problem for a formalism, because the side condition has to appear in every downstream theorem. Stated as `thm:ordering` + `cor:detect` in `formalism/paper/mini-unison.tex`.
+So the precise statement is: **a decidable side condition guards presentation-independence, and the top-level path aborts rather than store a hash that violates it.** That is a stronger engineering position than "the function is partial", and a sharper problem for a formalism, because the side condition has to appear in every downstream theorem. Stated as `thm:ordering` + `cor:detect` in `formalism/paper/mini-unison.tex`.
+
+### One caller does not abort, and there the ordering *is* observable `[verified empirically]`
+
+**Correction (2026-09-03.)** Both paragraphs above said internal `let rec` bindings ignore the warning "because there the ordering is not observable." That gloss was ours, not the source's, and it is wrong. The source gives no reason beyond not wanting to error:
+
+> "We ignore incomplete element ordering warnings when calling in from `hash'`; we don't want to error on that when hashing internal let-bindings." (`ABT.hs:171-172`)
+
+The warning is bound to `_warnings` and dropped. What remains is the stable `sortOn` — tied members keep their listing order, that order fixes their de Bruijn indices, and those indices are inside the *enclosing* definition's hash. For an inner cycle the listing is not reset to name order the way top-level bindings are, so what survives is the order the bindings were written.
+
+Three definitions of the same function, `ucm` 1.1.1:
+
+| | hash | |
+|---|---|---|
+| `m1 n = (a x = b x; b x = a x; a n)` | `#2d5bs110vr` | |
+| `m2 n = (p x = q x; q x = p x; p n)` | `#2d5bs110vr` | members **renamed** — no change |
+| `m3 n = (b x = a x; a x = b x; a n)` | `#qqn1r2c1od` | members **reordered** — different definition |
+
+Lifting the very same `a`/`b` pair to the top level aborts with `E253299`. So the same two bindings are refused in one position and silently given an order-dependent identity one nesting level down.
+
+Note which coordinate moved. The top-level failure mode is *name*-dependence; this one is *source-order* dependence, which is arguably worse — a name is at least chosen deliberately, and `m1` and `m3` are indistinguishable to a reader. The published workaround (add a distinguishing binding) applies unchanged, but nothing reports that it is needed.
+
+**For arbor.** The lesson is not "Unison has a bug here" — it is that the guarantee is a property of a *call site*, not of the hash function. `hashComponent` is total and warns; whether that warning becomes an abort is a policy decision taken separately by each caller, and Unison's two callers took opposite decisions. Any arbor design that hashes recursive groups inherits the same shape: the side condition belongs in the substrate, the abort belongs to whoever is calling, and if there is more than one caller they have to agree. Recorded as `rem:innercycle` in `formalism/paper/mini-unison.tex`.
 
 ## Alpha-equivalence: named ABTs, de Bruijn only at hash time
 
