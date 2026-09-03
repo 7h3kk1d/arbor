@@ -76,6 +76,37 @@ Unison's central UX contribution is namespace branching and merging: you work in
 
 Nothing in the current design forecloses this path; nothing in the current design pays for it either.
 
+### One constraint on that operation, established rather than assumed
+
+`formalism/paper/mini-unison.tex` §7 models Unison's merge and `prototypes/p21-unison-model/src/merge.re`
+runs it. Two results bear directly on the bullet above, and the second is a real constraint on any
+design that takes it up.
+
+**The bullet is right, and cheaper than it sounds.** Merge genuinely is namespace-to-namespace: two
+stores grown independently from a common ancestor union without reconciliation, because the store is
+append-only and keyed by content. The model shares one store across all three namespaces and there is
+no code in it that reconciles stores, because there is nothing for such code to do. Worth knowing
+that this is also *most* of what immutability buys at merge time — everything difficult happens in the
+namespace, which is not content-addressed.
+
+**A merge whose diff is keyed by name inherits a rename problem.** Unison's diff is a map from names,
+and its test for "did a human write this?" is whether the definition *renders* differently — which is
+name-dependent by construction. That makes propagated updates invisible (the point) and makes renames
+indistinguishable from authorship (the cost). Three failure modes follow, all reproduced: a rename
+plus an edit manufactures a conflict in a definition nobody opened; a rename alone produces no
+conflict but a merge that still fails, because the file is rendered under one branch's names and
+parsed against a namespace holding the other's; and a rename raced by an edit merges *cleanly* and
+silently undoes the rename, because a delete loses to an update and a rename is a delete plus an add.
+
+So the design question, if arbor takes up the bullet: a name-keyed diff is the obvious construction
+and it is the one that fails. The alternatives are to key the diff by **referent** — which arbor can
+do and Unison cannot cheaply, since arbor's namespace is a partial function and its reverse index
+already exists — or to carry the **rename relation** as an explicit input to the diff. Unison computes
+that relation (`Merge/Rename.hs`) and, at the pinned commit, passes it to a debug printer; it also
+groups by syntactic hash, so it finds only the renames that carry no edit, which is the case that does
+not conflict. Neither alternative has been designed here. The point of recording it is that the
+cheap construction is known to be wrong before anyone builds it.
+
 ## Threads under exploration
 
 The substrate stance — names as opaque strings, structure deferred — leaves several editing-layer questions on the table. The threads below are open: each sharpens what's actually being asked, surfaces the structural connections that matter, and explicitly stops short of resolution. None has yet been exercised by a prototype.

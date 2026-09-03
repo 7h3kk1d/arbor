@@ -48,16 +48,25 @@ prototype models exactly what the paper models and nothing more.
   at each child's *causal* hash, so every level has its own history. mini-unison models the naming
   *semantics* — names as a relation, unconflictedness as a derived predicate operations demand —
   because `update` cannot be stated without them, and stops there.
-- **`Causal`, branching, and merge.** The thing arbor's `H` structurally cannot do: `H` is per-name,
-  flat and unhashed, and cannot answer "do these two states share an ancestor?", which is what every
-  merge asks. This is the largest deferred piece and is arguably its own document.
+- **`Causal` and branching** — but no longer merge. Merge landed 2026-09-03 as §7, modelled as a
+  function of three namespaces with the common ancestor *given*; what is still deferred is computing
+  it. That is the thing arbor's `H` structurally cannot do: `H` is per-name, flat and unhashed, and
+  cannot answer "do these two states share an ancestor?". Deferring only the ancestor turned out to
+  cost nothing — every result in §7 is about the diff and the naming function, and none of them needs
+  to know how the LCA was found.
 - **Suffix resolution and the `lib`-depth priority rule.** Names in mini-unison are atomic.
 - **Data declarations and `unique`-type minting.** With only `Nat`, `Text` and arrows there are no
   declarations, so `Referent`'s `Con` arm is vestigial and the minting axis is absent entirely.
   Reinstating it is what would let the mint-stability question be stated on both sides.
-- **Synhash**, the propagation-provenance mechanism merge uses — the alternative to a second identity
-  axis, and the natural companion to the mint rung.
 - **Abilities, the ANF runtime, `LocalIds` and serialization.**
+
+**Modelled since**, and worth naming because it was deferred here first: **synhash**, the
+propagation-provenance mechanism merge uses. It is `def:synhash`, and the finding is that it is the
+*exact dual* of the content hash — same recursion, names substituted for references instead of the
+reverse — and that it is never stored. Recorded here as deferred "the alternative to a second identity
+axis"; that framing survives, and is now sharper. A mint tells you two definitions are meant to be the
+same thing; a synhash tells you two definitions *look* the same. Unison has both, uses the mint only
+for types, and uses the synhash for exactly one decision.
 
 **Questions it opened:**
 
