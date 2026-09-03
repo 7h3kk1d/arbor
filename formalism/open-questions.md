@@ -35,6 +35,13 @@ Each rung adds one thing to `arbor-core`, mirroring the prototype progression:
 a rung** — it does not extend `arbor-core`, so it does not belong on the ladder above. Choices and
 findings are in `decisions.md` 2026-08-25.
 
+**Executed 2026-09-02.** `prototypes/p21-unison-model/` implements `def:tokens` through
+`def:update` over this object language, with each of the 29 statements as a test that names it;
+`scripts/check-labels.sh paper/mini-unison.tex ../prototypes/p21-unison-model/src` enforces that the
+two stay in step. Running it changed three statements — see `decisions.md` 2026-09-02 and
+`../docs/prototypes/p21-unison-model/00-scope.md`. The deferred list below is unaffected: the
+prototype models exactly what the paper models and nothing more.
+
 **Deferred from v1**, each a candidate successor:
 
 - **The namespace's representation.** `Branch` as a hashed Merkle tree whose `children` field points
@@ -62,16 +69,31 @@ findings are in `decisions.md` 2026-08-25.
 - **Is the `Pos = 0` asymmetry load-bearing or incidental?** `prop:transparent` shows transparency
   stops at the head of a component. Is that a deliberate optimization (a singleton component's
   reference costs nothing to inline) or an accident of the encoding? The source comment justifies
-  only the `0` case. Worth asking upstream rather than inferring.
+  only the `0` case. Worth asking upstream rather than inferring. *(Still open 2026-09-02:
+  `p21-unison-model` confirms the asymmetry is **observable** — committing `countDown`/`countUp`
+  puts `countUp` at position 0, so of two definitions the user wrote symmetrically one is referenced
+  transparently and the other opaquely, with nothing in the surface syntax saying which. That
+  sharpens the question and does not answer it; intent is not something a reimplementation can
+  recover.)*
 - **Can `prop:print-parse` be proved for a realistic surface language?** mini-unison proves the
   round-trip obligation for its own small language. Unison's is vastly larger, and the property is
   maintained by a golden corpus. The interesting question is whether the *pretty-print environment*
   (`def:ppe`) admits a specification under which the property is provable, rather than testable —
-  since the PPE is where the difficulty demonstrably lives.
+  since the PPE is where the difficulty demonstrably lives. *(Data point 2026-09-02: as a qcheck
+  property over `p21-unison-model`'s six term formers, it caught a real printer bug — parentheses
+  omitted around an application in argument position — on its first run. So at that scale a property
+  strictly dominates a corpus. Where the crossover sits, and whether a property over a generated
+  subset plus a corpus for the rest is the right shape, is the live version of this question.)*
 - **Should arbor model the evict-and-render residual?** `arbor-stlc`'s residual is a set of names;
   Unison's is the code itself, delivered as a working set. `docs/design/13-editing-context.md`
   already argues the residual *is* the next frontier. mini-unison's `def:update` step 5 is the
-  formal version of that, and arbor has no counterpart.
+  formal version of that, and arbor has no counterpart. *(Partly answered 2026-09-02 by building it
+  in `p21-unison-model`: getting the broken code back in the buffer, ready to edit, is plainly more
+  useful than a list of names — and it is also **silent breakage**, since a failed update removes
+  bindings the user did not ask it to touch, including the one they were editing, with no
+  confirmation. `rem:step5` records how wide the removal is. The synthesis is probably "deliver the
+  residual as code **and** make the eviction visible and undoable", which is neither system's
+  behaviour; that is what arbor should model.)*
 
 ## Modeling questions inside `arbor-core`
 

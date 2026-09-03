@@ -814,3 +814,177 @@ since it bears on a frequently-repeated description of the system.
 question rather than from reading. It is also the first that contradicts something *we had already
 written down and believed*. Worked examples earn their place for exactly this reason: prose can
 restate a source comment without ever putting it against the definitions, and an example cannot.
+
+## 2026-09-02 — `mini-unison`: a citation audit, and five things it corrected
+
+Every `\src{}` tag in `paper/mini-unison.tex` was resolved against the Unison source at the pinned
+commit `db60ce2` — the local checkout is still at exactly that commit, so nothing had drifted from
+the pin. Fourteen file keys, roughly forty cited ranges. Every claim resolved to code; nothing was
+unlocatable. What the audit found splits three ways, and the split is the interesting part.
+
+**Confirmed, including the claim we were least sure of.** `rem:transparency-limit` is right. The
+construction that satisfies the strong reading of reference transparency — `hashClosedTerm`, which
+builds `Derived(⌈t⌉, 0)` from a bare term hash — exists, and is used only for anonymous and
+evaluated expressions, never for storing a named definition. Component hashing puts two `accumulate`
+layers between a member's term hash and its component hash even at *k* = 1, so `x = 1 + 1` and
+`y = x` genuinely do not hash the same. The appendix now states this as a claim we would like
+checked rather than as a reading we might have got wrong, and the two remaining entries in that list
+are questions about *intent* (is the `Pos = 0` boundary deliberate; are the two orderings meant to be
+distinct), which the source cannot answer either way.
+
+Also confirmed exactly: the three-step component hash and its two orderings, the
+`IncompleteElementOrderingError` detect-and-abort path, position-0 transparency, type-in-hash
+including the replaces-an-existing-annotation clause, the SHA3-512 token stream, the namespace
+relation and `BranchV3`'s removal of it, the absence of any invalidation logic, the PPE asymmetry,
+the "world's weirdest implementation of AST substitution" comment, and the round-trip corpus.
+
+**Five claims were wrong.**
+
+1. `def:watch` had the cache as `Hash ⇀ Hash`, "both store hashes". It is `(Hash × Pos) ⇀ Term`: the
+   key is a reference, addressed exactly the way a definition is, and the value is the result term
+   stored inline as a blob. Caching a result does not put the result in the store. `thm:wstable` and
+   `cor:wnoinval` survive untouched, which is worth noting — the soundness argument never depended on
+   the codomain.
+2. `def:update` step 5 said the *offending* definitions' names are removed. The implementation
+   removes every name the file binds and every dependent it rendered, whatever the typechecker said
+   about each. Added `rem:step5`.
+3. `ex:update-fail` therefore had the wrong end state. It showed `scale` rebound to a new hash. In
+   fact nothing is ingested on the failure path and `scale` is itself among the names the file binds,
+   so after a failed update the namespace contains *neither* `scale` nor `double`. What is delivered
+   is `F ∪ S`, the user's own file plus the rendered dependents, not `S`.
+4. **`ex:ambiguous` asserted something the definitions do not give.** It said renaming `ping` to
+   `zing` would change `#c`. It does not: the last step of `def:comphash` accumulates the `nh` values
+   *sorted*, so a rename that merely permutes that multiset leaves the component hash fixed and moves
+   only the position assignment. `thm:ordering`(b) is now split — (b1) which member is referenced
+   transparently always becomes name-dependent, (b2) the hash itself does in general but not for
+   every tie — and the example carries a witness for each.
+5. `prop:follow-only` recommended `add` as the abstention gesture. `add` has been an alias for
+   `update` since 2025; there is no separate command. The substance survives (a fresh name has no
+   dependents) but the sentence described something that no longer exists.
+
+**Nine more were imprecise** and are now hedged or re-cited: "annotations are excluded" collided with
+the type ascription that *is* hashed and is the whole vehicle of `def:typeinhash`; `rem:version`'s
+hash-indirection is provisioned but never exercised, every write hardcoding version 2; `def:unames`
+cited a name-lookup table deleted in 2025; `def:unconf`'s derived view is all-or-nothing rather than
+a filter, which is why `def:uscope`'s `S` is a precondition rather than an intersection; the watch
+GC touches the wrong table and runs only in a schema migration; the `Same | Subtype | Different`
+datatype outlived the machinery that consumed it; `rem:unhash` quoted one module and cited another;
+and `def:comphash`'s "name order" is really `(freshening-id, var-kind)` order, which matters on the
+re-hash path and now carries a footnote saying why the round trip works anyway.
+
+Nine citation ranges were off by a few lines, and eleven `\src{}` tags had been stripped by the
+2026-08-25 "fewer citations" pass without closing up the punctuation, leaving text like "keep
+resolving ." — restored where the claim is load-bearing.
+
+**Method note.** This is the fifth finding entry and the first produced by a *targeted audit* rather
+than by prose reading or by working an example. The three methods fail differently, and the pattern
+across five entries is now legible: reading produces the model, worked examples falsify claims the
+model asserts about *itself* (2026-08-25, fourth), and an audit falsifies claims about the *source*.
+Errors 2, 3 and 5 are all of the last kind — behaviour we described from a plausible reading of code
+we had genuinely looked at. Error 4 is neither: it is arithmetic about our own `def:comphash` that
+neither reading nor auditing catches, and that a worked example got *wrong* because the example was
+written to illustrate a theorem rather than to test it. The prototype now being built settles that
+one by computation, which is a fourth method and the only one that would have caught it.
+
+## 2026-09-02 (later) — Watches, and a proposition the model was missing
+
+A question about the prototype — *"watch expressions don't get added to the store?"* — turned out to
+expose a gap in the paper as well as a bug in the code.
+
+**The gap.** `def:watch` and `rem:watchkey` described the cache and observed, from a schema comment,
+that its key "need not be a definition". But nothing in the model said where such a key comes from.
+`def:bindgroup` had a file as a map from names to terms; watch expressions were nowhere, so a reader
+could not derive the situation the remark described. The remark was reporting a fact about Unison's
+SQLite schema rather than stating a property of the model.
+
+**What was added.** `def:ufile` — a file is a binding group *plus* a sequence of anonymous watch
+expressions, closed over the group's names. `def:uingest` now hashes both in one pass (Unison's
+`allTerms = join tlcs ++ join (snd <$> watches)`, under a comment reading "includes watches") and
+says what differs afterwards: a definition's component is stored and its name bound, a watch's is
+neither — only its value is kept, at the reference ingest just computed. Hence
+**`prop:watchdom`**: there are reachable configurations in which `dom(W) ⊄ dom(Σ)`. The proof is
+short, and turns on unreachability: a watch is unnamed, `tdeps` ranges over named references and
+`render` has no name to print it by, so its hash never enters Σ.
+
+`rem:watchdom-ok` then makes the payoff explicit. `thm:wstable`'s proof never used that the *key* is
+in the store — only that everything the key *reads* is. So a cache entry denoting nothing is not an
+edge case the soundness argument has to exclude; it is outside its hypotheses. Had the cache been
+specified as a map on definitions, `prop:watchdom` would have been a bug report instead of a
+property. That is the technical content of "there is no *is a definition* status attached to stored
+data", which until now the document only asserted.
+
+**Both halves are checked.** In `p21-unison-model`, `test_watchkey` ingests a buffer with two
+watches and asserts they are hashed, absent from the store, unnamed, and cached. Against real Unison,
+a codebase with one evaluated watch has the watch's hash interned in `hash` and **no `hash_object`
+row for it** — an identity with no object behind it, which is `prop:watchdom` visible in a live
+system.
+
+**Also measured, since it was cheap and settles a claim `cor:wnoinval` only argues for.** One
+expensive watch saved once: 5.79 s. The *same* watch saved twice: 5.82 s. Two *different* watches of
+equal cost: 11.45 s. Re-saving does not re-evaluate, and the control rules out a timing artifact.
+Across separate `ucm` processes against a warm codebase: **0.084 s**. So the cache is consulted both
+across saves and across process boundaries, reading `watch_result` out of SQLite.
+
+*(Corrected later the same day. The cross-process figure was first measured as 5.85 s and reported as
+inconclusive, on the theory that `--save-codebase-to` had failed to round-trip the namespace. Both
+halves were wrong. `-S` round-trips correctly — the saved codebase has its branch head, its cursor,
+and 748 terms. What actually happened is that plain `ucm transcript` **ignores `-c/--codebase`** and
+always builds a fresh codebase (`Main.hs:507`); only `transcript.fork` reads an existing one. So the
+"warm" run was a cold one. The lesson is narrow and worth keeping: a null result from a tool whose
+flags you have not read is not a null result.)*
+
+**Method note.** This is the sixth finding entry and the second to come from a user question rather
+than from reading (the fourth was the first). It is also the first found by someone *using* the
+prototype rather than by writing it: the omission was invisible in the test suite because
+`test_watchkey` had been written against the `Watch` module's shape — constructing a hash by hand and
+putting it in the cache — rather than against the pipeline. A test that fabricates its own input
+cannot notice that nothing produces that input.
+
+## 2026-09-03 — Save is not commit, and the paper had them fused
+
+A question about the prototype — *"I want typing in the scratch buffer to do the same as saving does
+in Unison. Unison separates commit from saving"* — turned out to name a conflation in the model as
+well as a missing feature in the code.
+
+**What the paper said.** `def:uingest` folded three things into one step: computing references,
+extending `Σ`, and (after the watch work of the previous entry) extending `W`. `def:update` step 4
+then read *"if it typechecks, ingest and rebind"*. Read together, they say identity is conferred by
+committing. That is wrong, and it made `prop:watchdom`'s proof reach for `update` when it needed no
+such thing.
+
+**What the implementation does.** `loadUnisonFile` → `evalUnisonFile` is the *save* path, reached from
+the file-watch event. It typechecks; hashes the whole file, watches included; evaluates the watches
+against a code lookup covering the file itself; and writes each result with `putWatch` — `only when
+(not isHit && cache)`. There is no `addDefsToCodebase` and no `putTerm` anywhere in it. A
+`TypecheckedUnisonFile` carries a reference for every member in `hashTermsId`, and nothing has entered
+the codebase.
+
+So: **a save confers identity and populates the cache; a commit stores and names.**
+
+**What was added.** `def:usave`, a transition on `⟨Σ, N, W⟩` that leaves `Σ` and `N` fixed and extends
+only `W`. `def:uingest` is now purely the hashing function — it extends nothing. `def:update` step 4
+says explicitly that it stores at a hash `def:usave` already computed rather than computing one.
+`prop:watchdom`'s proof is rebased on save, and is stronger for it: no commit is required, or even
+able to help, since `update` adds components for the file's *definitions* and the witnessing file has
+none. Plus `rem:saveident` (identity comes from typechecking; the gate is a gate on identity, not on
+storage) and `rem:watchsplit` (both kinds are hashed alike and diverge only at commit).
+
+**Why this sharpens rather than weakens the commit-gate finding.** The gate is still real and still
+the largest divergence from arbor. But it bites earlier and differently than recorded: a buffer that
+does not typecheck has *nothing to talk about at all*, not merely nothing stored. And the caching that
+`cor:wnoinval` describes is reachable with no commit in the picture, which is why re-saving an
+expensive watch is free.
+
+**Both halves are checked.** `p21-unison-model` grew `Scratch.save` (hash without storing, evaluate
+watches, write on miss only) alongside `Scratch.analyze` (inert), and `Ingest.hash_components` gained
+`~register` — deliberately the *only* difference between the two paths, with a test asserting the save
+and the commit agree on the hash. Three more tests cover: a save confers references while storing and
+naming nothing; re-saving does not re-evaluate and reverting an edit hits an entry nothing
+invalidated; analysis alone writes no cache entry. 33 tests, 32/32 labels mirrored.
+
+**Method note.** Seventh finding entry, third from a user question, and the second in two days from
+someone *using* the prototype rather than reading it. The pattern is now unmistakable: the previous
+entry recorded that watches were missing entirely; this one records that the step they belong to was
+missing too. Both were invisible to a test suite that exercised `Update.run` and never modelled the
+gesture that precedes it. Having no `save` in the code is why the paper could keep `save` fused into
+`ingest` without anything complaining.

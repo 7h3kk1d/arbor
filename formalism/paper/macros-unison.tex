@@ -10,14 +10,13 @@
 % --- the three stored structures ---
 \newcommand{\UStore}{\Sigma_{\mathsf{u}}}      % codebase: Hash -> Component
 \newcommand{\UNames}{N_{\mathsf{u}}}           % namespace: Name -> P(Referent)
-\newcommand{\UCache}{W}                        % watch cache: Hash -> Hash
+\newcommand{\UCache}{W}                        % watch cache: (Hash x Pos) -> Term
 \newcommand{\UConfig}[3]{\langle #1,\, #2,\, #3\rangle}
 
 % --- references and components ---
 \newcommand{\Pos}{\mathsf{Pos}}
 \newcommand{\Comp}{\mathsf{Comp}}
 \newcommand{\Referent}{\mathsf{Referent}}
-\newcommand{\Reference}{\mathsf{Reference}}
 \newcommand{\UDer}[2]{\mathsf{Derived}(#1,#2)}
 \newcommand{\UBuiltin}[1]{\mathsf{Builtin}(#1)}
 \newcommand{\URefT}[1]{\mathsf{Ref}(#1)}
@@ -46,7 +45,6 @@
 \newcommand{\nhash}[1]{\mathsf{nh}(#1)}           % name hash (second sort key)
 \newcommand{\comphash}{\mathsf{hashComp}}
 \newcommand{\hashcomps}{\mathsf{hashComps}}
-\newcommand{\amb}{\mathsf{Ambiguous}}
 \newcommand{\bg}{\mathcal{B}}                     % a binding group
 
 % --- naming ---
@@ -60,11 +58,7 @@
 \newcommand{\ppe}{\mathsf{ppe}}
 \newcommand{\render}{\mathsf{render}}
 \newcommand{\uparse}{\mathsf{parse}}
-\newcommand{\uupdate}{\mathsf{update}}
 \newcommand{\lib}{\mathsf{lib}}
-\newcommand{\scratch}{\mathsf{scratch}}
-\newcommand{\ok}{\mathsf{typechecks}}
-\newcommand{\usteps}{\longrightarrow_{\mathsf{u}}}
 
 % --- worked examples ---
 \newcommand{\Res}[2]{\mathcal{R}^{#1}_{#2}}     % resolution, superscript = group names
