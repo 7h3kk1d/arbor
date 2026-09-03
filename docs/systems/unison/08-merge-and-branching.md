@@ -4,7 +4,9 @@
 
 ## The one-sentence version
 
-**Unison's merge does not merge code. It merges *namespaces* — name-to-hash bindings — and hands back, as a text file with conflict markers, everything it could not decide.** Resolving that file is an ordinary `update`, which is why merge and update are the same machinery seen twice.
+**Unison's merge does not merge code. It merges *namespaces* — name-to-hash bindings — and hands back, as a text file, everything it could not decide.** Resolving that file is an ordinary `update`, which is why merge and update are the same machinery seen twice.
+
+*(Corrected 2026-09-03: this sentence said "a text file **with conflict markers**". There are none on the default path. Both versions are written out as complete top-level definitions, each preceded by a comment naming its branch — see §"What the conflict file actually looks like". Git-style markers exist only in the `$MERGED` seed file handed to an external `UCM_MERGETOOL`, and even there the delimiters differ from git's diff3 syntax.)*
 
 That framing is the whole design. Every property below follows from it.
 
@@ -43,6 +45,14 @@ That second precondition is worth pausing on. `03-namespace-and-history.md` §"N
 **4. Diff each side against the LCA, and classify by synhash.** Two diffs, LCA→Alice and LCA→Bob, each entry a `DiffOp'Add | DiffOp'Delete | DiffOp'Update` (`Unison/Merge/DiffOp.hs:19-23`). Every updated definition is additionally tagged with whether the change was authored or induced, by comparing **syntactic hashes** — hashes taken after substituting references with names from a combined pretty-print environment (`04-caching-update-merge.md` §"Merge"). The result type carries the bit explicitly: `DiffOp2'Update !(Updated a) !Bool {- is propagated? -}`.
 
 This is where auto-propagated changes get filtered out of the merge. Without it, every definition downstream of an edit would look like a competing change.
+
+**4a. What "propagated" means, precisely, and what it buys.** A definition's *syntactic hash* is taken after substituting every reference with a **name** drawn from a PPE combining Alice's, Bob's and the LCA's namespaces (`Diffblob.hs:418-422`, unsuffixified, Alice first). Variable names become de Bruijn indices, source annotations vanish, and `Ref`/`Constructor`/`Request` all collapse to the same tag plus a name (`Synhash.hs:340-343`). So two definitions that would *render the same to a human* synhash equal.
+
+The diff then does something stronger than tagging (`Diff.hs:69-84`): an update whose synhash is unchanged is **removed from the diff entirely**, into a `propagatedUpdates` map that nothing ever reads. An auto-propagated update is not a weak change — it is *no change at all*.
+
+Verified live: Alice edits `foo`, which propagates to `bar`; main edits `bar` by hand. Both sides changed `bar`, and the merge is clean, keeping `foo = 2` and main's authored `bar`. Without this the two would collide on every downstream definition.
+
+Note the hash class: `Unison.Hashable`, **not** the content-addressing hash, and never persisted. It only has to be self-consistent within one `merge` process, where all three sides are hashed against the same PPE — so its token encoding carries no compatibility obligation.
 
 **5. Combine the two diffs and partition** (`Unison/Merge/CombineDiffs.hs`, `PartitionCombinedDiffs.hs`). The output splits into:
 
@@ -139,6 +149,121 @@ So the three operations compose into one loop:
 5. Repeat until it typechecks, then merge the branch back.
 
 **The merge conflict and the failed update are the same object**, reached by different routes and resolved by the same gesture. That is a real design economy, and it is only possible because the resolution medium is *text that must re-typecheck* rather than a structured patch.
+
+## The conflict taxonomy — what actually conflicts
+
+A conflict is produced in **exactly two places** (`CombineDiffs.hs:56-66`): both sides added the same
+name with different synhashes, or both sides updated it with different synhashes. Everything else is
+resolved or refused. The seed set is then closed under a fixpoint (`PartitionCombinedDiffs.hs:65-141`)
+that drags in the *other* party's constructor names when a type conflicts, and the enclosing decl when
+a constructor conflicts.
+
+| situation | outcome |
+|---|---|
+| both add different names | merge |
+| both add the same name, same synhash | merge |
+| both add the same name, different bodies | **conflict** |
+| both update the same name, different bodies | **conflict** |
+| one updates, other propagates | merge — the propagated side is not a change |
+| one updates, other **deletes** | **merge, delete silently dropped** |
+| both delete | merge |
+| any two explicit changes to the same *type* | **conflict**, always — even disjoint constructor edits |
+| constructor **rename** vs. any type update | **conflict** — a rename is an update to the decl |
+| two independently-created `unique type`s that look identical | **conflict** — the GUID is hashed |
+| term on one side, constructor on the other | **conflict** |
+| conflicted name resolves to a builtin | **refused** — cannot render a builtin in a scratch file |
+| `lib.*` differs | never conflicts — unioned, with `__0`/`__1` suffixes |
+| you touched nothing but depend on a conflict | your definition is **evicted into the file** |
+
+Two of these are worth dwelling on because they are silent.
+
+**Update + delete is not a conflict.** `CombineDiffs.hs:60-63`, verbatim: *"These two are not a
+conflicts, perhaps only temporarily, because it's easier to implement. We just ignore these deletes
+and keep the updates."* Verified live — Alice deleted `gone`, main edited it to `42`, merge reported
+success and `gone = 42` survives. Git stops and asks; Unison discards the delete and says nothing.
+The upstream transcript concedes *"In a future version, we'd like to give the user a warning at
+least."*
+
+**Renames are not detected at all.** `Unison.Merge.Rename` computes `simpleRenames`, and
+`Diffblob.simpleRenames` is **read by nothing in the repository** — a whole-tree grep finds hits only
+inside `Diffblob.hs` itself. In the core diff, keyed by `Name`, a rename is a delete at the old name
+plus an add at the new one. (Constructor renames are the exception, and only because they change the
+enclosing decl's synhash.)
+
+## What the conflict file actually looks like
+
+No markers. `Render.hs:191-235` emits both versions as **complete top-level definitions**, each
+preceded by one comment naming its branch. Verified by running it:
+
+```unison
+-- scratch/main
+foo : Nat
+foo = 3
+
+-- scratch/alice
+foo : Nat
+foo = 2
+
+-- The definitions below are not conflicted, but they each depend on one or more
+-- conflicted definitions above.
+
+bar : Nat
+bar =
+  use Nat +
+  foo + 10
+```
+
+**The file deliberately does not parse** — two `foo : Nat` bindings at top level is an error, and
+`Mergeblob.hs:225-227` tries to parse it and gives up. Resolution is "edit until it parses", not
+"delete the marker lines". You then run `update`, which merges the temporary branch into its parent
+and deletes it; or `cancel`, which deletes the branch and prints nothing.
+
+Two sharp edges. The file is **prepended to**, not replaced, so whatever you were working on is
+pushed below `---- Anything below this line is ignored by Unison.` and silently stops compiling. And
+the banner above is **not always true**: `identifyCoreDependencies` also pulls in dependents of your
+*own unconflicted* updates (`Mergeblob.hs:271-274`), which the upstream transcript flags as a bug
+(`merge.md:2696`, "This test demonstrates a bug").
+
+Git-style markers exist only on the `UCM_MERGETOOL` path (`Merge2.hs:562-604`), and they are
+**diff3-shaped but not git-diff3 syntax** — `<<<<<<< / ======= / ======= / >>>>>>>`, where git writes
+`|||||||` for the middle delimiter. A tool configured for git's diff3 will mis-parse it.
+
+## `lib` is a magic name segment, and it is the only pin Unison has
+
+Two things about `lib` that are easy to state wrongly, both checked.
+
+**You cannot write to `lib` by hand.** Editing a definition there is refused — *"Modifying definitions
+in `lib` is not allowed"* — and so is adding one from a scratch file. It is populated only by
+`lib.install`, `pull` and `clone`. So every rule about `lib` concerns installed dependency subtrees,
+never anything a user typed.
+
+**It is a distinguished `NameSegment`, not a sort.** `deleteLibdeps = over children_ (Map.delete
+NameSegment.libSegment)` (`Branch/Type.hs:364-366`). Around twenty modules special-case that one
+string. `Definition` has no notion of "is a dependency"; the store cannot tell a library from
+anything else.
+
+### The diamond-dependency claim, checked `[verified empirically]`
+
+The usual framing is that content addressing dissolves the diamond: two versions of a library are two
+hashes, both persist, nothing breaks. That is true **at the store level, universally** — and it is
+not the whole claim, because for ordinary definitions nothing is left pointing at the old hash.
+
+Measured: `f = 1`, `usesF = f + 10`, `add`, then `update f = 2`. `usesF` evaluates to **12**, not 11.
+Its reference was rewritten. The old `f` is still in the store, still correct, and now reachable by
+nothing — `update` propagates over every named transitive dependent and there is no parameter to
+decline (`prop:follow-only`).
+
+The one exemption is `lib`, which `update` subtracts from the dependent scope and refuses as a
+target. **So library pins survive because Unison declines to rebuild them, not because libraries are
+special objects.** Diamond tolerance is a consequence of non-propagation, and `lib` is simply the
+region where propagation is switched off.
+
+**For arbor this is the sharpest available datum on the update-strategy axis.**
+`../../design/04-naming-layer.md` frames pin / follow / explicit as points in a scope × user-in-loop
+space. Unison ships Follow with scope fixed, plus exactly one hard-coded scope exclusion keyed off a
+magic name. Its "pin" is not a strategy; it is a directory. That both confirms the framing is richer
+than prior art and suggests where the pressure comes from: the thing a real system needed first was
+*a region that does not get updated*, which is the scope axis pinned at a constant.
 
 ## What this means for arbor
 
