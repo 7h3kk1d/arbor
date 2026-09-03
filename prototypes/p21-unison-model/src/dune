@@ -1,0 +1,11 @@
+(library
+ (name p21_substrate)
+ (public_name p21_unison_model.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

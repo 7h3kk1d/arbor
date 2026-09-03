@@ -1,0 +1,11 @@
+(library
+ (name p21_web)
+ (libraries
+  p21_unison_model.substrate
+  bonsai
+  bonsai.web
+  virtual_dom
+  core
+  js_of_ocaml)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai js_of_ocaml-ppx)))
