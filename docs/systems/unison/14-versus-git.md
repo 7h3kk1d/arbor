@@ -2,7 +2,7 @@
 
 **Status:** Comparison, written 2026-09-03. Source claims pinned to `db60ce2`; behavioural claims run against `ucm 1.1.1` and tagged `[verified empirically]`. Unison's own claims are quoted verbatim from `unison-lang.org` and each is given a verdict.
 
-This is the doc to read before repeating a Unison marketing claim in `docs/design/`. Several of them are true, one is stronger than Unison states it, and two are true only under conditions Unison does not mention.
+This is the doc to read before repeating a Unison marketing claim in `docs/design/`. Several are true, one is stronger than Unison states it, and three are true only under conditions Unison does not mention.
 
 ## The one substitution everything follows from
 
@@ -34,11 +34,17 @@ The typechecking claim holds and is `[verified by absence]` in `04-caching-updat
 
 The asterisk is the runtime, established in `12-state-inventory.md`. `preEvalTopLevelConstants` eagerly evaluates every arrow-free constant in the transitive closure of whatever you run, on **every process start**; those values are never persisted; and the pass does not benefit from its own results — a chain of N constants costs N × base, measured 1.00 / 2.01 / 3.00 / 3.99 / 4.98. So "no build" is partly a trade: compile-time work becomes start-up work that no cache captures. Test results *are* persisted and synced (`kind=Test` rows); ordinary watch results are persisted but not synced; top-level constant values are never persisted at all.
 
-### 2. "instant nonbreaking renames" — **true, and the clearest win**
+### 2. "instant nonbreaking renames" — **true for code, false for merges**
 
-A rename changes a name binding. The definition's hash does not move, so no dependent is touched, no text is rewritten, and there is nothing to conflict. In git a rename is an O(codebase) textual diff with a large conflict surface, and rename detection is a similarity heuristic that fails on rename-plus-edit.
+A rename changes a name binding. The definition's hash does not move, so no dependent is touched, no text is rewritten, and nothing can break. In git a rename is an O(codebase) textual diff with a large conflict surface, and rename detection is a similarity heuristic that fails on rename-plus-edit. As a claim about *breakage*, this is unqualified and it is Unison's cleanest win.
 
-One qualification, `[verified empirically]`: `diff.branch` does **not** report a rename as a rename. `move.term count tally` displays as `+ tally` and `- count`. The *merge* handles it correctly — a rename alone merges cleanly — but the review surface does not group the two halves, so a reviewer sees a delete and an add. Git's heuristic, for all its flakiness, at least tries.
+As a claim about *cost*, it is wrong, and the cost lands on whoever else is working at the same time. Merge separates a human's edit from an auto-propagated one using the **syntactic hash**, which is computed after substituting each reference with a **name** — so a rename changes the syntactic hash of every dependent, reclassifying propagated updates as authored ones. `Merge/Synhash.hs`'s docstring: *"(Critically, this cannot handle renames very well.)"*
+
+Measured, `[verified empirically]` — two runs identical but for one `move.term`; alice updates `dep` and lets `usesDep` propagate, main edits `usesDep`. Control merges clean; with the rename it conflicts, alice's side showing `usesDep = renamed + 100`, which is the ancestor's own code under a new name. A rename *alone* against a concurrent edit fails differently: zero conflicts, and a scratch file referencing a name the merged namespace no longer has. Full mechanism and both transcripts in `08-merge-and-branching.md` §"A rename can manufacture a conflict in a definition nobody edited".
+
+*(Corrected 2026-09-03. This section previously rated the claim upheld with only the review caveat below.)*
+
+One more, `[verified empirically]`: `diff.branch` does **not** report a rename as a rename. `move.term count tally` displays as `+ tally` and `- count`. The *merge* handles a lone rename correctly — but the review surface does not group the two halves, so a reviewer sees a delete and an add. Git's heuristic, for all its flakiness, at least tries.
 
 ### 3. "A Unison codebase is never in a broken state, even midway through a refactoring" — **true of the codebase, misleading about the experience**
 

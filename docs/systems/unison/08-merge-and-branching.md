@@ -174,6 +174,8 @@ a constructor conflicts.
 | conflicted name resolves to a builtin | **refused** — cannot render a builtin in a scratch file |
 | `lib.*` differs | never conflicts — unioned, with `__0`/`__1` suffixes |
 | you touched nothing but depend on a conflict | your definition is **evicted into the file** |
+| a **term rename** plus an update on one side, an edit to a dependent on the other | **conflict** on the dependent — see below |
+| a **term rename alone**, vs. an edit to a dependent | **fails with zero conflicts**, file references a dead name |
 
 Two of these are worth dwelling on because they are silent.
 
@@ -189,6 +191,39 @@ least."*
 inside `Diffblob.hs` itself. In the core diff, keyed by `Name`, a rename is a delete at the old name
 plus an add at the new one. (Constructor renames are the exception, and only because they change the
 enclosing decl's synhash.)
+
+### A rename can manufacture a conflict in a definition nobody edited `[verified empirically]`
+
+The classifier that separates a human's edit from an auto-propagated one is the **syntactic hash**
+(`Merge/Diff.hs`): same synhash + different Unison hash ⇒ *propagated*, routed to a channel that
+never enters conflict detection; different synhash ⇒ *authored*, enters the core diff. Synhash is
+computed after substituting each reference with a **name** from a pretty-print environment, so it is
+name-dependent by construction. `Merge/Synhash.hs`'s own module docstring concedes the consequence:
+
+> "The merge algorithm currently uses syntactic hashes for determining whether an update was performed
+> by a human, or was the result of auto-propagation. **(Critically, this cannot handle renames very
+> well.)**"
+
+Two runs, identical but for one `move.term`. Base `dep = 1`, `usesDep = dep + 100`. Alice updates
+`dep`, letting `usesDep` auto-propagate — she never opens it. Main makes a real edit to `usesDep`.
+
+- **Control:** `I merged scratch/alice into scratch/main.`
+- **Plus `move.term dep renamed` on alice:** conflict, with alice's side rendered as
+  `usesDep = renamed + 100` — *the ancestor's code under a new name*, presented as a competing
+  authored change.
+
+The mechanism is exact, and sharper than "renames confuse the heuristic": `Merge/Synhashed.hs`'s `Eq`
+instance compares **only the synhash**, so once synhashes differ the Unison hash is not consulted at
+all. A definition whose stored bytes are byte-identical to the LCA's can still be filed as authored.
+
+**A second, distinct hazard.** A rename *alone* — no update — against a concurrent edit to the
+dependent fails differently: **zero conflicts**, and the scratch file holds a single copy of the
+dependent rendered as `usesDep = dep + 999`, where `dep` is a name the merged namespace no longer
+has. Not a conflict to resolve; a dangling rendering to repair. The temporary branch holds only
+`renamed`.
+
+Both are invisible to a single user. The cost is proportional to concurrency, which is why it does
+not show up in a demo.
 
 ## What the conflict file actually looks like
 
