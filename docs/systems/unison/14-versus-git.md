@@ -83,7 +83,7 @@ And coexistence defers migration rather than removing it. `upgrade old new` is a
 
 > "Many dependency conflicts arise from definitions competing for the same names. Since Unison references code by hash instead of by name, an entire class of conflicts can be eliminated."
 
-Confirmed across the conflict taxonomy in `08-merge-and-branching.md`. Things that conflict in git and cannot in Unison: formatting differences, comment edits, import/`use` line churn, moving a definition between files, two definitions edited near each other in one file, and — the sharpest case, `[verified empirically]` — **two people independently writing the identical definition**. Git gives an add/add conflict; Unison merges to `scratch/main was already up-to-date with scratch/alice`, because both authored the same hash. The same pair with different bodies conflicts as expected.
+Confirmed across the conflict taxonomy in `08-merge-and-branching.md`. Things that conflict in git and cannot in Unison: formatting differences, comment edits, import/`use` line churn, moving a definition between files, two definitions edited near each other in one file, and — the sharpest case, `[verified empirically]` — **two people independently writing the identical definition**. Unison merges to `scratch/main was already up-to-date with scratch/alice`, because both authored the same hash. The same pair with different bodies conflicts as expected. *(Git conflicts here only when the text differs: git resolves add/add cleanly on identical blobs, so a canonicalizing formatter recovers this case without any hashing. See §"Could you just do this in git?". What a formatter cannot recover is α-equivalence — Unison also merges two definitions that differ only in a bound variable name.)*
 
 Add to that the synhash rule: an update that only *propagated* into a definition is removed from the diff entirely, so a downstream definition that both sides inherited does not collide.
 
@@ -128,6 +128,61 @@ What Unison gives up on this axis:
 - **No lockfile and no manifest**, so no dependency audit surface: no way to ask "which of my dependencies has a known vulnerability" in the terms the CVE ecosystem uses (package + version). Hashes are in principle a *better* identifier for this, but no tooling consumes them that way.
 - **Duplication is permanent and unsignalled.** If two libraries pull in versions of a third whose types diverged, both live in your codebase forever, and nothing tells you it happened.
 
+## Could you just do this in git?
+
+A natural challenge to everything above: suppose you keep git, but put **every top-level definition in its own file** with the path mirroring the namespace, and add a **pre-commit hook that pretty-prints canonically and strips comments** — Unison's round-trip, imposed on a text repo. How much of the advantage does that recover?
+
+Answer, from running it (`[verified empirically]`, git 2.x, `ort` strategy): **splitting files buys conflict granularity; hashing buys identity.** The proposal is the first without the second, and the line between them is sharp.
+
+### What it recovers — nearly the whole conflict story
+
+Formatting, comment edits, import churn, moving a definition, two people editing "adjacent" code: all gone, because none of them are objects any more.
+
+Including one this document previously credited to hashing. Two people independently authoring the identical definition merges cleanly in git — `Merge made by the 'ort' strategy` — because git resolves add/add when the blobs match. So §5's sharpest example is really *canonicalization* doing the work, not content addressing. The hook recovers it. **Corrected 2026-09-03.**
+
+And the proposal gets one property Unison has to work for: **propagation is free and invisible.** Change `add`, and `double.u`'s bytes do not move — no diff, no churn, and history stays legible. Unison re-hashes every dependent and then needs the syntactic hash to *reconstruct* the same effect. Name-based reference has it natively; the cost is that it is unverified.
+
+### What it cannot reach
+
+The crux: the proposal makes the **layout** match the namespace, but the file **contents** still reference by name.
+
+- **Rename is still O(dependents), and still conflicts.** Renaming `add` → `plus` in a four-definition repo touched four files. Then a *pure rename* on one branch against an *unrelated edit to a dependent* on the other:
+
+  ```
+  CONFLICT (content): Merge conflict in math/double.u
+  <<<<<<< HEAD
+  double x = x * 2
+  =======
+  double x = plus x x
+  >>>>>>> alice
+  ```
+
+  Both sides did something legitimate and disjoint. Unison merges this clean — the rename touches a binding, the edit touches a definition, and they do not intersect. This is §2's win, and the file split cannot touch it.
+
+- **Cross-version type sharing is entirely lost.** `lib/dep_v1/Color.u` and `lib/dep_v2/Color.u` holding identical bytes are still two declarations at two paths, hence two types in any nominally-typed language. §4's result needs identity *derived from content*, which is the one thing the proposal does not add. Note the symmetry with the `structural`/`unique` finding: structural types unify across independent authorship precisely because their identity already is content.
+
+- **α-equivalence marks where canonical text stops being canonical program.** `other y = y + 1` versus `other z = z + 1` is an add/add conflict. A formatter will not α-normalize, and should not — binder names are for humans. Small in practice; it is the boundary.
+
+- **Propagation is unverified.** Git does not know the dependents still typecheck. You keep git's behaviour, which §3 argues is *better* for incremental work, but it is not the "always green" property.
+
+- **Test caching is recoverable, but not by git.** It needs a content-addressed cache over the transitive closure of inputs, which is Bazel. Proposal + Bazel ≈ §6, at definition granularity since the files *are* definitions. One gap: the input hash includes names, so renaming a local in a dependency busts the cache where Unison's would not.
+
+### The proposal's own costs
+
+The file-per-definition half has been shipped and withdrawn. Pharo's **FileTree** is a file-per-*method* format built so git can version Smalltalk at method granularity; the community moved to **Tonel**, file-per-*class*, because file-per-method meant too many files, wasted space (most methods are short, against a 4 KiB minimum block), and Windows path-depth trouble. That is the field verdict on file count, from the one community that ran it for years. `[not peer-reviewed — project documentation]`
+
+Two more. A pre-commit hook that rewrites what you staged means committing something you did not review — this wants a clean/smudge filter or format-on-save. And stripping comments is more destructive than Unison is: Unison at least keeps doc-blocks as separate definitions, so the honest version is a sidecar (`foo.u` plus `foo.doc`), which is arbor's aspect store rediscovered from the other end.
+
+One place the proposal beats Unison outright: delete-versus-modify becomes a real git conflict rather than §"gives up" item 6's silent discard.
+
+### Where it turns into Unison
+
+Push it one step. Make the **stored** form reference by hash and render names on checkout — clean filter on `git add`, smudge on checkout. Renaming becomes an edit to the name map alone, and the cross-version sharing falls out because identity is content.
+
+The conflict does not disappear; it **moves** to two hashes competing for one name in that map — which is exactly Unison's conflict, in exactly the right place. At that point the working tree is a rendering and the repository is a store, and you have built Unison with git's history underneath it.
+
+That last sentence is the interesting one for arbor, and it is the converse of the finding above. Unison's costs cluster in observation; git-with-one-file-per-definition gets the observation for free and misses the identity. The target is the union, and the smudge/clean sketch is evidence that the union is a build order rather than a contradiction.
+
 ## What arbor should take from this
 
 Recorded as findings, not decisions — see `feedback_findings_not_decisions`.
@@ -137,3 +192,4 @@ Recorded as findings, not decisions — see `feedback_findings_not_decisions`.
 3. **`lib` is a warning.** Unison's exemption from propagation is a magic name segment special-cased in ~20 modules. arbor's update strategies (`project_update_strategies`, p11's pin/follow/explicit) are the same distinction made first-class. That is the right shape and it should stay first-class.
 4. **The costs cluster in *observation*, not in merging.** No content history, no blame, no line diff, no grep, no comments. arbor's `Θ` aspect store can hold what Unison discards — comments and authorial formatting as aspects on a hash rather than as bytes in it — which keeps "no formatting conflicts" without losing the comment. Worth an entry in `docs/design/open-questions.md`.
 5. **The commit gate's real cost is visible here.** "Never broken" and "cannot checkpoint broken work" are the same property. `13-editing-context.md`'s position — ingest everything, uncommitted is *names* not definitions — buys back git's ability to save a half-finished thought, and p21 exists to make that trade concrete.
+6. **The union is a build order, not a contradiction.** §"Could you just do this in git?" isolates which half of Unison's advantage comes from *file granularity* (recoverable in git today) and which from *identity* (not recoverable without hashing references). arbor wants both halves, and the two are independent — which means observation-layer work (content history, per-definition diff, comments as aspects) does not have to trade against `Σ`.
