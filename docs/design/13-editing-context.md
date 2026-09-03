@@ -57,6 +57,28 @@ Precedents, all three of which keep two sets:
 
 This also settles what happens to arbor-stlc's **residual**: it is not an error report, it is *the next frontier*. Pijul and jj both make conflicts first-class values in the store rather than markers in a file; the same move.
 
+## Propagation is not commit
+
+A concrete failure in Unison, worth naming because arbor's answer to it is already recorded above and because the failure's *cause* is not the one it looks like. Full evidence in `../systems/unison/11-scratch-file.md` §"Known problem: the overlay reaches names, not stored references".
+
+Unison's buffer shadows **names**. A definition already in the codebase resolved its dependencies once and holds them as hashes, so there is no name left in it for the overlay to reach. Commit `double = n -> scale n`, then put a new `scale` and `> double 3` in the buffer: the watch prints the *old* answer, 6. `update` is what changes it, by rebuilding `double` into a different definition.
+
+**What content addressing actually forces.** Only this: references are frozen at ingest, so propagating an edit means **constructing new objects** rather than mutating old ones. The old `double` will mean 6 forever, and that is the immutability property working, not a defect. The interesting question is what constructing the new one costs.
+
+**That cost is where the two systems part, and it is the commit gate.** In Unison a definition's identity comes from typechecking and getting it into the codebase is `update` — which is also the commit. Propagating and committing are one gesture, so a propagated value cannot be *previewed*: at the moment the watch runs, the only `double` that exists is the old one. In arbor ingest is unconditional and destroys nothing, and what is provisional is the **name binding**, not the definition (§"No commit gate"). So `double'` can be built and evaluated with nothing committed. The frontier holds it, live feedback resolves through it, and the user sees 15.
+
+So this is a third argument that permissive ingest pays for itself, and the sharpest of the three: the other two are about not losing work and not needing a rollback, this one is about being able to *see the consequence of an edit at all*. Unison's gate does not merely delay the commit, it delays the answer.
+
+**What has to be computed, and it is less than it sounds.** Not a global re-propagation on every keystroke. Two things: a **reachability test** — does the dependency closure of the expression being displayed touch anything the context has provisionally rebound? — and a rebuild of only those displayed things for which it holds. Reachability is a query against the reverse index; the rebuild is bounded by what is on screen, not by the size of the codebase. p11 has both primitives (`Store.callers_of`, `follow-clean:v1`). What remains unmeasured is the constant, not the shape.
+
+**One predicate, two uses.** That same reachability fact is what a system would report if it chose *not* to rebuild — a value marked as computed against a superseded definition. It is one computation serving two policies, which is why it belongs in the substrate: the substrate decides whether an edit reaches a value; the editing layer decides whether to rebuild it, mark it, or refuse to show it. Same posture as `feedback: visible breakage, not gates`.
+
+**Why insist on that placement: the shape recurs.** Unison has the predicate. [PR #5964](https://github.com/unisonweb/unison/pull/5964) added `checkStale`, which walks the dependents graph and prints the exact path from the thing you ran to the uncommitted edit underneath it. It is wired to `run` and to nothing else, so the same buffer gets a hard refusal from `run` and a silent 6 from a watch. And this is the *second* instance in the same codebase: `doHashCycle` reports a hash-ordering ambiguity that the top-level caller turns into a crash and the internal `let rec` caller discards, so structurally identical code is refused in one position and silently given an order-dependent identity in another (`../systems/unison/02-store-and-hashing.md` §"One caller does not abort"). Twice, a computable substrate-level predicate was left as per-call-site policy, and twice the call sites diverged.
+
+> **A condition the substrate can compute should be computed by the substrate. A system that leaves each caller to decide gets as many behaviours as it has callers.**
+
+Both Unison instances were written by people who understand the system completely; the detector existing and being wired to one caller is the evidence. It is a placement problem, not a discipline problem, and the rule is cheap to follow from the start and expensive to retrofit.
+
 ## Claim 2 is a binding question, not a caching question
 
 The original note framed this as "the system optimizes for what is checked out," was skeptical, and cited Denning. The conversation supplied the actual motivation, and it is a different claim:
@@ -137,3 +159,4 @@ Three pieces of evidence for the factoring, all from systems already read:
 10. Is the caching form of claim 2 ever worth building, and what measured workload would justify it?
 11. Are contexts, namespace branching, and per-agent views **one mechanism or three**? The single-valued-`N` position (above) pushes multiplicity into a *family* of namespaces; it does not say what indexes the family. Deferred, and it is the same question as open question 6.
 12. If conflict resolution needs an object that holds several candidates, what is it and where does it live? Explicitly **not** `N`. Deferred.
+13. **What does live propagation cost?** §"Propagation is not commit" argues the work is a reachability query plus a rebuild bounded by what is on screen, not a global re-propagation — so the shape is fine and only the constant is unknown. The experiment: edit a definition with a large dependent cone, with a display showing a handful of values scattered through it, and measure a keystroke. p11 has `Store.callers_of` and the `follow-clean:v1` cached dry-run aspect and has measured neither.

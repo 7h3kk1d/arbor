@@ -66,6 +66,92 @@ shadowing :: Names -> Names -> Names
 
 left-biased union on the *domain* (name), so a name bound in the buffer wins over the same name in the namespace. The editing context is a **namespace overlay**, nothing more. Everything the user is editing is visible to everything else they are editing, automatically, with no gesture — which is where co-dependent edits (`f` and `g` changing together) come from for free.
 
+### Known problem: the overlay reaches names, not stored references `[verified empirically]`
+
+Because `shadowing` is keyed by **name**, the buffer can only shadow something for a lookup that is
+happening *now*. A definition already in the codebase resolved its dependencies once, at ingest, and
+holds them as hashes — there is no name left in it for the overlay to reach. So a buffer edit is
+invisible to every committed dependent, and the buffer will happily compute with the old one.
+
+Commit `scale` and a `double` that calls it:
+
+```unison
+scale : Nat -> Nat
+scale = n -> n * 2
+
+double : Nat -> Nat
+double = n -> scale n
+```
+
+then reset the scratch file to a new `scale` and a watch on `double`:
+
+```unison
+scale : Nat -> Nat
+scale = n -> n * 5
+
+> double 3
+```
+
+The watch prints **6**, not 15. After `update` it prints 15, and `double`'s hash moves
+`#ro9625q6ee` → `#gi3up8f7ep` although nobody edited it. Nothing is stale in the cache sense — the two
+watches are *different expressions*, because `double 3` names a different `double` before and after —
+but the number on screen is the one the user did not ask for.
+
+**Unison knows about this, and guards one of the two ways in.** [PR #5964][pr5964] (merged 2025-10-27,
+so it is in `db60ce2`) added a staleness check to `run`, and its rationale states the confusion
+exactly:
+
+> A `run x` is considered "stale" if `x` … depends (transitively) on some uncommitted update in the
+> latest typechecked scratch file, **via some intermediate dependency in the codebase**. The intention
+> is to prevent the user from accidentally running old stuff, as they are likely to feel like their
+> uncommitted updates in the latest typechecked scratch file are properly shadowing codebase
+> definitions.
+
+`checkStale` (`unison-cli/src/Unison/Codebase/Editor/HandleInput/Run.hs:235-290`) walks the transitive
+dependents graph and refuses, printing the path:
+
+```
+scratch/main> run report
+
+  Sorry, I don't want to run report because it depends on
+  something that hasn't been committed to the codebase yet:
+
+    report (in codebase)
+    └ double (in codebase)
+      └ scale (in file)
+
+  You can `update` to save and propagate these changes into your branch.
+```
+
+The `(in file)` / `(in codebase)` annotations were added a month later by [PR #6005][pr6005], because
+the first version left ambiguous which link was which — the very distinction that causes the
+misunderstanding. [PR #5466][pr5466] added `edit.dependents`, the command the message recommends.
+
+**Only `run` calls it.** Watch expressions go through the save path (`evalUnisonFile`), which never
+asks. The same buffer therefore gets a hard refusal from `run` and a silent wrong number from `> `.
+No issue is filed for the watch case; the nearest relative is [#1051][i1051], silent use of stale
+documentation, which is the same family. (Note that [#5484][i5484] "Update ignores watch expressions"
+turns up in searches but is unrelated — that is about definitions written *inside* a watch.) The
+[scratch-file documentation][docs] says a watch runs code from "your scratch file and your project"
+without saying what happens when the two disagree.
+
+**The shape of the defect, which is what matters for arbor.** The condition is computable, is
+computed, and each caller decides separately what to do about it — so the system has as many
+behaviours as it has call sites. That is the *second* instance of this shape in this read: the first is
+`doHashCycle`, which reports an ordering ambiguity that the top-level caller turns into an abort and
+the internal `let rec` caller discards (`02-store-and-hashing.md` §"One caller does not abort"). Both
+times a substrate-level predicate was left as per-caller policy, and both times the callers diverged.
+`../../design/13-editing-context.md` §"Propagation is not commit" is arbor's response — and locates the
+cause in the commit gate rather than in content addressing, since building the rebuilt `double` is only
+expensive if building it means committing it.
+
+[pr5964]: https://github.com/unisonweb/unison/pull/5964
+[pr6005]: https://github.com/unisonweb/unison/pull/6005
+[pr5466]: https://github.com/unisonweb/unison/pull/5466
+[i1051]: https://github.com/unisonweb/unison/issues/1051
+[i5484]: https://github.com/unisonweb/unison/issues/5484
+[docs]: https://www.unison-lang.org/docs/tour/_scratch-files/
+
 ## The fold — the working-set boundary, written in text
 
 The `.u` lexer treats `---` as a comment that consumes the rest of the input (`unison-syntax/src/Unison/Syntax/Lexer.hs:60`):
@@ -157,3 +243,4 @@ The honest reading: Unison's codebase is fast enough (SQLite, hash-keyed, one ma
 | Scopes migration | **yes** — dependents already shadowed are subtracted | same idea, made explicit |
 | Receives the migration residual | **yes** — failed updates land in the buffer | `arbor-stlc`'s residual, delivered as a context |
 | Is optimized for | **no** | unjustified; needs an argument |
+| Tells you a result is stale | **`run` only** — a watch silently uses the committed dependent | a property of the result, not of the command |
