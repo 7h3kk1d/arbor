@@ -200,11 +200,13 @@ is handed back when the rebuild does not typecheck is a file the user can edit.
 \textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
 ancestor can be unioned without reconciling anything, which is the property content-addressed
 codebases are usually sold on. It is true, and close to all that immutability buys: every difficult
-case is in the namespace, which is not content-addressed. There, merge has to decide whether each
-side's version of a definition was written by a person or produced by rebuilding, and it decides by
-computing a \emph{second} hash --- the exact dual of the first, names substituted for references
-rather than the reverse --- and asking whether the two versions \emph{render} alike. Rebuilding is
-invisible to that test, which is what makes it work. Renaming is not, which is what breaks it.
+case is in the namespace, which is not content-addressed. There, merge has to decide, for every definition a branch
+has changed, whether a person changed it or a rebuild did. It decides by printing the definition back
+out and asking whether it reads as it did before. The test is a second hash taken over the printed
+form, each reference replaced by the name it is shown under --- the first hash inverted, names where
+that one has hashes --- and nothing stores it. A rebuilt definition still calls its dependency by the
+same name, so it prints as it always did and the test passes over it. A renamed one prints
+differently, so a definition nobody touched can be taken for someone's work.
 
 Renaming is otherwise free: one row, no caller broken, no cached result lost, because no stored
 definition contains a name to rewrite. Merge is the single operation that reads names as though they
