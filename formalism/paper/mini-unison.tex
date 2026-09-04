@@ -78,21 +78,15 @@ the namespace as a relation in which conflicts are representable; the watch cach
 re-typechecking them; and \texttt{merge}, which reconciles two independently edited namespaces by
 comparing a second hash computed from names rather than from content.
 
-Four results are perhaps not obvious from the source. \textbf{(i)} Presentation-independence of
-component hashing is \emph{conditional}: when two members of a recursive cycle are structurally
-equivalent modulo intra-cycle references, the component's hash depends on the members' \emph{names}.
-The condition is decidable and Unison computes it, aborting rather than storing such a hash --- at the
-top level. One nesting level down, inside a \texttt{let rec}, the same condition is computed and
-discarded, and the enclosing definition's identity silently depends on the order its bindings were
-written in.
-\textbf{(ii)} Reference transparency holds exactly at position $0$ of a component; other members are
-referenced opaquely, so transparency and the component model are not independent features.
-\textbf{(iii)} \texttt{update}'s correctness rests on printing-then-parsing preserving hashes, a
-property the implementation does not state and maintains with a golden-file regression corpus.
-\textbf{(iv)} \texttt{merge} decides whether a definition was edited by a human by asking whether it
-\emph{renders} differently, so the guarantee that an untouched definition cannot conflict holds only
-while names are stable. Renaming defeats it in three distinct ways: a conflict where there is no
-disagreement, a failure with no conflict reported, and a clean merge that silently undoes the rename.
+Four of the results are, we think, not obvious from reading the source. Two are about what a hash
+identifies: whether the identity of a group of mutually
+recursive definitions can depend on what its members are \emph{named}, and whether the
+interchangeability a hash is supposed to confer applies to every member of such a group or only to
+one. Two are about what happens when names are attached back onto hashes: \texttt{update} is correct
+only if printing a definition and parsing it back preserves its hash --- an obligation the
+implementation maintains by testing rather than by stating --- and \texttt{merge} distinguishes a
+human's edit from an automatic rebuild by asking whether the definition \emph{looks} different, which
+leaves renaming indistinguishable from authorship.
 
 A closing section compares the design with \emph{arbor}, a content-addressed substrate the authors
 are developing, for which a companion formalization exists. That section is the only place arbor
@@ -151,55 +145,65 @@ things.
 
 \subsection{Summary of results}\label{sec:summary}
 
-\begin{itemize}[nosep]
-  \item \Cref{prop:transparent} --- reference transparency holds exactly at position $0$.
-  \item \Cref{def:comphash}, \cref{rem:twoorders} --- component hashing computes two distinct
-        orderings of the same component, one fixing de Bruijn indices and one fixing stored
-        positions.
-  \item \Cref{thm:ordering} --- presentation-independence of component hashing is conditional. When
-        the condition fails, which member is referenced transparently always depends on the members'
-        names, and the component's hash usually does.
-  \item \Cref{cor:detect}, \cref{rem:notpartial} --- the condition is decidable, is computed, and at
-        the top level the implementation aborts rather than store such a hash.
-  \item \Cref{rem:innercycle} --- inside a \texttt{let rec} the same condition is computed and
-        discarded, and the enclosing definition's identity then depends on the order the bindings were
-        written in. The guarantee above is a guarantee about top-level components, not about hashing.
-  \item \Cref{thm:ualpha} --- hashing identifies terms up to $\alpha$-equivalence and cycle
-        permutation, and no further.
-  \item \Cref{rem:unhash} --- a cyclic definition is stored in a different form from the one that
-        was hashed, with self-references carrying no hash; an explicit inverse bridges them.
-  \item \Cref{cor:wnoinval} --- no cache invalidation is required, as a consequence of immutability
-        rather than as a heuristic.
-  \item \Cref{def:usave}, \cref{rem:saveident} --- identity is conferred by \emph{typechecking},
-        on every save, and storing and naming are a separate later gesture. So the evaluation cache
-        is populated with no commit involved.
-  \item \Cref{prop:watchdom} --- a save mints identities for things nothing ever stores, so the
-        cache can be keyed by a hash that denotes nothing in the store. The cache's soundness
-        argument never depended on the key being a definition.
-  \item \Cref{prop:print-parse} --- \texttt{update} is correct only if printing inverts parsing.
-  \item \Cref{prop:follow-only} --- \texttt{update} admits exactly one propagation strategy.
-  \item \Cref{prop:merge-store} --- two independently grown stores union without reconciliation, which
-        is the formal content of ``content-addressed codebases have no merge conflicts''. Nothing a
-        user calls a conflict lives there; it is all in the namespace.
-  \item \Cref{def:synhash}, \cref{rem:syn-only} --- merge decides what a human wrote using a second
-        hash, the exact dual of the first: same recursion, names substituted for references instead of
-        the reverse. It is never stored, and once two of them differ no content hash is consulted
-        again. A content-addressed system decides its merges by name.
-  \item \Cref{thm:noconflict}, \cref{cor:noedit-user} --- a definition nobody authored cannot conflict,
-        provided neither party moves, aliases or deletes a name. Contrapositively
-        (\cref{rem:onlyrenames}): renaming is the only user action that can put someone in front of a
-        conflict in code they never opened.
-  \item \Cref{def:gestures}, \cref{rem:renamefree} --- renaming costs one row and cannot break a
-        caller or a cached result, which is the usual argument for content addressing. Merge is the
-        one operation that reads names as though they were content, and is where that stops.
-  \item \Cref{prop:rename-conflict}, \cref{cor:unchecked} --- and it does stop: a rename defeats the
-        condition above. Unlike \cref{cor:detect} the condition is neither checked nor reported,
-        though the information that would discharge it is computed and passed to a debug printer.
-  \item \Cref{prop:merge-asym} --- merge is not commutative: the same two branches can merge cleanly
-        in one direction and fail in the other, with no conflict either way.
-  \item \Cref{prop:merge-print-parse} --- merge's round trip renders under one namespace and parses
-        under another, and nothing requires the names it emits to exist in the second.
-\end{itemize}
+The cross-references are for finding a statement afterwards; nothing here needs them to be read.
+
+\textbf{What a hash identifies.} Hashing a definition identifies it up to renaming of its bound
+variables and up to rotation of a recursive cycle, and no further --- two definitions that compute the
+same thing by different means stay distinct. But the identity of a recursive \emph{group} is only
+conditionally independent of how it was written down. The construction orders the group's members and
+uses their positions as indices, and when two members are indistinguishable except for which one they
+call, the ordering has nothing to break the tie with and falls back on what the members are
+\emph{named}. Unison detects that case and refuses to store such a hash --- at the top level. One
+nesting level down, inside a \texttt{let rec}, the same detection runs and its result is discarded, so
+the enclosing definition's identity silently depends on which of the two bindings was typed first.
+Two further things about the construction are worth having straight: it computes \emph{two} different
+orderings of the same group, one fixing the indices used while hashing and one fixing the positions
+stored in references; and the interchangeability a hash is supposed to confer --- substitute anything
+with the same hash, get the same enclosing hash --- applies only to the member at position $0$. Every
+other member is referenced opaquely, so reference transparency and the group-hashing model are not
+independent features. Finally, a cyclic definition is not stored in the form that was hashed: its
+self-references carry no hash at all, and an explicit inverse bridges the two forms.
+\Cref{thm:ualpha,thm:ordering,cor:detect,rem:notpartial,rem:innercycle,def:comphash,rem:twoorders,prop:transparent,rem:unhash}.
+
+\textbf{When a definition acquires its identity.} Not when it is added to the codebase. When the file
+containing it \emph{typechecks}, which happens on every save --- storing it and giving it a name are a
+separate, later gesture. One consequence is that the evaluation cache is filled with no commit
+involved. Another is that a save confers identities on things nothing ever stores, so the cache can be
+keyed by a hash that denotes nothing in the codebase; the argument for the cache's soundness turns out
+never to have depended on the key being a definition at all.
+\Cref{def:usave,rem:saveident,prop:watchdom}.
+
+\textbf{Why the cache needs no invalidation.} Because a result is stored against the hash of exactly
+the expression that produced it, and that hash denotes one fixed expression forever. Staleness is not
+rare, it is unrepresentable. This is a consequence of immutability rather than a policy that could be
+traded away. \Cref{cor:wnoinval}.
+
+\textbf{What \texttt{update} rests on.} Propagating an edit means rebuilding everything that depended
+on it, and Unison does that by printing each dependent back to source, re-parsing it against the new
+namespace, and re-typechecking. The retargeting happens because a printed \emph{name} resolves
+somewhere new. So the operation is correct only if printing inverts parsing --- an obligation the
+implementation never states and maintains instead as a golden-file regression corpus. There is also
+exactly one propagation strategy and no parameter controlling it: every named dependent is rebuilt,
+and there is no way to ask that some callers be left alone. \Cref{prop:print-parse,prop:follow-only}.
+
+\textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
+ancestor can be unioned without reconciling anything, which is the property content-addressed
+codebases are usually sold on. It is true, and it is close to all that immutability buys here: every
+difficult case lives in the namespace, which is not content-addressed. There, merge has to decide
+whether each side's version of a definition was written by a person or produced by rebuilding, and it
+decides by computing a \emph{second} hash --- the exact dual of the first, with names substituted for
+references instead of the reverse --- and asking whether the two versions \emph{render} the same. That
+works, and it is why renaming is otherwise free: a rename costs one row, breaks no caller and
+invalidates no cached result, because no stored definition contains a name to rewrite. Merge is the
+one operation that reads names as though they were content, and it is where that stops. A definition
+nobody wrote cannot be conflicted, provided neither party moved, aliased or deleted a name;
+contrapositively, renaming is the only user action that can put someone in front of a conflict in code
+they never opened. The condition is computable and Unison computes it, and at the pinned commit passes
+the result to a debug printer. Two smaller consequences: merge is not commutative --- the same two
+branches can merge cleanly in one direction and fail in the other, with nothing reported either way
+--- and its round trip renders under one namespace and parses under another, with nothing requiring the
+names it emits to exist in the second.
+\Cref{prop:merge-store,def:synhash,rem:syn-only,def:gestures,rem:renamefree,thm:noconflict,cor:noedit-user,rem:onlyrenames,prop:rename-conflict,cor:unchecked,prop:merge-asym,prop:merge-print-parse}.
 
 \subsection{What this document is, and is not}
 
@@ -530,6 +534,10 @@ admits no ill-typed entry, so there is nothing for \textsc{U-Ref} to check.
 
 \subsection{Reference transparency, and its boundary}
 
+A hash is meant to be interchangeable with the thing it names: if two terms hash alike, putting one
+where the other was should leave every enclosing hash unchanged. Most of the intuition about content
+addressing rests on that. It does hold here --- and for less of the store than it looks like.
+
 \begin{proposition}[Transparency holds exactly at position $0$]\label{prop:transparent}
 \src{term:135-146} In the term layer,
 \[
@@ -708,6 +716,14 @@ for cyclic definitions it is false in three distinct ways.
 \end{remark}
 
 \subsection{What component hashing guarantees}
+
+Content addressing exists so that a definition's identity does not depend on how it was written down.
+For one definition that is unconditional, and \cref{thm:ualpha} says exactly how far it goes. For a
+recursive \emph{group} it is not, and the reason is visible in \cref{def:comphash}: the members had to
+be put in some order, and the order was chosen by comparing their bodies. When two bodies are
+indistinguishable --- which for members of a cycle means indistinguishable except for which neighbour
+each one calls --- that comparison has nothing to work with, and the tie falls to the one thing the
+design set out to eliminate: what the members are called.
 
 \begin{theorem}[Conditional presentation-independence]\label{thm:ordering}
 Let $C$ and $C'$ be the same component listed in two different orders.
@@ -1074,6 +1090,11 @@ fails to typecheck comes back as source for the user to edit.
 \end{proposition}
 
 \subsection{The obligation update rests on}
+
+Nothing in \cref{def:update} edits a stored tree. A dependent is rebuilt by printing it to text,
+parsing the text back, and letting a printed \emph{name} resolve to something new --- so the whole
+operation is correct only to the extent that the round trip through text is faithful. That is an
+unusual thing for a system's core edit operation to depend on, and it is easy to state.
 
 \begin{proposition}[Update is correct only if printing inverts parsing]\label{prop:print-parse}
 Let $d$ be a dependent not redefined by $F$, and let $d'$ be the definition obtained from step 4 for
