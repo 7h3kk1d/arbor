@@ -190,17 +190,11 @@ if printing a definition and parsing it back returns what it started from, apart
 reference meant to move --- an obligation the implementation never states and maintains instead as a
 golden-file regression corpus. There is also exactly one propagation strategy and no parameter
 controlling it: every named dependent is rebuilt, and there is no way to ask that some callers be left
-alone.
-
-The obvious alternative is to substitute the new reference into each dependent's stored tree, rehash,
-and never produce text at all. It would not avoid much. A substituted tree still has to be
-typechecked --- a definition's type is part of its hash (\cref{def:typeinhash}), and whether the
-rebuild typechecks is the branch that matters --- so the choice is only whether the typechecker is
-reached through its ordinary input or through a second path built for the purpose. Reaching it the
-ordinary way also re-runs \emph{resolution} rather than merely swapping one reference, which is more
-than cosmetic in the full language, where a written name is resolved against every name in scope and
-the incoming file changes that set. And it makes the failure branch fall out: when the rebuild does
-not typecheck, the source handed back to the user is source that already exists.
+alone. Substituting the new reference into each dependent's stored tree would look more direct, but
+it saves less than it appears to: the dependents have to be rebuilt, re-typechecked and rebound
+either way, so the only question is whether that happens through the path ingest already provides or
+through a second one written for trees. The round trip reuses the first, and gets the failure case
+for nothing --- what is handed back when the rebuild does not typecheck is a file the user can edit.
 \Cref{prop:print-parse,prop:follow-only}.
 
 \textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
