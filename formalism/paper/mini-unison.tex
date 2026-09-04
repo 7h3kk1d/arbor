@@ -180,13 +180,17 @@ the expression that produced it, and that hash denotes one fixed expression fore
 rare, it is unrepresentable. This is a consequence of immutability rather than a policy that could be
 traded away. \Cref{cor:wnoinval}.
 
-\textbf{What \texttt{update} rests on.} Propagating an edit means rebuilding everything that depended
-on it, and Unison does that by printing each dependent back to source, re-parsing it against the new
-namespace, and re-typechecking. The retargeting happens because a printed \emph{name} resolves
-somewhere new. So the operation is correct only if printing inverts parsing --- an obligation the
-implementation never states and maintains instead as a golden-file regression corpus. There is also
-exactly one propagation strategy and no parameter controlling it: every named dependent is rebuilt,
-and there is no way to ask that some callers be left alone. \Cref{prop:print-parse,prop:follow-only}.
+\textbf{What \texttt{update} rests on.} A stored definition refers to its dependencies by hash, so
+making one call a new version means changing a hash buried inside it --- and Unison never edits a
+stored tree. It prints the dependent back out as source instead, where that dependency appears as a
+\emph{name}, and parses the text again in a namespace where the name now denotes the new version; the
+definition that comes back holds the new hash. Substitution is therefore performed by the printer and
+the parser rather than by anything operating on the tree, which is why \texttt{update} is correct only
+if printing a definition and parsing it back returns what it started from, apart from exactly the
+reference meant to move --- an obligation the implementation never states and maintains instead as a
+golden-file regression corpus. There is also exactly one propagation strategy and no parameter
+controlling it: every named dependent is rebuilt, and there is no way to ask that some callers be left
+alone. \Cref{prop:print-parse,prop:follow-only}.
 
 \textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
 ancestor can be unioned without reconciling anything, which is the property content-addressed
@@ -1093,10 +1097,12 @@ fails to typecheck comes back as source for the user to edit.
 
 \subsection{The obligation update rests on}
 
-Nothing in \cref{def:update} edits a stored tree. A dependent is rebuilt by printing it to text,
-parsing the text back, and letting a printed \emph{name} resolve to something new --- so the whole
-operation is correct only to the extent that the round trip through text is faithful. That is an
-unusual thing for a system's core edit operation to depend on, and it is easy to state.
+A stored definition refers to its dependencies by hash. Rebuilding one so that it calls a new version
+therefore means changing a hash inside it, and \cref{def:update} manages that without touching the
+stored tree: it prints the definition out, so the dependency becomes a \emph{name} again, and parses
+it back in a namespace where that name denotes the new version. The printer and the parser are doing
+the substitution, so the operation is only as correct as the round trip between them --- an unusual
+thing for a system's core edit operation to rest on, and easy to state.
 
 \begin{proposition}[Update is correct only if printing inverts parsing]\label{prop:print-parse}
 Let $d$ be a dependent not redefined by $F$, and let $d'$ be the definition obtained from step 4 for
