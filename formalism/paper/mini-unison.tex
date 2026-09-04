@@ -107,7 +107,10 @@ the system's design:
 
 \begin{itemize}[nosep]
   \item \textbf{Names are metadata.} Renaming a definition does not change it, because its identity
-        never mentioned the name. Nothing downstream is invalidated by a rename.
+        never mentioned the name: nothing is rebuilt and no cached result is invalidated. That is a
+        claim about the machinery and not about the experience --- the same rename is invisible to the
+        store and the cache, and is the only action that can hand someone a merge conflict in code
+        they never opened (\cref{sec:umerge}).
   \item \textbf{Definitions are immutable, and so is what they refer to.} ``Editing'' one produces a
         different hash, so it is a different definition, and the old one goes on meaning what it
         meant. Nothing is repointed at the new one --- a stored definition's references are fixed when
