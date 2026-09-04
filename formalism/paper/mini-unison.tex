@@ -107,17 +107,12 @@ the system's design:
 
 \begin{itemize}[nosep]
   \item \textbf{Names are metadata.} Renaming a definition does not change it, because its identity
-        never mentioned the name: nothing is rebuilt and no cached result is invalidated. That is a
-        claim about the machinery and not about the experience --- the same rename is invisible to the
-        store and the cache, and is the only action that can hand someone a merge conflict in code
-        they never opened (\cref{sec:umerge}).
-  \item \textbf{Definitions are immutable, and so is what they refer to.} ``Editing'' one produces a
-        different hash, so it is a different definition, and the old one goes on meaning what it
-        meant. Nothing is repointed at the new one --- a stored definition's references are fixed when
-        it is stored --- so propagating an edit means \emph{rebuilding} every dependent and moving the
-        names onto the rebuilds. That happens automatically and transitively (\cref{sec:uupdate}); the
-        old callers survive because nothing can alter them, not because anyone chose to leave them
-        alone.
+        never mentioned the name: nothing is rebuilt and no cached result is invalidated. That is
+        true of the machinery only --- a rename is also the one action that can hand someone a merge
+        conflict in code they never opened (\cref{sec:umerge}).
+  \item \textbf{Definitions are immutable.} ``Editing'' one produces a new hash and so a new
+        definition, and \texttt{update} rebuilds every dependent, transitively, into new definitions
+        too (\cref{sec:uupdate}). The old ones are left alone, still meaning what they meant.
   \item \textbf{Caches need no invalidation.} A computed value is stored against the hash of the
         expression that produced it. Since that hash denotes one fixed expression forever, the entry
         cannot go stale.
