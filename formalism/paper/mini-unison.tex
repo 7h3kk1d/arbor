@@ -246,28 +246,37 @@ the most distinctive thing about the operation cannot be stated.
 
 \subsection{What is modeled}
 
-Stated as the operations a user can perform and what each one is observed to do, rather than as a
-list of internal structures.
+Stated as the operations a user can perform, what each is observed to do, and the gesture that
+performs it in \texttt{ucm}.
 
 \begin{itemize}[nosep]
-  \item \textbf{Ingest.} You present a group of definitions written in the object language. The
-        system gives each one an identity derived from its content and stores it. Definitions that
-        refer to one another cyclically receive their identities \emph{together}, which is the source
-        of most of what follows.
+  \item \textbf{Save.} You write definitions into a file. Nothing is asked for: \texttt{ucm} watches
+        the file, and on each write typechecks all of it, works out an identity for every definition
+        and every watch expression in it, evaluates the watches and caches the results. Nothing is
+        stored and no name is bound. \emph{In \texttt{ucm}: saving \texttt{scratch.u}, which is not a
+        command.}
+  \item \textbf{Commit, and propagate.} What the save already identified is written to the codebase
+        and the file's names are bound to it; then everything that depended on a superseded version
+        is rebuilt. Either all of it typechecks, or the broken definitions come back to you as source.
+        These are not steps that can be taken separately. \emph{In \texttt{ucm}: \texttt{update} ---
+        and \texttt{add}, which at this commit is the same command.}
   \item \textbf{Reference.} A stored definition may mention others. What it mentions is fixed when it
         is stored and cannot afterwards change, so no edit anywhere alters what an existing
-        definition means.
+        definition means. \emph{In \texttt{ucm}: \texttt{view} shows a definition with names put back;
+        \texttt{dependents} reads the relation the other way.}
   \item \textbf{Naming.} Names are attached to identities from outside, and are not part of what is
         stored. A name may denote more than one thing at once, and the system continues to function
-        when it does.
+        when it does. \emph{In \texttt{ucm}: \texttt{ls} and \texttt{names} to look;
+        \texttt{move.term}, \texttt{alias.term} and \texttt{delete.term} to change --- none of which
+        touches a definition.}
   \item \textbf{Evaluation and caching.} A result is remembered against the identity of the
-        expression that produced it, and never has to be discarded.
-  \item \textbf{Update.} You present a new version of a definition. The system works out what
-        depended on the old one, rebuilds those, and either accepts the result or tells you what
-        broke --- by handing the broken definitions back to you as source.
+        expression that produced it, and never has to be discarded. \emph{In \texttt{ucm}: a line of
+        the file beginning \texttt{>}, evaluated by the save, its answer printed beneath it on every
+        save thereafter without being recomputed.}
   \item \textbf{Merge.} Two people edit from a common starting point and the results are combined.
         The system decides, definition by definition, whether each side's version was written by a
-        person or produced by rebuilding, and asks the user only about the ones both people wrote.
+        person or produced by rebuilding, and asks about only the ones both people wrote. \emph{In
+        \texttt{ucm}: \texttt{branch} to fork, \texttt{merge /other} to combine.}
 \end{itemize}
 
 Two things visible only through their consequences are modeled as well, because the rest does not
