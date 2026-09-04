@@ -158,21 +158,21 @@ call, the ordering has nothing to break the tie with and falls back on what the 
 \emph{named}. Unison detects that case and refuses to store such a hash --- at the top level. One
 nesting level down, inside a \texttt{let rec}, the same detection runs and its result is discarded, so
 the enclosing definition's identity silently depends on which of the two bindings was typed first.
-Two further things about the construction are worth having straight: it computes \emph{two} different
-orderings of the same group, one fixing the indices used while hashing and one fixing the positions
-stored in references; and the interchangeability a hash is supposed to confer --- substitute anything
-with the same hash, get the same enclosing hash --- applies only to the member at position $0$. Every
-other member is referenced opaquely, so reference transparency and the group-hashing model are not
-independent features. Finally, a cyclic definition is not stored in the form that was hashed: its
+The construction computes \emph{two} different orderings of the same group, one fixing the indices
+used while hashing and one fixing the positions stored in references. And the interchangeability a
+hash is supposed to confer --- substitute anything with the same hash, get the same enclosing hash ---
+applies only to the member at position $0$; every other member is referenced opaquely, so reference
+transparency and the group-hashing model are not independent features. A cyclic definition is not
+stored in the form that was hashed: its
 self-references carry no hash at all, and an explicit inverse bridges the two forms.
 \Cref{thm:ualpha,thm:ordering,cor:detect,rem:notpartial,rem:innercycle,def:comphash,rem:twoorders,prop:transparent,rem:unhash}.
 
 \textbf{When a definition acquires its identity.} Not when it is added to the codebase. When the file
 containing it \emph{typechecks}, which happens on every save --- storing it and giving it a name are a
-separate, later gesture. One consequence is that the evaluation cache is filled with no commit
-involved. Another is that a save confers identities on things nothing ever stores, so the cache can be
-keyed by a hash that denotes nothing in the codebase; the argument for the cache's soundness turns out
-never to have depended on the key being a definition at all.
+separate, later gesture. The evaluation cache is therefore filled with no commit involved. And a save
+confers identities on things nothing ever stores, so the cache can be keyed by a hash that denotes
+nothing in the codebase --- the argument for the cache's soundness turns out never to have depended on
+the key being a definition at all.
 \Cref{def:usave,rem:saveident,prop:watchdom}.
 
 \textbf{Why the cache needs no invalidation.} Because a result is stored against the hash of exactly
@@ -188,14 +188,14 @@ definition that comes back holds the new hash. Substitution is therefore perform
 the parser rather than by anything operating on the tree, which is why \texttt{update} is correct only
 if printing a definition and parsing it back returns what it started from, apart from exactly the
 reference meant to move --- an obligation the implementation never states and maintains instead as a
-golden-file regression corpus. There is also exactly one propagation strategy and no parameter
-controlling it: every named dependent is rebuilt, and there is no way to ask that some callers be left
-alone. Substituting the new reference into each dependent's stored tree would look more direct, but
-it saves less than it appears to: the dependents have to be rebuilt, re-typechecked and rebound
-either way, so the only question is whether that happens through the path ingest already provides or
-through a second one written for trees. The round trip reuses the first, and gets the failure case
-for nothing --- what is handed back when the rebuild does not typecheck is a file the user can edit.
-\Cref{prop:print-parse,prop:follow-only}.
+golden-file regression corpus. Every named dependent is rebuilt, and there is no way to ask that some
+callers be left alone. \Cref{prop:print-parse,prop:follow-only}.
+
+Substituting the new reference into each dependent's stored tree would look more direct, but it saves
+less than it appears to: the dependents have to be rebuilt, re-typechecked and rebound either way, so
+the only question is whether that happens through the path ingest already provides or through a second
+one written for trees. The round trip reuses the first, and gets the failure case for nothing --- what
+is handed back when the rebuild does not typecheck is a file the user can edit.
 
 \textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
 ancestor can be unioned without reconciling anything, which is the property content-addressed
@@ -210,10 +210,10 @@ one operation that reads names as though they were content, and it is where that
 nobody wrote cannot be conflicted, provided neither party moved, aliased or deleted a name;
 contrapositively, renaming is the only user action that can put someone in front of a conflict in code
 they never opened. The condition is computable and Unison computes it, and at the pinned commit passes
-the result to a debug printer. Two smaller consequences: merge is not commutative --- the same two
-branches can merge cleanly in one direction and fail in the other, with nothing reported either way
---- and its round trip renders under one namespace and parses under another, with nothing requiring the
-names it emits to exist in the second.
+the result to a debug printer. Merge is also not commutative --- the same two branches can merge
+cleanly in one direction and fail in the other, with nothing reported either way --- and its round trip
+renders under one namespace and parses under another, with nothing requiring the names it emits to
+exist in the second.
 \Cref{prop:merge-store,def:synhash,rem:syn-only,def:gestures,rem:renamefree,thm:noconflict,cor:noedit-user,rem:onlyrenames,prop:rename-conflict,cor:unchecked,prop:merge-asym,prop:merge-print-parse}.
 
 \subsection{What this document is, and is not}
