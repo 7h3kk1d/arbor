@@ -211,8 +211,8 @@ differently, so a definition nobody touched can be taken for someone's work.
 Renaming is otherwise free: one row, no caller broken, no cached result lost, because no stored
 definition contains a name to rewrite. Merge is the single operation that reads names as though they
 were content. So a definition nobody wrote cannot be conflicted, provided neither party moved,
-aliased or deleted a name --- and renaming is the only user action that can hand someone a conflict in
-code they never opened. It does not always arrive as a conflict: a rename carrying no edit produces
+aliased or deleted a name --- and changing a definition's names is the only user action that can hand
+someone a conflict in code they never opened. It does not always arrive as a conflict: a rename carrying no edit produces
 none and fails a step later, when the file is rendered under one branch's names and parsed against a
 namespace holding the other's, and a rename raced by an edit of the renamed definition merges
 \emph{cleanly} and silently undoes the rename. Unison computes the renames --- though only those
@@ -1098,10 +1098,15 @@ isolation, because whatever the user picks, everything downstream must be re-typ
 \begin{proposition}[Update propagates by exactly one strategy]\label{prop:follow-only}
 The transition of \cref{def:update} admits no parameter controlling propagation: $\tdeps$ is fixed.
 Every transitive dependent with an unconflicted name outside $\lib$ is rebuilt, and there is no way to
-request that some callers be left pointing at the old definition. The nearest thing to that is to
-choose a name nothing depends on, so that $\tdeps(Q)$ is empty --- abstention rather than an
-operation, and not even a separate command: at this commit \texttt{add} is an alias for
-\texttt{update} \src{inputpat:882-896}, the two having been merged in 2025. A per-definition choice does reappear at \emph{failure} time, since whatever
+\emph{request} that some callers be left pointing at the old definition. One can be brought about all
+the same. Give the definition a second name before updating: $\tdeps$ still selects every dependent
+and each is still rebuilt, but rebuilding means rendering, and the renderer shows the dependency under
+one of its names. The alias still denotes the old definition, so a dependent rendered under it parses
+back to what it already said and the retarget is a no-op --- the caller is pinned, by the naming layer
+rather than by an option. \Cref{ex:merge-alias} exhibits it. Abstention is available too, by choosing a
+name nothing depends on so that $\tdeps(Q)$ is empty; it is not a separate command either, since at
+this commit \texttt{add} is an alias for \texttt{update} \src{inputpat:882-896}, the two having been
+merged in 2025. A per-definition choice does reappear at \emph{failure} time, since whatever
 fails to typecheck comes back as source for the user to edit.
 \end{proposition}
 
@@ -1412,10 +1417,10 @@ alone, nowhere if it updated it, in which case $\namer(r)$ falls through again t
 named $y$. Either way $\namer(r) = y = \namer(r')$.
 \end{proof}
 
-\begin{remark}[Which is to say: only renaming does this]\label{rem:onlyrenames}
+\begin{remark}[Which is to say: only a change of names does this]\label{rem:onlyrenames}
 Contrapositively: the \emph{only} user action that can put someone in front of a conflict in a
-definition they never opened is a name moving. Adding, updating and deleting are safe at any depth and
-in any combination. \Cref{def:gestures} is the exception --- and it is the one class of gesture that
+definition they never opened is one that changes which names a definition has. Adding, updating and
+deleting definitions are safe at any depth and in any combination. \Cref{def:gestures} is the exception --- and it is the one class of gesture that
 costs nothing anywhere else in the system.
 
 Three details of the hypothesis do not survive paraphrase.
@@ -1425,9 +1430,12 @@ and $\NB$ renames it, $\namer$ takes $\NB$'s new name for the old version and $\
 for the new one, and $\NA$'s untouched dependents are classified as authored. $\NA$ can be perfectly
 disciplined and still be asked about code it never wrote.
 
-\emph{An alias suffices; a \texttt{move} is not needed.} $\namer$ chooses among a referent's names by a
-fixed priority --- relative before absolute, then fewest segments \src{ppenames:141-151} --- so
-aliasing an updated definition to a shorter name changes what it renders as.
+\emph{An alias suffices; a \texttt{move} is not needed}, which is why \cref{def:namestable} excludes
+one. $\namer$ picks among a referent's names by a fixed priority --- relative before absolute, then
+fewest segments \src{ppenames:141-151} --- so giving an updated definition a second, higher-priority
+name changes what it renders as, while the superseded version keeps the original name from the other
+branch. \Cref{ex:merge-alias} is that, and also the reverse case: an alias created \emph{before} the
+update pins the dependents instead of conflicting them.
 
 \emph{Unconflicted is not unseen.} Step 2 of \cref{def:umerge} pulls the dependents of every conflict
 into the same file. What \cref{cor:noedit-user} rules out is being asked to \emph{choose}.
@@ -1800,7 +1808,7 @@ $\uparse$ turns back into \texttt{double}, differing only in what \texttt{scale}
 
 \subsection{Three merges from one ancestor}\label{ex:merge-setup}
 
-The next three examples share a common ancestor with two definitions, a formatter and its one caller:
+The next four examples share a common ancestor with two definitions, a formatter and its one caller:
 \[
   \NO = \{\,\texttt{fmt} \mapsto \texttt{\#f},\quad
            \texttt{show} \mapsto \texttt{\#c}\,\}
@@ -1808,9 +1816,10 @@ The next three examples share a common ancestor with two definitions, a formatte
   \UStore(\texttt{\#c})_0 = \ulam{n}{\uapp{\uref{\texttt{\#f}}}{\uvar n}}
 \]
 with $\texttt{fmt} : \uarr{\TNat}{\TText}$. Every component here is a singleton, so throughout these
-three examples we write $\texttt{\#f}$ for $\UDer{\texttt{\#f}}{0}$. In each one branch is the merge
+examples we write $\texttt{\#f}$ for $\UDer{\texttt{\#f}}{0}$. In each one branch is the merge
 target $\NA$ and the other the source $\NB$; nobody edits a definition twice, and every branch is the
-result of a single \texttt{update}. The three differ only in who does what.
+result of a single \texttt{update}, except in \cref{ex:merge-alias}, which needs one \texttt{alias}. They differ
+only in who does what.
 
 \subsection{A rename manufactures a conflict}\label{ex:merge-rename}
 
@@ -1905,11 +1914,55 @@ so \texttt{price} now names the \emph{superseded} version of the formatter. Wher
 definition the result has two, one of them stale, and \texttt{show} calls the one the user meant to
 rename away.
 
-The three examples exhaust the ways a rename meets a concurrent edit, and none of them behaves as a
-rename should: \cref{ex:merge-rename} reports a conflict that is not one, \cref{ex:merge-dangling}
-fails with no conflict at all, and \cref{ex:merge-dup} succeeds and corrupts the namespace. The common
-cause is \cref{def:mergediff}: it is a diff of two maps keyed by name, and a rename is the one edit
-that a map keyed by name cannot represent.
+\subsection{An alias does it too, in either of two ways}\label{ex:merge-alias}
+
+A rename is not the only gesture that moves names around. An \texttt{alias} does, and which of the two
+things it does depends on whether it is made before the update or after.
+
+\emph{Before.} $\NA$ aliases the formatter as \texttt{f}, then updates it.
+\[
+\begin{array}{r@{\;}l@{\quad}l}
+  \NA &= \{\texttt{fmt} \mapsto \texttt{\#f}',\ \texttt{f} \mapsto \texttt{\#f},\
+            \texttt{show} \mapsto \texttt{\#c}\}
+    & \just{\texttt{show} is the ancestor's} \\[3pt]
+  \render(\ppe, \texttt{show}) &= ``\texttt{show = }\ulam{n}{\uapp{\uvar{\texttt{f}}}{\uvar n}}\text{''}
+    & \just{the dependency still has a name} \\[3pt]
+  \uparse(\cdot) &\rightsquigarrow \uref{\texttt{\#f}}
+    & \just{and it is the old one}
+\end{array}
+\]
+\texttt{show} is selected as a dependent and rebuilt, and the rebuild returns it unchanged, because
+what \cref{def:update} rebuilds through is text: the renderer shows the dependency under a name, the
+alias is a name the old definition still has, and parsing it back arrives where it started. The caller
+is pinned, which \cref{prop:follow-only} says cannot be asked for. It cannot; it can be arranged.
+
+\emph{After.} $\NA$ updates the formatter, letting \texttt{show} rebuild, and only then aliases it as
+\texttt{a}. $\NB$ edits \texttt{show}.
+\[
+\begin{array}{r@{\;}l@{\quad}l}
+  \namer(\texttt{\#f}') &= \texttt{a}
+    & \just{fewest segments, then alphabetical} \\[3pt]
+  \namer(\texttt{\#f}) &= \texttt{fmt}
+    & \just{$\NA$ has no name for it; $\NB$ does} \\[3pt]
+  \delta_{\NA}(\texttt{show}) &= \dupd
+    & \just{$\ulam{n}{\uapp{\uvar{\texttt{fmt}}}{\uvar n}}$ became $\ulam{n}{\uapp{\uvar{\texttt{a}}}{\uvar n}}$} \\[3pt]
+  \texttt{show} &\text{ is conflicted} &
+\end{array}
+\]
+This is \cref{ex:merge-rename} with an alias in place of a \texttt{move}, and it arrives the same way:
+$\NA$'s half of the conflict file is the ancestor's own definition, printed under a name $\NA$ never
+applied to it directly. Note that no name was taken away from anything --- \texttt{fmt} still denotes
+what $\NA$ means by it, and every ancestor name is still bound. Adding one was enough.
+
+\Cref{cor:noedit-user} excludes aliases for this reason, and \cref{rem:onlyrenames} states the
+contrapositive over names rather than over renames.
+
+Between them the four exhaust the ways a change of names meets a concurrent edit, and not one of them
+behaves as it should: \cref{ex:merge-rename} reports a conflict that is not one,
+\cref{ex:merge-dangling} fails with no conflict at all, \cref{ex:merge-dup} succeeds and corrupts the
+namespace, and \cref{ex:merge-alias} does the first or quietly defeats propagation, depending on when
+the alias was made. The common cause is \cref{def:mergediff}: it is a diff of two maps keyed by name,
+and what a definition is \emph{called} is precisely what such a diff cannot watch changing.
 
 % =====================================================================
 \section{Comparison with arbor}\label{sec:contrast}
@@ -2057,12 +2110,13 @@ three hashes quoted there are what \texttt{ucm} 1.1.1 reports for the three defi
 and the top-level abort is that tool refusing the same pair of bindings lifted out of the block. The
 model reproduces the top-level behaviour and not yet the inner one.
 
-\Cref{sec:umerge}'s evidence is direct in the same way. Each of \cref{ex:merge-rename},
-\cref{ex:merge-dangling} and \cref{ex:merge-dup} was run against \texttt{ucm} 1.1.1 as a transcript
-over three definitions, and the outcomes reported --- a conflict, a no-conflict failure naming a
-deleted identifier, and a clean merge with the rename undone --- are what the tool produced, not what
-the model predicts. \Cref{prop:merge-asym} was obtained the same way, by running one pair of branches
-in both directions. This is weaker than the rest in one respect and stronger in another: it does not
+\Cref{sec:umerge}'s evidence is direct in the same way. Each of \crefrange{ex:merge-rename}{ex:merge-alias}
+was run against \texttt{ucm} 1.1.1 as a transcript over two or three definitions, and the outcomes
+reported --- a conflict, a no-conflict failure naming a deleted identifier, a clean merge with the
+rename undone, and an alias that either pins a dependent or conflicts it --- are what the tool
+produced, not what the model predicts. \Cref{prop:merge-asym} was obtained the same way, by running one
+pair of branches in both directions, and \cref{prop:follow-only}'s pinning case by running one
+\texttt{update} with and without a preceding \texttt{alias} and comparing the dependent's hash. This is weaker than the rest in one respect and stronger in another: it does not
 show that our definitions are internally coherent, and it does show that the behavior is Unison's and
 not an artifact of our reading.
 

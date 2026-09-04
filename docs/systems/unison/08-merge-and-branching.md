@@ -256,6 +256,47 @@ perhaps only temporarily, because it's easier to implement. We just ignore these
 updates."* A rename is a delete plus an add; the delete loses to the update, the add survives
 unopposed.
 
+**A fourth hazard: an alias does this too, and which thing it does depends on timing**
+`[verified empirically]`. A rename is `move`; but `alias` also changes which names a definition has,
+and that is what the classifier is actually sensitive to. Two runs, same ancestor (`fmt`, and a `show`
+that calls it):
+
+*Alias before the update — it **pins**.* `alias.term fmt f`, then update `fmt`'s body. Control and
+test differ in that one command:
+
+| | `fmt` after | `show` after | `show` renders as |
+|---|---|---|---|
+| control | `#3jf42fskfh` | `#7eac2fu0hj` — rebuilt | `show n = fmt n` |
+| with alias | `#3jf42fskfh` | `#601qnj4906` — **unchanged** | `show n = f n` |
+
+`update` selects `show` as a dependent and rebuilds it, and the rebuild returns it unchanged — because
+rebuilding goes through text, the renderer shows the dependency under a name the *old* definition
+still has (`f`, which `prioritize` ranks ahead of `fmt`), and parsing that resolves straight back to
+where it started. So the caller stays pinned to the old version. Unison surfaces the situation at
+update time — the output reads `~ fmt : Nat -> Text (was also named f)` — but the propagation is
+defeated all the same. Worth noting against the usual claim that Unison offers only follow-and-no-pin:
+pinning cannot be *requested*, but it can be arranged.
+
+*Alias after the update — it **conflicts**.* Update `fmt` (so `show` rebuilds), then `alias.term fmt
+a`. Merging from the aliasing branch:
+
+```
+-- scratch/alice
+show : Nat -> Text
+show n = a n
+
+-- scratch/main
+show : Nat -> Text
+show n = "total" ++ fmt n
+```
+
+Same shape as the rename case: alice's half is the ancestor's own definition printed under a name she
+never applied to it directly. Note that nothing was taken away — `fmt` still denotes what she means by
+it, every ancestor name is still bound. *Adding* one was enough.
+
+So "renames break merges" is too narrow. The classifier is sensitive to **which names a definition
+has**, and `alias` changes that without removing anything.
+
 **The rename relation is computed, and thrown away.** `Merge/Rename.hs` (96 lines) builds exactly the
 thing that would fix this: for each definition, the names it gained and lost between the LCA and each
 branch (`makeRenames`), narrowed to the one-to-one cases (`makeSimpleRenames`). At `db60ce2` its only

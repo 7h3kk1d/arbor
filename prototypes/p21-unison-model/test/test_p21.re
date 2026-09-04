@@ -1374,6 +1374,49 @@ let test_merge_silent_resolution = () => {
   };
 };
 
+/* (ex:merge-alias, prop:follow-only) An alias moves names around too, and what
+   it does depends on when it is made.
+
+   BEFORE the update it PINS. update selects the dependent and rebuilds it, but
+   rebuilding means rendering, and the renderer shows the dependency under a
+   name the old definition still has. The text parses back to where it started,
+   so the rebuild returns the dependent unchanged. prop:follow-only says no
+   caller can be asked to stay behind; it cannot be asked, but it can be
+   arranged.
+
+   AFTER the update it CONFLICTS, for the same reason a rename does: nu picks
+   the new alias for the new version while the superseded one keeps its original
+   name from the other branch, so an untouched dependent renders differently.
+   Both checked against ucm 1.1.1. */
+let test_merge_alias = () => {
+  /* before: the alias pins */
+  let (st, _w, lca, commit) = merge_fixture();
+  let pinner = Names.copy(lca);
+  let before = Names.resolve(pinner, "show");
+  check("alias first", true, Names.alias(pinner, "fmt", "f") == Ok());
+  commit(pinner, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"USD\"");
+  check("fmt moved", false, Names.resolve(pinner, "fmt") == Names.resolve(lca, "fmt"));
+  check("but the alias still names the old one", true,
+    Names.resolve(pinner, "f") == Names.resolve(lca, "fmt"));
+  check("and show was NOT retargeted", true, Names.resolve(pinner, "show") == before);
+
+  /* after: the alias conflicts */
+  let (st2, _w2, lca2, commit2) = merge_fixture();
+  let alice = Names.copy(lca2);
+  let bob = Names.copy(lca2);
+  commit2(alice, "fmt : Nat -> Text\nfmt = \\n. Text.repeat n \"USD\"");
+  check("show did rebuild this time", false, Names.resolve(alice, "show") == Names.resolve(lca2, "show"));
+  check("alias after", true, Names.alias(alice, "fmt", "a") == Ok());
+  commit2(bob, "show : Nat -> Text\nshow = \\n. Text.++ \"total\" (fmt n)");
+  switch (Merge.run(~st=st2, ~lca=lca2, ~alice, ~bob)) {
+  | Merge.Unmerged(u) =>
+    check("show is conflicted, though alice never opened it", true, u.conflicts == ["show"])
+  | Merge.Merged(_) => Alcotest.fail("expected the alias to manufacture a conflict")
+  | Merge.Refused(p) => Alcotest.fail(Merge.precondition_to_string(p))
+  };
+  ignore(st);
+};
+
 /* (prop:merge-asym) The same two branches, merged both ways. One direction
    fails and the other is clean, because the naming function prefers whichever
    branch is the target. */
@@ -1517,6 +1560,7 @@ let () =
           Alcotest.test_case("merge is not commutative (prop:merge-asym)", `Quick, test_merge_asym),
           Alcotest.test_case("what the silent resolution hides (rem:merge-soundness)", `Quick, test_merge_silent_resolution),
           Alcotest.test_case("a rename raced by an edit, undone (ex:merge-dup)", `Quick, test_merge_dup),
+          Alcotest.test_case("an alias pins or conflicts, by timing (ex:merge-alias, prop:follow-only)", `Quick, test_merge_alias),
         ],
       ),
       ("round-trip", [QCheck_alcotest.to_alcotest(prop_print_parse)]),

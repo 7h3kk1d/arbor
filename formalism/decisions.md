@@ -1173,3 +1173,46 @@ what the parties disagree about. Stated as an argument, not a theorem, and the r
 did: 49/49 mirrored with a `diff` that dropped propagated updates on the floor. A mirror check
 verifies that the prototype mentions every statement, not that it implements any of them, and this is
 the first time the gap between those two has been visible. The tests are what caught both corrections.
+
+---
+
+## 2026-09-04 — an alias breaks it too, and the pinning claim was wrong
+
+**Decision.** Correct `prop:follow-only` and `rem:onlyrenames`, add `ex:merge-alias`, and broaden the
+contrapositive from *renaming* to *changing which names a definition has*. Prompted by being asked
+whether adding a name could break merge the way moving one does — a claim `rem:onlyrenames` already
+made in a bullet, from reading `prioritize`, and had never checked.
+
+**Checked, and it is two different things depending on timing.**
+
+*Alias before the update pins the dependents.* Two `ucm` runs differing in one `alias.term`: without
+it the dependent is rebuilt (`#7eac2fu0hj`), with it the dependent is **unchanged** (`#601qnj4906`) and
+now renders as `show n = f n`. `update` selects it and rebuilds it, and the rebuild is the identity —
+rebuilding goes through text, the renderer shows the dependency under a name the *old* definition
+still has, and parsing resolves back to where it started.
+
+That is a counterexample to `prop:follow-only` as written: *"there is no way to request that some
+callers be left pointing at the old definition. The nearest thing to that is to choose a name nothing
+depends on."* There is a nearer thing. Pinning cannot be requested and can be arranged, through the
+naming layer rather than through an option — which makes it a use of `prop:print-parse`'s round trip
+as a control surface, and the only per-caller propagation control the system has.
+
+*Alias after the update conflicts*, the same way a rename does: `ν` picks the new alias for the new
+version while the superseded one keeps its original name from the other branch, so an untouched
+dependent renders differently and is filed as authored. This is the mechanism the old bullet asserted,
+and it is right — but only in the after case, which the bullet did not say.
+
+**What was wrong in the prose.** `rem:onlyrenames` was titled "only renaming does this" and said the
+only user action that can hand someone a conflict in untouched code is *a name moving* — then carried
+a bullet saying an alias suffices. It contradicted itself, and `def:namestable`, which correctly
+excludes `move`, `alias` and `delete`. Fixed in the remark, its title, and the summary. Nothing is
+*removed* in the alias case: every ancestor name stays bound and `fmt` still means what its owner
+means by it. Adding a name was enough.
+
+**Mirrored.** `ex:merge-alias` in the paper, `test_merge_alias` in p21 covering both timings — the
+model reproduces each, since `Ppe.name_of` and `Synhash.name_of` both take the alphabetically first
+name and so tie-break as `prioritize` does for single-segment names. 46 tests.
+
+**Method note.** Eleventh finding entry, and the second where the defect was a claim I had reasoned
+from source and not run. The first was the inner-`let rec` gloss. Both were about what a
+pretty-printer picks.
