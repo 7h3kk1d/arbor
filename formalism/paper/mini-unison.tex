@@ -199,21 +199,24 @@ is handed back when the rebuild does not typecheck is a file the user can edit.
 
 \textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
 ancestor can be unioned without reconciling anything, which is the property content-addressed
-codebases are usually sold on. It is true, and it is close to all that immutability buys here: every
-difficult case lives in the namespace, which is not content-addressed. There, merge has to decide
-whether each side's version of a definition was written by a person or produced by rebuilding, and it
-decides by computing a \emph{second} hash --- the exact dual of the first, with names substituted for
-references instead of the reverse --- and asking whether the two versions \emph{render} the same. That
-works, and it is why renaming is otherwise free: a rename costs one row, breaks no caller and
-invalidates no cached result, because no stored definition contains a name to rewrite. Merge is the
-one operation that reads names as though they were content, and it is where that stops. A definition
-nobody wrote cannot be conflicted, provided neither party moved, aliased or deleted a name;
-contrapositively, renaming is the only user action that can put someone in front of a conflict in code
-they never opened. The condition is computable and Unison computes it, and at the pinned commit passes
-the result to a debug printer. Merge is also not commutative --- the same two branches can merge
-cleanly in one direction and fail in the other, with nothing reported either way --- and its round trip
-renders under one namespace and parses under another, with nothing requiring the names it emits to
-exist in the second.
+codebases are usually sold on. It is true, and close to all that immutability buys: every difficult
+case is in the namespace, which is not content-addressed. There, merge has to decide whether each
+side's version of a definition was written by a person or produced by rebuilding, and it decides by
+computing a \emph{second} hash --- the exact dual of the first, names substituted for references
+rather than the reverse --- and asking whether the two versions \emph{render} alike. Rebuilding is
+invisible to that test, which is what makes it work. Renaming is not, which is what breaks it.
+
+Renaming is otherwise free: one row, no caller broken, no cached result lost, because no stored
+definition contains a name to rewrite. Merge is the single operation that reads names as though they
+were content. So a definition nobody wrote cannot be conflicted, provided neither party moved,
+aliased or deleted a name --- and renaming is the only user action that can hand someone a conflict in
+code they never opened. It does not always arrive as a conflict: a rename carrying no edit produces
+none and fails a step later, when the file is rendered under one branch's names and parsed against a
+namespace holding the other's, and a rename raced by an edit of the renamed definition merges
+\emph{cleanly} and silently undoes the rename. Unison computes the renames --- though only those
+carrying no edit, which is the case that does not conflict --- and at the pinned commit passes the
+result to a debug printer. Merge is also not commutative: the same two branches can merge cleanly in
+one direction and fail in the other, with nothing reported either way.
 \Cref{prop:merge-store,def:synhash,rem:syn-only,def:gestures,rem:renamefree,thm:noconflict,cor:noedit-user,rem:onlyrenames,prop:rename-conflict,cor:unchecked,prop:merge-asym,prop:merge-print-parse}.
 
 \subsection{What this document is, and is not}
