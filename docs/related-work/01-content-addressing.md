@@ -118,6 +118,23 @@ They treat canonical representation as something an object either has or lacks. 
 - **Hash-consing provenance.** A. P. Ershov, "On programming of arithmetic operations," *CACM* 1(8), 1958 (technique originates 1957); Eiichi Goto, "Monocopy and Associative Algorithms in Extended Lisp," TR-74-03, University of Tokyo, 1974. `[verified — secondary; confirmed via ACL2 documentation and survey material, not primary records]` Cite for provenance only.
 - **Bowen Zhu (2025) — "Efficient Symbolic Computation via Hash Consing."** arXiv:2509.20534. `[verified as preprint; venue UNVERIFIED]` The recent end of the hash-consing line.
 
+### What Maziarz et al. §2.4 rules out, and why it does not touch p4
+
+Read 2026-09-16, §§2.3–2.5 only (¶8–11 of the arXiv text), via the local Zotero fulltext index.
+
+The paper contains what reads at first like a direct refutation of arbor's headline canonicalization claim. §2.4 asks whether de Bruijn indexing solves α-equivalence hashing and answers *"Sadly, no: using de Bruijn indexing remains vulnerable to both false positives and false negatives."* The two counterexamples:
+
+- **False negative.** In `\t. foo (\x.x+t) (\y.\x.x+t)` the two `(\x.x+t)` subterms are α-equivalent, but de Bruijn renders them `(\.%0+%1)` and `(\.\.%0+%2)` — the free `t` picks up a different index under each.
+- **False positive.** In `\t. foo (\x.t*(x+1)) (\y.\x.y*(x+1))` the two subterms are *not* equivalent, but both render `(\.%1*(%0+1))`. And *"unlike with simple syntactic equivalence, these false positives cannot be eliminated by giving every binder a unique name — with de Bruijn there are no binders!"*
+
+**This does not contradict p4.** Both counterexamples turn on a variable bound by an *enclosing* lambda, and they are counterexamples to their problem, not arbor's. Their goal (§3) is to *"identify all equivalence classes of subexpressions of e"* — the hash of a subterm must be stable under its context, because the application is CSE inside a compiler. arbor hashes whole definitions, and those are closed — bound variables are de Bruijn, free names resolve to a `Ref(hash)` — so de Bruijn canonicalization is sound for α-equivalence and `\x. x` and `\y. y` do collide. The claim in `../design/03-content-addressing.md` stands; what needs stating alongside it is the scope, *closed terms*, which the design docs currently leave implicit.
+
+Worth noting that closedness is a property of the resolver path rather than an enforced invariant. `Resolver.resolve` returns `Unbound_name` for a free name (`prototypes/p4-lambda-calculus/src/resolver.re:54`), so nothing open reaches the Store in practice — but `Ast.t` admits open terms, and `Ast.is_closed` is used only by the pretty-printer and one test, never by `Store.ingest`. If the scope condition above is what makes the α-equivalence claim true, this is the obvious place to make it a checked Store invariant alongside "no cross-language references."
+
+**Where it does bite is the subterm-hashing idea.** Priority read 9 in `00-index.md` proposes co-contextual type rules so that "a de Bruijn *subterm's* hash" could key a type-check aspect below the definition root. That is exactly the move §2.4 rules out: an open subterm's de Bruijn hash is neither sound nor complete for α-equivalence, so such a cache would both miss hits and — worse — collide across distinct terms. Anyone picking up item 9 should read §2.4 first.
+
+**The second cost is asymptotic, and applies to arbor as built.** §2.5 notes that under de Bruijn (and locally nameless, *"used in Epigram and the LEAN theorem prover"*) the hash of `(\x.e)` cannot be derived from the hash of `e`: *"as we pass each lambda, we must re-hash the entire body."* Every arbor prototype re-hashes whole definitions on every keystroke, so this is latent rather than observed at prototype scale — but it is the reason the paper's algorithm exists, and p21's "typing is saving" makes the inner loop where it would first be felt.
+
 ## Unison
 
 - **Unison — Paul Chiusano, Rúnar Bjarnason, Unison Computing.** [The big idea](https://www.unison-lang.org/docs/the-big-idea/), [annotated bibliography](https://www.unison-lang.org/docs/usage-topics/bibliography/), [github.com/unisonweb/unison](https://github.com/unisonweb/unison). `[no publication exists]` **[Priority read — the docs, and the finding.]**
