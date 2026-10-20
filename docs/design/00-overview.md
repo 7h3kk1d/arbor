@@ -74,6 +74,7 @@ Step in slowly. When in doubt, prefer the narrow, concrete implementation over t
 - `11-label-sort.md` — labels as a first-class minted sort, decoupling record/module field identity from the human-readable field name.
 - `13-editing-context.md` — *notes, 2026-08-19.* the editing context / working set: a named collection of definitions in flight with no commit gate (ingest everything; only *names* stay uncommitted), the frontier-vs-commit-set split, the context as the evaluation environment, and the context as the scope of migration.
 - `12-type-abstraction.md` — abstract types as `Type` definitions identified by `opaque ++ mint ++ witness`; signatures as existential/universal binders over label-records; sealing, functors, and the projection-inlining dependency model that keeps abstraction fine-grained.
+- `14-capabilities.md` — *goals, 2026-09-09.* the capabilities arbor must provide, stated standalone from a user's point of view: reference and naming, working on incomplete code, changing definitions and adopting others' changes, reusing work already done, reviewing and undoing change, and plurality of languages/actors. Requirements only, not a status report.
 - `decisions.md` — ADR-lite log of commitments, with dates and rationale.
 - `open-questions.md` — running list; items graduate to docs or decisions as they resolve.
 - `prototype-findings.md` — stocktake across the prototype series: recurring patterns, single-prototype experiments, and shapes left open. Observational, not prescriptive.
