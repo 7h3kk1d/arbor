@@ -1,0 +1,11 @@
+(library
+ (name p22_substrate)
+ (public_name p22_open_terms.substrate)
+ (preprocess
+  (pps ppx_deriving.std))
+ (libraries digestif.ocaml))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))
