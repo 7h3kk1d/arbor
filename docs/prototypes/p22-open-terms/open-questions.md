@@ -18,7 +18,7 @@ a date, not deleted.
   weaker than "nothing could need it".
 
 - **Is first-occurrence the right slot order?** It is deterministic and
-  name-free, which is what `03-content-addressing.md:146` requires, but it is
+  name-free, which is what `03-content-addressing.md:142` requires, but it is
   not the only such order and nothing here tests the alternatives. Reordering an
   expression's subterms changes the telescope, so two definitions that differ
   only in evaluation-irrelevant ordering get different open hashes.
@@ -75,7 +75,7 @@ a date, not deleted.
 - **The log is in memory and dies with the process**, like p21's scratch state.
   Whether the operation log is itself content-addressed — which is what
   "git-style content addressing over the history" in the design doc asks for —
-  is not touched here. `H` vs `Causal` (`formalism/open-questions.md:203-210`)
+  is not touched here. `H` vs `Causal` (`formalism/open-questions.md:213-219`)
   remains the open rung.
 
 - **`versions_of_name` follows a name, so a rename splits a history.** `rename`

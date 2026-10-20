@@ -8,7 +8,7 @@ Re-check the pin with `git -C <unison-repo> rev-parse HEAD`. If it has moved, ev
 
 `CLAUDE.md:7` describes arbor as "inspired by Unison." `docs/` invokes Unison roughly twenty-five times across `design/` and `related-work/` — as prior art for content addressing, as the model for the naming layer, as the origin of the `unique`-type minting idea, as the system whose migration UX arbor declines. Before this read, **not one of those claims was sourced to anything but documentation, blog posts, or inference from rendered output.**
 
-The reason is recorded at `../../related-work/00-index.md:102`:
+The reason is recorded at `../../related-work/00-index.md:103`:
 
 > **No peer-reviewed publication exists for Unison.** Zero DBLP hits. Its design claims — hashes as identity, names as metadata, never-invalidated caches, no diamond-dependency problem — have never been formally stated, let alone proven.
 
@@ -24,7 +24,7 @@ Nine, roughly in descending order of how much they should change what arbor writ
 
 2. **The metadata mechanism Unison deleted is arbor's aspect concept, near enough to be startling.** `docs/metadata.markdown` proposes extensible per-definition metadata whose values are themselves content-addressed references and whose categories are strings interpreted by convention. That is `../../design/02-definitions-and-derived-data.md` in one page. It shipped, was part of the namespace hash, and is now unreachable. `05-deletions.md` §"Metadata".
 
-3. **The store is not `Hash ⇀ Node`.** A hash names a whole strongly-connected *component*; a definition is `(Hash, Pos)` (`codebase2/core/U/Codebase/Reference.hs:114-119`). That is a different *type* of store from arbor-core's Σ, and it is the price of mutual recursion — a bigger commitment than the "canonical ordering" `../../design/03-content-addressing.md:141` describes. `02-store-and-hashing.md` §"Components".
+3. **The store is not `Hash ⇀ Node`.** A hash names a whole strongly-connected *component*; a definition is `(Hash, Pos)` (`codebase2/core/U/Codebase/Reference.hs:114-119`). That is a different *type* of store from arbor-core's Σ, and it is the price of mutual recursion — a bigger commitment than the "canonical ordering" `../../design/03-content-addressing.md:253` describes. `02-store-and-hashing.md` §"Components".
 
 4. **References are hash-transparent — at position 0, and less far-reachingly than it looks.** A `Derived(h, 0)` reference contributes *literally* `h` to an enclosing hash (`unison-hashing-v2/src/Unison/Hashing/V2/Term.hs:135-146`), so a reference is interchangeable with any *term* of that hash. It is **not** interchangeable with the *definition*: `x = 1 + 1` and `y = x` get different hashes, and inlining is not hash-preserving, because component hashing puts two accumulation layers between a term hash and a component hash even for a singleton. *(Corrected 2026-09-02; this headline previously asserted the definition-level reading. Established as `rem:transparency-limit` in mini-unison and computed by `test_transparency_limit` in `prototypes/p21-unison-model/`.)* arbor's formalism reintroduced `Ref(h)` as a distinct node; the fork is narrower than it appeared. `07-arbor-mapping.md` §"Ref".
 
@@ -32,7 +32,7 @@ Nine, roughly in descending order of how much they should change what arbor writ
 
 6. **`update` is implemented by printing, re-parsing, and re-typechecking.** The code's own comment calls it *"the world's weirdest implementation of AST substitution"* (`unison-cli/src/Unison/Codebase/Editor/HandleInput/Update2.hs:424-427`). Its correctness rests on print-then-parse preserving hashes — which is exactly arbor-core's `prop:print-elab`. **arbor has already proved the lemma Unison's implementation needs and never states**, and Unison tests it as a golden regression corpus. `04-caching-update-merge.md` §"Update", `07-arbor-mapping.md` §"Migration".
 
-7. **Unison is unique-by-default for types, and this is now source-verified rather than inferred.** `parser-typechecker/src/Unison/Syntax/DeclParser.hs:230` — a declaration with *no* modifier resolves to a minted GUID. This closes the gap recorded at `../../related-work/01-content-addressing.md` §"Gaps and negative findings" and answers `../../design/open-questions.md:77`. `04-caching-update-merge.md` §"Minting".
+7. **Unison is unique-by-default for types, and this is now source-verified rather than inferred.** `parser-typechecker/src/Unison/Syntax/DeclParser.hs:230` — a declaration with *no* modifier resolves to a minted GUID. This closes the gap recorded at `../../related-work/01-content-addressing.md` §"Gaps and negative findings" and answers `../../design/open-questions.md:80`. `04-caching-update-merge.md` §"Minting".
 
 8. **Minting has a recurring cost, and Unison pays it with a side table and an arbitrary choice.** Because the GUID must survive re-saving a type, it is recovered *by name* from the namespace — and `parser-typechecker/src/Unison/Codebase/UniqueTypeGuidLookup.hs:20` says plainly: *"If there are multiple such types, an arbitrary one is chosen."* Plus a `namespace_unique_type_guid` table to keep GUIDs stable across merges. p11's mint threads have the same problem and no answer. `04-caching-update-merge.md` §"Minting".
 

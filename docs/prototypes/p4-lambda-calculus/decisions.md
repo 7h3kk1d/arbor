@@ -14,7 +14,7 @@ Binders, de Bruijn indices, and β-reduction are introduced in a new prototype a
 
 ## 2026-04-22 — De Bruijn indices internally; named surface syntax
 
-Internal `Ast.t` is name-free and in de Bruijn form (`Var(int) | Lam(t) | App(t, t)`). Surface input keeps string names (`Var(string) | Lam(string, t) | App(t, t)`), eliminated at Resolver time. This is the substrate design position from `docs/design/09-roadmap.md:84-107` made concrete. α-equivalent surface terms canonicalize to identical `Ast.t` values, hence identical hashes after `Store.ingest`.
+Internal `Ast.t` is name-free and in de Bruijn form (`Var(int) | Lam(t) | App(t, t)`). Surface input keeps string names (`Var(string) | Lam(string, t) | App(t, t)`), eliminated at Resolver time. This is the substrate design position from `docs/design/09-roadmap.md:76-95` made concrete. α-equivalent surface terms canonicalize to identical `Ast.t` values, hence identical hashes after `Store.ingest`.
 
 **Rationale.** Canonicalization-at-hash-time is the substrate's claimed answer to the α-equivalence-under-content-addressing question. De Bruijn is the standard way to make that answer operational; it is also what Unison (our closest reference implementation) chose. p4 exists to confirm the answer holds up in code.
 
@@ -58,7 +58,7 @@ Evaluation is call-by-value (reduce argument before β) and stops at weak head n
 
 The name-aware printer picks binder names from a fixed alphabet (`x, y, z, a, b, …, w`) with a numeric suffix when the alphabet is exhausted in a given scope (`x1, y1, …`). It always picks the first element not already in scope. Same inputs produce the same output, even though the names are not persisted anywhere.
 
-**Rationale.** Roadmap Phase 3 explicitly says "picking fresh, readable names" for the renderer (`docs/design/09-roadmap.md:98`). Determinism preserves testability and avoids surprising the user with per-call name churn. Starting with `x, y, z` matches conventional LC notation.
+**Rationale.** Roadmap Phase 3 explicitly says "picking fresh, readable names" for the renderer (`docs/design/09-roadmap.md:90`). Determinism preserves testability and avoids surprising the user with per-call name churn. Starting with `x, y, z` matches conventional LC notation.
 
 **Consequence.** The name a user *types* into the REPL is not preserved through a round trip. Binding `:bind id \foo. foo` followed by `:list` will show `\x. x`, not `\foo. foo`. Surprising on first encounter, but consistent with the "binders have no names in the stored form" design claim.
 

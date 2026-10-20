@@ -32,7 +32,7 @@
  *     open terms; it produces one new open term and one new bundle.
  *
  *   - The ordering problem does not disappear. It cannot: ordering a recursive
- *     group is graph canonization (03-content-addressing.md:156) and no
+ *     group is graph canonization (03-content-addressing.md:152) and no
  *     encoding dissolves that. What changes is where it lands and what it
  *     costs.
  *

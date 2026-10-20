@@ -36,7 +36,7 @@ A sibling view to the list — render the Store as a DAG with hash nodes and ref
 
 ### Rebind-AND-upgrade-callers tooling
 
-`04-naming-layer.md:83–85` and `CLAUDE.md` both explicitly list automated "update all callers" as a non-goal for now. An editor affordance that offers to rebuild each caller against the new hash (producing new caller hashes, potentially re-binding their own names) is refactor territory; real design work. Record as a sign-of-the-times note: p7 demonstrates the invariant, it does not try to repair against it.
+`04-naming-layer.md:168–170` and `CLAUDE.md` both explicitly list automated "update all callers" as a non-goal for now. An editor affordance that offers to rebuild each caller against the new hash (producing new caller hashes, potentially re-binding their own names) is refactor territory; real design work. Record as a sign-of-the-times note: p7 demonstrates the invariant, it does not try to repair against it.
 
 ### Keyboard accelerators
 

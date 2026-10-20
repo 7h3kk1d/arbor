@@ -24,7 +24,7 @@
 
 `02-store-and-hashing.md` §"Components". A hash names a strongly-connected component; `Reference = (Hash, Pos)`.
 
-arbor has deferred this. `../../design/03-content-addressing.md:141` files it as *"we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point."* Two understatements, now correctable:
+arbor has deferred this. `../../design/03-content-addressing.md:253` files it as *"we'll need a canonical ordering for the group so the hash is stable. Unison's approach is a known starting point."* Two understatements, now correctable:
 
 - **It is not just an ordering.** `Σ : Hash ⇀ Node` becomes `Σ : Hash ⇀ Node⁺`, and every reference becomes a pair. `wf`'s no-dangle clause, `callers_of`, the migration rewrite ρ, and `thm:alpha` all change shape. It is a rung on the ladder, not a canonicalizer tweak.
 - **The starting point has a known defect.** `IncompleteElementOrderingError` (`ABT.hs:190-192`, issue #2787): when two cycle members are structurally identical modulo intra-cycle references, no canonical order is determined by their structure, and the user is asked to perturb one definition by hand. *(Sharpened 2026-08-25 by formalizing it — see `formalism/paper/mini-unison.tex` `thm:ordering`. This entry said "canonical form for an SCC is a **partial function**" and that "Unison refuses"; both are slightly off. `hashComponent` is **total** — it returns a hash. What fails is **presentation-independence**: the stable sort falls back to the input order, which is always `Map.toList`, so the hash becomes a function of the members' **names**. And the refusal is caller-side — `doHashCycle` returns a warning, saying "hashing always succeeds even if it generates warnings", and `crashOnHashingWarning` at `UnisonFile.hs:284` turns it into an exception. The accurate framing: **a decidable side condition guards presentation-independence, and the implementation aborts rather than store a hash that violates it.**)* That is worth knowing before arbor promises an unconditional one.
@@ -84,7 +84,7 @@ Unison's `Causal` is the shape that can, and it arrives with an algebraic specif
 
 **arbor proves it.** `arbor-core.tex` Part III makes printing a judgment and establishes `prop:print-elab` (exact for every printer choice) and `prop:elab-print` (up to the kernel of elaboration) — per `formalism/decisions.md` 2026-07-30, replacing an earlier vaguer statement.
 
-This is the sharpest positioning claim the read produces, and it is better than the general "first formal treatment" framing at `../../related-work/00-index.md:102` because it names a specific mechanism in a specific shipping system that the theorem covers. Two honest caveats before it is used: arbor's propositions are stated for its own core and surface languages, not Unison's, so this is an argument about the *shape* of the guarantee rather than a theorem about Unison; and arbor's own `Migrate` is a structural rewrite ρ that needs no round-trip lemma at all, so arbor proves something it does not itself depend on.
+This is the sharpest positioning claim the read produces, and it is better than the general "first formal treatment" framing at `../../related-work/00-index.md:103` because it names a specific mechanism in a specific shipping system that the theorem covers. Two honest caveats before it is used: arbor's propositions are stated for its own core and surface languages, not Unison's, so this is an argument about the *shape* of the guarantee rather than a theorem about Unison; and arbor's own `Migrate` is a structural rewrite ρ that needs no round-trip lemma at all, so arbor proves something it does not itself depend on.
 
 The fork is also worth keeping: printing through text costs a round-trip obligation and buys the property that what the user is shown is exactly what was re-typechecked.
 
@@ -100,7 +100,7 @@ That is a real alternative to a second identity axis. p11's mint threads carry a
 
 `04-caching-update-merge.md` §"Minting".
 
-**Confirmed, and upgraded from inference to primary evidence.** `DeclParser.hs:230` — a declaration with no modifier calls `resolveUniqueTypeGuid`. Unison is unique-by-default for types, `structural` is the marked opt-out, and the GUID enters the hash as `[Tag 1, Text guid]`. This closes the gap at `../../related-work/01-content-addressing.md` §"Gaps" and answers `../../design/open-questions.md:77`. Per-sort minting — types yes, terms no — is confirmed as `../../design/10-minted-identity.md:93` describes.
+**Confirmed, and upgraded from inference to primary evidence.** `DeclParser.hs:230` — a declaration with no modifier calls `resolveUniqueTypeGuid`. Unison is unique-by-default for types, `structural` is the marked opt-out, and the GUID enters the hash as `[Tag 1, Text guid]`. This closes the gap at `../../related-work/01-content-addressing.md` §"Gaps" and answers `../../design/open-questions.md:80`. Per-sort minting — types yes, terms no — is confirmed as `../../design/10-minted-identity.md:93` describes.
 
 **Priced.** A mint must survive re-saving, and Unison has no explicit *edit-of-X* gesture, so it reconstructs the intent **by name** at save time. `UniqueTypeGuidLookup.hs:19-20`: *"If there are multiple such types, an arbitrary one is chosen."* Plus a `namespace_unique_type_guid` table (`sql/016`) and `makeUniqueTypeGuids` to keep GUIDs from diverging under merge.
 
@@ -128,7 +128,7 @@ Factual claims about Unison only. No arbor stance, decision, or non-goal was cha
 | `../../design/03-content-addressing.md` §"Unison as prior art" | "Automatic migration UX (`update`, `patch`, etc.)" | `patch`/`propagate` deleted 2025-05-10; describes the diff + dependents-index + re-typecheck mechanism that actually exists. Decline unchanged. |
 | `../../design/03-content-addressing.md` §"Open sub-questions" | "Unison's approach is a known starting point" | Adds that it changes the store's type, and that canonical SCC ordering is conditional, not unconditional (#2787) |
 | `../../design/03-content-addressing.md` §"Hash representation" | "we accept full state rebuilds" | Adds Unison's versioned-hash + `hash_object` indirection as prior art. Stance unchanged. |
-| `../../design/10-minted-identity.md` §"Prior art" | "on the evidence of its own pretty-printer output, though the docs never say so" | Source-verified at `DeclParser.hs:230`; adds the upkeep cost |
+| `../../design/10-minted-identity.md` §"Relation to existing concepts" | "on the evidence of its own pretty-printer output, though the docs never say so" | Source-verified at `DeclParser.hs:230`; adds the upkeep cost |
 | `../../design/04-naming-layer.md` §"Non-goals" | "Suffix-based name disambiguation (Unison's `f.h1a2b3` convention)" | Separates hash-qualification from suffix resolution, and notes that p9/p10/p17 *do* implement the latter |
 | `../../related-work/01-content-addressing.md` §"Unison", §"Minting" | Inference-tagged claims | Retargeted here; the `unique`-default inference upgraded to primary evidence |
 | `../../related-work/00-index.md` | "no publication exists" as the whole story | Unchanged as a finding; annotated with the source read and the pin |

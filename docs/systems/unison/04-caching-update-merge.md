@@ -25,7 +25,7 @@ Searching for any invalidation machinery across the storage layer, the codebase 
 
 None of these is invalidation. **A stale entry is unreachable rather than wrong**, because the key is the full content hash of a closed term, which transitively includes every dependency's hash (`02-store-and-hashing.md` §"Components"). Any change anywhere below produces a different key.
 
-**This is arbor-core's `thm:stability` and `cor:cache` — evaluation stability under store growth, and no re-evaluation — running in production and never stated.** `../../related-work/00-index.md:102` is right that the claim has never been formally established; what this read adds is that the *implementation* is exactly the one the theorem describes, down to the absence of the code that the theorem makes unnecessary.
+**This is arbor-core's `thm:stability` and `cor:cache` — evaluation stability under store growth, and no re-evaluation — running in production and never stated.** `../../related-work/00-index.md:103` is right that the claim has never been formally established; what this read adds is that the *implementation* is exactly the one the theorem describes, down to the absence of the code that the theorem makes unnecessary.
 
 ### The key need not be a definition
 
@@ -141,7 +141,7 @@ resolveModifier name modifier =
 
 The last line is the answer: **a declaration written with no modifier at all mints a GUID.** `type Foo = ...` is unique; `structural type Foo = ...` is the marked opt-out. The GUID enters the hash as `tokens (Unique txt) = [Tag 1, Text txt]` (`Hashing/V2/DataDeclaration.hs:130-132`).
 
-The pretty-printer then drops it: `prettyModifier RenderUniqueTypeGuids'No (DD.Unique _guid) = mempty` (`parser-typechecker/src/Unison/Syntax/DeclPrinter.hs:304`), which is why round-tripped output shows a bare `type` — and which is what `../../related-work/01-content-addressing.md` had inferred from rendered output and tagged `[inference from rendered output, not stated on the page]`. **The inference was correct; it is now primary evidence.** This closes the gap recorded in that file's §"Gaps and negative findings" ("Unison's unadorned `type` default is undocumented") and answers `../../design/open-questions.md:77`.
+The pretty-printer then drops it: `prettyModifier RenderUniqueTypeGuids'No (DD.Unique _guid) = mempty` (`parser-typechecker/src/Unison/Syntax/DeclPrinter.hs:304`), which is why round-tripped output shows a bare `type` — and which is what `../../related-work/01-content-addressing.md` had inferred from rendered output and tagged `[inference from rendered output, not stated on the page]`. **The inference was correct; it is now primary evidence.** This closes the gap recorded in that file's §"Gaps and negative findings" ("Unison's unadorned `type` default is undocumented") and answers `../../design/open-questions.md:80`.
 
 Note also that Unison's *own* design doc gets this backwards. `docs/data-types.markdown:11-12` says structural *"is the current default if you just write `type Blah = ...`"* and proposes `nominal type` as hypothetical future syntax `[design doc — describes intent, not current behavior]`. The intent inverted somewhere between the doc and the implementation, and nobody updated the doc. A good reminder that a system's prose is evidence about its designers, not about its behavior.
 

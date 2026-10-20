@@ -118,7 +118,7 @@ let arity_of = (tm: t): int => {
  *
  * Slot order is FIRST OCCURRENCE in a left-to-right traversal. That choice has
  * to be made somewhere and it has to be a function of the term's structure
- * alone, never of the names (03-content-addressing.md:146). First-occurrence is
+ * alone, never of the names (03-content-addressing.md:142). First-occurrence is
  * deterministic, and it is presentation-independent in the only sense available
  * to a single term: reordering is not something a single term admits. (Ordering
  * a GROUP is the hard version of this problem and it does not arise here --

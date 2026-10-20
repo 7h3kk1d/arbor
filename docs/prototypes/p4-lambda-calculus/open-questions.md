@@ -7,10 +7,10 @@ Prototype-specific open items. Distinguishes "positions taken here (see `decisio
 These are active stances that resolve previously open sub-questions. Each decision is filed in `decisions.md`; summarized here for cross-reference.
 
 - **De Bruijn canonicalization** (`docs/design/03-content-addressing.md`). Internal AST is de Bruijn; hash is computed on that form; α-equivalence collapses at hashing time. The canonicalization-via-de-Bruijn claim is now operational.
-- **Evaluation strategy** (`docs/design/09-roadmap.md:92`). Call-by-value, weak head normal form, bounded by a step budget. Non-termination produces `StepLimit` rather than blowing the stack.
+- **Evaluation strategy** (`docs/design/09-roadmap.md:84`). Call-by-value, weak head normal form, bounded by a step budget. Non-termination produces `StepLimit` rather than blowing the stack.
 - **Step-budget caching** (new for p4). `StepLimit` results are not cached; only `Value` and `Stuck` are.
 - **Resolver shadowing rule** (new for p4). Innermost binder wins; namespace names fall through only for unshadowed identifiers. Validates the design claim that definition names and bound variables are orthogonal.
-- **Display-name strategy** (`docs/design/09-roadmap.md:98`). Fresh, deterministic names at render time from a fixed alphabet (`x, y, z, a, …`); user-supplied binder names are not preserved through a round trip.
+- **Display-name strategy** (`docs/design/09-roadmap.md:90`). Fresh, deterministic names at render time from a fixed alphabet (`x, y, z, a, …`); user-supplied binder names are not preserved through a round trip.
 - **`Ref(hash)`** (`docs/prototypes/p3-naming-layer/open-questions.md:19`). Still deferred — p4 continues p3's inlining-at-resolution approach. Closed-term inlining needs no index shifting.
 
 ## Still open — intentionally deferred
@@ -46,7 +46,7 @@ These are active stances that resolve previously open sub-questions. Each decisi
 ### Namespace
 
 - **Aliases as a first-class concept.** `const`, `konst`, `tru` all resolve to the same hash in the bootstrap script — visible as `[const, konst, tru]` in `:list`. Is this alias density legible, or would users benefit from distinguishing "intentional alias" from "accidental α-collision"? Not forced here; revisit with a larger corpus.
-- **Multi-namespace + branching** (`docs/design/open-questions.md:55`). Still out of scope per roadmap Phase 3's scope, same as p3.
+- **Multi-namespace + branching** (`docs/design/open-questions.md:59`). Still out of scope per roadmap Phase 3's scope, same as p3.
 
 ### Cross-prototype
 

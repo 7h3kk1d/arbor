@@ -1,7 +1,7 @@
 # Phase 4 — Untyped λ-calculus with de Bruijn indices
 
 **Status:** Scope doc for the fourth prototype.
-**Design context:** `../../design/03-content-addressing.md` (canonicalization, α-equivalence), `../../design/04-naming-layer.md` (namespace, edit-time resolution), `../../design/06-architecture.md` (four-layer decomposition), `../../design/09-roadmap.md:84-107` (Phase 3 — "Untyped λ-calculus with naming and de Bruijn indices").
+**Design context:** `../../design/03-content-addressing.md` (canonicalization, α-equivalence), `../../design/04-naming-layer.md` (namespace, edit-time resolution), `../../design/06-architecture.md` (four-layer decomposition), `../../design/09-roadmap.md:76-95` (Phase 3 — "Untyped λ-calculus with naming and de Bruijn indices").
 **Prototype design lives here:** `docs/prototypes/p4-lambda-calculus/`.
 **Implementation code lives at:** `prototypes/p4-lambda-calculus/`.
 

@@ -111,11 +111,11 @@ the layer where p21 has its commit gate.
 | `Bundle.t` | An array of `(open hash, link)` whose links may use `Self`. Layer tag 4. |
 | `Def.t` | `Simple(open, link) \| Member(bundle, i)`. Layer tag 5. The only index in the system. |
 | `Store.t` | Four populations plus `types`, an **intent** table `(link, slot) → names`, and `dependents` (the reverse index, the one not recomputable by traversal). |
-| `Namespace.t` | Single-valued, per `13-editing-context.md:136`. Aliases are free and cannot affect propagation. |
+| `Namespace.t` | Single-valued, per `13-editing-context.md:135`. Aliases are free and cannot affect propagation. |
 | `Oplog.t` | One append-only log with grouping ids. The three histories are filters over it. |
 
 **Slot order is first occurrence** in a left-to-right traversal — a function of
-structure alone, never of names (`03-content-addressing.md:146`).
+structure alone, never of names (`03-content-addressing.md:142`).
 
 **The intent table is a table rather than a field.** Names must not reach stored
 bytes, but excluding them from a hashed record would mean two authors who wrote

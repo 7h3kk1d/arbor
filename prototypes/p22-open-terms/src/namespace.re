@@ -1,6 +1,6 @@
 /* The namespace — a single-valued map from name to definition hash.
  *
- * Single-valued, per 13-editing-context.md:136 (2026-08-20): "N stays
+ * Single-valued, per 13-editing-context.md:135 (2026-08-20): "N stays
  * single-valued. A name denotes one hash. Where multiplicity is needed it
  * belongs to a family of namespaces ... not to a family of targets inside one
  * namespace."

@@ -60,7 +60,7 @@ let test_alpha_equivalence = () => {
 };
 
 /* Slot order is first occurrence, left to right. It has to be a function of
-   structure alone (03-content-addressing.md:146); this pins which function. */
+   structure alone (03-content-addressing.md:142); this pins which function. */
 let test_slot_order_is_first_occurrence = () => {
   /* f = \n. plus (g n) (h n), mentioning plus, g, h in that order */
   let a = abs(lam("n", app2(v("plus"), app(v("g"), v("n")), app(v("h"), v("n")))));
@@ -308,7 +308,7 @@ let test_replay_ping_pong = () => {
  *
  * I expected this to cost a coincidental non-collapse: two bundle hashes for
  * one symmetric group, depending on which member was written first. It does
- * not, and the reason is 03-content-addressing.md:187-198's automorphism
+ * not, and the reason is 03-content-addressing.md:181-190's automorphism
  * argument arriving at the link layer intact.
  *
  * For ping/pong the members share an open term, and reordering them renumbers

@@ -46,7 +46,7 @@ Resolver substitutes `Name(s)` by looking up the hash in the namespace, calling 
 
 `Namespace.rename` is a convenience wrapping `unbind` + `bind` with error guards (source bound, target free, target not reserved). No atomic primitive is stored or exposed.
 
-**Rationale.** `04-naming-layer.md:93` flagged "rename atomic vs derived" as an open sub-question with implications for history tracking. This prototype does not track history, so derived is the cheap, correct position. The convenience function keeps the interface pleasant.
+**Rationale.** `04-naming-layer.md:180` flagged "rename atomic vs derived" as an open sub-question with implications for history tracking. This prototype does not track history, so derived is the cheap, correct position. The convenience function keeps the interface pleasant.
 
 **Consequence.** If history tracking is added later and rename needs to be a single event, this becomes a decision to revisit.
 

@@ -40,7 +40,7 @@ The Attachment module implements the API sketched in `docs/design/06-architectur
 
 Procedure identity for the eval cache is the literal string `"arith:eval:v1"`. Bumping the version invalidates all eval-cache entries produced by the old evaluator.
 
-**Rationale.** Matches the near-term path in `docs/design/02-definitions-and-derived-data.md:67-71`. Content-addressed procedure identity is deferred per the design doc.
+**Rationale.** Matches the near-term path in `docs/design/02-definitions-and-derived-data.md:60-64`. Content-addressed procedure identity is deferred per the design doc.
 
 **Alternatives considered.** Opaque procedure handles (a `type procedure_id = private ...`). Stringly-typed is simpler and equivalent at this scale; the cache key is opaque to Attachment either way.
 

@@ -108,7 +108,7 @@ Today there is no `patch`, `replace`, `propagate`, or `edit.resolve` command `[v
 
 ### Correction owed to arbor
 
-`../../design/03-content-addressing.md:82` currently lists under "Do not adopt":
+`../../design/03-content-addressing.md:80` currently lists under "Do not adopt":
 
 > **Automatic migration UX (`update`, `patch`, etc.).** When a definition changes, Unison helps users systematically move callers to the new hash. We have no equivalent.
 

@@ -6,19 +6,19 @@ Prototype-specific open items. Distinguishes "positions taken here (see `decisio
 
 These are active stances that resolve previously open sub-questions. Each decision is filed in `decisions.md`; summarized here for cross-reference.
 
-- **Naming scope** (`docs/design/open-questions.md:53`). Single namespace, process-local. Multi-namespace deferred until branching.
-- **Name resolution timing** (`docs/design/open-questions.md:54`). Strictly edit time, via `Resolver.resolve` between parse and ingest. Display-time reverse lookup (hash → names) is a separate, read-only query used by the printer — *not* a resolution event; stored programs are already name-free.
-- **Rename atomic vs derived** (`docs/design/04-naming-layer.md:93`). Derived: `Namespace.rename` is a convenience wrapping unbind + bind with error guards. No stored primitive.
-- **Dangling display** (`docs/design/04-naming-layer.md:94`). Unnamed in-store subterms reconstruct as usual; `<missing h:...>` only for hashes not in the store. Matches p2's fallback behavior.
+- **Naming scope** (`docs/design/open-questions.md:55`). Single namespace, process-local. Multi-namespace deferred until branching.
+- **Name resolution timing** (`docs/design/open-questions.md:58`). Strictly edit time, via `Resolver.resolve` between parse and ingest. Display-time reverse lookup (hash → names) is a separate, read-only query used by the printer — *not* a resolution event; stored programs are already name-free.
+- **Rename atomic vs derived** (`docs/design/04-naming-layer.md:180`). Derived: `Namespace.rename` is a convenience wrapping unbind + bind with error guards. No stored primitive.
+- **Dangling display** (`docs/design/04-naming-layer.md:181`). Unnamed in-store subterms reconstruct as usual; `<missing h:...>` only for hashes not in the store. Matches p2's fallback behavior.
 - **`:list` verbosity with a DAG** (`docs/prototypes/p2-structural-sharing/open-questions.md:27`). Partially addressed — name substitution reduces deep-subterm repetition when bindings exist. Full filtering (only top-level ingested terms) remains deferred.
-- **Namespace vs aspect store fusion** (`docs/design/open-questions.md:55`). Separate modules. Revisit when branching arrives, per design doc guidance.
+- **Namespace vs aspect store fusion** (`docs/design/open-questions.md:59`). Separate modules. Revisit when branching arrives, per design doc guidance.
 
 ## Still open — intentionally deferred
 
 ### Language-layer
 - **`Ref(hash)` as a first-class AST constructor.** This prototype inlines resolved subtrees before ingest. A later prototype would introduce `Ref(hash)` as an AST node and modify the hashing scheme to support it. That's most of the rest of roadmap Phase 2.
 - **Name structure conventions.** Hierarchy (`module.name`), slash-paths, language qualifiers. Substrate treats names as opaque; the editing layer has not picked a convention.
-- **Language-qualified names** (`04-naming-layer.md:92`). Only one language exists in this prototype, so the question does not arise in concrete form.
+- **Language-qualified names** (`04-naming-layer.md:179`). Only one language exists in this prototype, so the question does not arise in concrete form.
 
 ### Namespace semantics
 - **Aliasing disambiguation in display.** The printer uses the alphabetically first name when a hash has multiple bindings. The full alias set is surfaced in `:list`'s brackets and in `:name-of`. Worth revisiting if aliases become common enough to clash visually.
@@ -35,7 +35,7 @@ These are active stances that resolve previously open sub-questions. Each decisi
 
 ### Resolver
 - **Performance.** Each resolve inlines the full deep AST of each bound name. In a deeply-named chain this duplicates work before ingest hash-cons. Fine at this scale; worth measuring if it becomes a concern.
-- **Stale resolution semantics.** When the user types `succ one` after rebinding `one`, resolution uses the *current* namespace (correct by design). If a user wants to re-resolve an older expression to pick up the new binding, they re-type or re-ingest; there is no substrate operation for "re-resolve stored definitions" (that would be "update all callers," which is explicitly an editor operation per `04-naming-layer.md:84`).
+- **Stale resolution semantics.** When the user types `succ one` after rebinding `one`, resolution uses the *current* namespace (correct by design). If a user wants to re-resolve an older expression to pick up the new binding, they re-type or re-ingest; there is no substrate operation for "re-resolve stored definitions" (that would be "update all callers," which is explicitly an editor operation per `04-naming-layer.md:169`).
 
 ### Bootstrap / infrastructure
 - **Test generators with names.** QCheck currently generates name-free `Ast.t` values (carried from p2). A generator that produces `Surface_ast.t` with occasional `Name` leaves and a companion-namespace would exercise the resolver more. Not critical; the deterministic tests already cover the important paths.
