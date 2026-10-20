@@ -1,26 +1,16 @@
 # p21 — Unison's model, on a small typed language
 
-An executable counterpart to `formalism/paper/mini-unison.tex`. The paper states twenty-nine things
-about Unison's content addressing and update scheme; this runs all of them.
+An executable counterpart to `formalism/paper/mini-unison.tex`, which models Unison's content addressing and update scheme. All 49 statements in the paper are mirrored in the sources.
 
-Built from scratch — it is not a fork of p17, and it carries none of the p12–p17 type-abstraction
-line. What it implements instead:
+p21 is built from scratch. It is not a fork of p17 and carries nothing from the p12–p17 type-abstraction line. The object language is the paper's: STLC with `Nat`, `Text` and arrows. What it implements:
 
-- **Component hashing.** A strongly connected component of mutually recursive definitions is hashed
-  as a *unit*, in three steps and **two distinct orderings** — one fixing the de Bruijn indices used
-  while hashing member bodies, one fixing the stored positions that appear in references. When two
-  members are structurally equivalent modulo their references to each other, ingest aborts rather
-  than store an identity that depends on their names.
-- **References are pairs.** `Derived(hash, position)`. The store maps a hash to a *component*, not to
-  a definition. Transparency holds exactly at position 0.
-- **The type is inside the term hash.** A change of signature is a change of identity.
-- **A namespace that is a relation.** One name may denote several referents; conflict is a legal
-  state, and it is the operations that demand its absence.
-- **A watch cache with no invalidation**, keyed by a reference, holding result terms inline.
-- **Update by render-and-reparse.** Dependents are printed back to source, re-parsed, re-typechecked
-  and re-ingested; retargeting happens because a printed *name* resolves against the new namespace.
-  On failure, every name the file bound and every dependent it rendered leaves the namespace, and the
-  source comes back into the buffer.
+- **Component hashing.** A strongly connected component of mutually recursive definitions is hashed as a unit, in three steps with two orderings. One ordering fixes the de Bruijn indices used while hashing member bodies; the other fixes the stored positions that references use. If two members are structurally equivalent apart from their references to each other, ingest aborts, because otherwise the stored identity would depend on their names.
+- **References are pairs**, `Derived(hash, position)`. The store maps a hash to a component. A reference is transparent only at position 0.
+- **The type is inside the term hash.** Changing a signature changes identity.
+- **The namespace is a relation.** One name may denote several referents. Conflict is a legal state; operations that need no conflict check for it.
+- **The watch cache has no invalidation.** It is keyed by reference and holds result terms inline.
+- **Update by render and reparse.** Dependents are printed to source, reparsed, re-typechecked and re-ingested. They retarget because a printed name resolves against the new namespace. On failure, every name the file bound and every dependent it rendered is removed from the namespace, and the source returns to the buffer.
+- **Merge.** Three namespaces over one shared store, with a syntactic hash (`synhash`) as the provenance test.
 
 ```
 scale : Nat -> Nat
@@ -35,73 +25,57 @@ double = \n. scale n
 everything below the fold is inert
 ```
 
-Hashing is **SHA3-512** over Unison's own tagged, length-prefixed token stream — the first prototype
-in the series whose hash function is the modelled system's, since `digestif.ocaml`'s pure-OCaml
-SHA3-512 works under js_of_ocaml. Not byte-compatible with real Unison: the surface language's full
-encoding is not modelled.
+Hashing is SHA3-512 over Unison's tagged, length-prefixed token stream. It is the first prototype in the series to use the modelled system's hash function; `digestif.ocaml`'s pure-OCaml SHA3-512 works under js_of_ocaml. Hashes are not byte-compatible with real Unison, because the full surface encoding is not modelled.
 
 Design and scope: `docs/prototypes/p21-unison-model/00-scope.md`.
 
 ## Status
 
-Implemented end to end:
+Complete. 45 alcotest/qcheck cases, each naming the paper statement it checks.
 
-1. A scratch buffer holding several definitions with their signatures, watch expressions, and a
-   `---` fold below which everything is inert. Re-parsed and re-typechecked every keystroke.
-2. Ingest as a group: resolve against the buffer-shadows-codebase overlay, typecheck the whole group,
-   decompose into SCCs, component-hash in dependency order, store, bind. Nothing is stored until the
-   whole buffer typechecks.
-3. Update with both branches — a successful one that rebuilds dependents, and a failing one that
-   evicts and hands the source back.
-4. Evaluation with a step budget, cached against the expression's reference.
+1. A scratch buffer holds definitions with signatures, watch expressions, and a `---` fold below which everything is inert. It is reparsed and re-typechecked on every keystroke.
+2. Ingest works on the whole group: resolve against the buffer-over-codebase overlay, typecheck, decompose into SCCs, component-hash in dependency order, store, bind. Nothing is stored until the whole buffer typechecks.
+3. Update has both branches: success rebuilds dependents; failure evicts and hands the source back.
+4. Evaluation runs with a step budget and is cached against the expression's reference.
+5. Merge combines three namespaces with a per-name five-way diff, then renders, parses and typechecks against the merged namespace.
 
-Substrate core (the `src/` library, `P21_substrate`):
+## Substrate (`src/`, library `P21_substrate`)
 
-- `hash.re` — SHA3-512 over the token stream; `Tag` / `Nat` / `Text` / `Hashed`, version-prefixed.
+- `hash.re` — SHA3-512 over the token stream (`Tag`, `Nat`, `Text`, `Hashed`), version-prefixed.
 - `reference.re` — `Builtin(text) | Derived(hash, pos)`, and `Referent`.
 - `ty.re` — `Nat | Text | Arrow`, hashed on their own domain-separated layer.
-- `term.re` — the **two grammars**: `Source.t` without references, `Term.t` with them.
-- `abt.re` — term hashing, and `hash_component`: the three steps, both orderings, the side condition.
+- `term.re` — two grammars: `Source.t` without references, `Term.t` with them.
+- `abt.re` — term hashing and `hash_component`: the three steps, both orderings, the side condition.
 - `scc.re` — Tarjan, dependencies first.
-- `store.re` — `Hash ⇀ Component`, plus the dependents index and the transitive closure.
-- `names.re` — the namespace relation, `unconflicted`, and `shadowing`.
-- `watch.re` — `(Hash × Pos) ⇀ Term`, with no invalidation and none needed.
+- `store.re` — `Hash ⇀ Component`, the dependents index and its transitive closure.
+- `names.re` — the namespace relation, `unconflicted`, `shadowing`.
+- `watch.re` — `(Hash × Pos) ⇀ Term`, never invalidated.
 - `typecheck.re`, `eval.re`, `builtins.re` — syntax-directed typing, CBV with a budget, primitives.
-- `resolve.re` — deliberately partial: three of four cases leave a variable.
-- `parse.re`, `lexer.mll`, `parser.mly`, `surface.re` — fail-fast, layout-split stanzas.
+- `resolve.re` — partial: three of four cases leave a variable.
+- `parse.re`, `lexer.mll`, `parser.mly`, `surface.re` — fail-fast parsing, one layout-split stanza at a time.
 - `ppe.re`, `pretty.re` — rendering a stored definition back to source.
 - `slurp.re` — the typed diff between buffer and namespace.
-- `ingest.re`, `update.re` — the group-at-a-time commit, and the five steps.
+- `ingest.re`, `update.re` — group commit and the five update steps.
+- `scratch.re` — the buffer's own state, kept out of `Store`.
+- `synhash.re`, `merge.re` — the syntactic hash and three-way merge.
 
-Run the tests:
+## Running
 
 ```sh
 eval $(opam env --switch=. --set-switch)
 dune build && dune runtest
-```
-
-Run the web app:
-
-```sh
-eval $(opam env --switch=. --set-switch)
 scripts/build-web.sh   # then open public/index.html
 ```
 
-Check that the paper and the prototype still agree on what exists:
+Check that the paper and the prototype agree on which statements exist:
 
 ```sh
 ../../formalism/scripts/check-labels.sh \
   ../../formalism/paper/mini-unison.tex src
 ```
 
-### Known limits
+`_opam` symlinks to `../p7-web-interface/_opam/_opam`. Stack: OCaml 5.2, Reason, dune, Menhir (fail-fast, conflict-free), ppx_deriving, digestif.ocaml, js_of_ocaml, Bonsai, Virtual_dom, Core, ppx_jane, alcotest, qcheck.
 
-No history, branching or merge; no suffix resolution or `lib`-depth priority; no data declarations,
-`unique`-type minting, synhash, abilities or ANF. Names are atomic. Every binding needs a signature —
-the language has no inference. State resets on reload.
+## Known limits
 
-## Build
-
-Local opam switch, shared with p7: `_opam` is a symlink to `../p7-web-interface/_opam/_opam`. OCaml
-5.2 / Reason, dune, Menhir (fail-fast, conflict-free), ppx_deriving, digestif.ocaml, js_of_ocaml,
-Bonsai/Virtual_dom/Core, ppx_jane, alcotest, qcheck.
+No history or branching; no suffix resolution or `lib`-depth priority; no data declarations, `unique`-type minting, abilities or ANF. Names are atomic. Every binding needs a signature, since the language has no inference. State resets on reload.

@@ -1,83 +1,52 @@
 # p12 — Abstract types via editor-enforced opacity
 
-First prototype in the type-abstraction (`docs/design/12-type-abstraction.md`)
-region. Takes the **unbundled** path: abstract types in isolation — no module
-record, no functors, no records-as-signatures. Opacity lives in the **editing
-layer** (an editing context that "opens" abstract types), not at ingest.
+The first prototype of the type-abstraction line (`docs/design/12-type-abstraction.md`). It builds abstract types on their own, with no modules, functors or signatures. Opacity is enforced by the editing layer: an editing context opens abstract types, and the store does no opacity check at ingest.
 
-Design and scope: `docs/prototypes/p12-abstract-types/` (`00-scope.md`,
-`decisions.md`, `open-questions.md`).
+Design and scope: `docs/prototypes/p12-abstract-types/` (`00-scope.md`, `decisions.md`, `open-questions.md`).
 
 ## Status
 
-Complete end-to-end: content-addressed substrate, surface language, CBV
-evaluator, a REPL, and a Bonsai + js_of_ocaml web interface. `dune build` clean;
-`dune runtest` green (5 tests).
+Complete: content-addressed substrate, surface language, CBV evaluator, REPL, and a Bonsai + js_of_ocaml web interface. `dune runtest` passes 8 tests.
 
-Substrate core (the `src/` library, `P12_substrate`):
+The tests cover mint distinctness (`Counter` ≠ `Celsius` over the same `Int`), witness-in-hash (changing the representation changes the type), minimal sealing (`empty`/`incr`/`get` become Seals, `bump2` stays ordinary), external types, sharing of raw bodies (`incr`'s implementation is `Math.inc`), opacity (a consumer in the default context cannot touch the representation), rejection of a bogus Seal at ingest, the derived implementation set, and edit isolation (editing `decr` leaves `bump2` byte-identical).
 
-- `src/hash.re` — BLAKE2B content hashes (carried from p11).
-- `src/mint.re` — deterministic minted marks (counter-sourced, reproducible).
-- `src/tnode.re` — `Int | Bool | Product | Arrow | Opaque{mint, witness}`; content encoding (sort byte `T`).
-- `src/node.re` — term nodes incl. `Ref(Hash)` and `Seal{opens, ty, impl}`; de Bruijn; encoding (sort byte `P`).
-- `src/definition.re` — `Term(Node.t) | Type(Tnode.t)`; leading-byte disambiguation.
-- `src/typecheck.re` — opacity-parameterized checker (`whnf`/`equal_ty` unfold open opaques); `Seal` ingest rule; witness-`normalize`.
-- `src/store.re` — content-addressed ingest; `Type_of` cache; derived `impl_set` scan; no ingest-level opacity.
-- `src/editing_context.re` — open set; `open_type`; minimal-sealing `commit` (ordinary term vs. seal).
+## Substrate (`src/`, library `P12_substrate`)
 
-`test/test_p12.re` proves: Counter≠Celsius (mint distinctness), witness-in-hash (rep change moves the type), minimal sealing (empty/incr/get sealed, `bump2` ordinary), correct external types, raw-body sharing (incr's impl == `Math.inc`), opacity (a default-context consumer cannot touch the representation), bogus-seal rejection at ingest, derived implementation set, and criterion-4 (editing `decr` leaves `bump2` byte-identical).
+- `hash.re` — BLAKE2B content hashes (from p11).
+- `mint.re` — deterministic minted marks, counter-sourced.
+- `tnode.re` — `Int | Bool | Product | Arrow | Opaque{mint, witness}`; sort byte `T`.
+- `node.re` — term nodes, including `Ref(Hash)` and `Seal{opens, ty, impl}`; de Bruijn; sort byte `P`.
+- `definition.re` — `Term(Node.t) | Type(Tnode.t)`, told apart by leading byte.
+- `typecheck.re` — the opacity-parameterized checker (`whnf`/`equal_ty` unfold an opaque only if it is open), the `Seal` ingest rule, witness normalization.
+- `store.re` — ingest, the `Type_of` cache, and the derived implementation-set scan.
+- `editing_context.re` — the open set, `open_type`, and the minimal-sealing `commit`.
 
-Surface + interface layer (built — REPL drives the editing-context model by hand):
+## Surface and interface
 
-- `surface.re` / `surface_ty.re` — surface ASTs (names; no holes).
-- `lexer.mll` / `parser.mly` — trimmed p9 language, fail-fast (Menhir monolithic); no `open`/`seal` keyword.
-- `parse.re` — fail-fast wrappers returning `result`.
-- `namespace.re` — separate `name → hash` table (exact match; reverse index for display).
-- `resolver.re` — names → hashes at edit time; surface → internal (de Bruijn); surface types → registered hashes.
-- `pretty.re` — name-aware type rendering (`Counter.t`, `Counter.t -> Int`); never shows a witness.
-- `eval.re` — CBV evaluator; abstraction erased at runtime (a `Seal` is transparent, abstract values reduce to their representation).
-- `bin/repl.re` — `:abstract` (create + open), `:open` (re-open to extend), `:let` (auto-seal via minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`, bare expr → type + value.
+- `surface.re`, `surface_ty.re` — surface ASTs with names and no holes.
+- `lexer.mll`, `parser.mly`, `parse.re` — a trimmed p9 language; monolithic, fail-fast Menhir. There is no `open` or `seal` keyword.
+- `namespace.re` — `name → hash` with exact matching and a reverse index for display.
+- `resolver.re` — resolves names to hashes at edit time and converts to de Bruijn.
+- `pretty.re` — name-aware rendering (`Counter.t -> Int`). It never shows a witness.
+- `eval.re` — CBV evaluation. Abstraction is erased at runtime; a `Seal` is transparent.
+- `bin/repl.re` — `:abstract` (create and open), `:open` (re-open to extend), `:let` (commit with minimal sealing), `:close`, `:ctx`, `:impl`, `:show`, `:ls`. A bare expression prints its type and value.
 
-Web interface (`web/`, Bonsai + js_of_ocaml; entry `webmain/main.ml`): three panes —
-namespace browser (left), editor + editing-context indicator (center), detail (right).
-The editing context is **browser-driven**: each abstract type carries an "open for edit"
-/ "close" toggle in the namespace tree, and the editor shows the current open set. Binding
-a term shows a live **Normal / SEALED** badge (minimal sealing made visible); the detail
-pane shows an abstract type's derived implementation set. Bootstraps the Counter example
-on load. Substrate is the same `.re` library, untouched.
+The web app (`web/`, entry `webmain/main.ml`) has three panes: namespace browser, editor with the current open set, and detail. Each abstract type has an open/close toggle in the namespace tree. Binding a term shows a live Normal or SEALED badge. The detail pane shows an abstract type's derived implementation set. The Counter example is seeded on load.
 
-Run the REPL:
+## Running
 
 ```sh
 eval $(opam env --switch=. --set-switch)
-dune exec ./bin/repl.exe      # :help for the worked Counter example
-```
-
-Run the web app:
-
-```sh
-eval $(opam env --switch=. --set-switch)
+dune build && dune runtest
+dune exec ./bin/repl.exe      # :help walks through the Counter example
 scripts/build-web.sh          # builds public/p12.js (~26 MB)
 open public/index.html        # no server; state resets on reload
 ```
 
-Decided against (see `docs/prototypes/p12-abstract-types/decisions.md`):
+`_opam` symlinks to `../p7-web-interface/_opam/_opam`. Stack: OCaml ≥ 5.2, Reason, dune ≥ 3.17, Menhir 3.0, ppx_deriving, digestif (BLAKE2B), alcotest, qcheck; Bonsai, Virtual_dom, Core and js_of_ocaml (v0.17) for the web layer only.
 
-- edit-of / mint carry-forward across a representation change. Dies-with-hash instead: soundness rides witness-in-hash, distinctness wants a fresh mark, within-checkout lineage is the namespace; mint-persistence deferred to the collaboration phase. The soundness boundary it implies (old-rep value rejected by new-rep op) is tested.
+## Decided against
 
-Remaining (optional):
+Carrying a mint forward across a representation change (see `decisions.md`). A representation change mints a fresh type instead. Soundness rests on the witness being in the hash, distinctness needs a fresh mark, and lineage within a checkout is the namespace's job. The resulting boundary, where an old-representation value is rejected by a new-representation operation, is tested.
 
-- longest-suffix name resolution (deferred from p9).
-
-## Build
-
-```sh
-eval $(opam env --switch=. --set-switch)   # shared switch (symlinked to p7's)
-dune build && dune runtest
-```
-
-`_opam` symlinks to `../p7-web-interface/_opam/_opam`. Tech stack: OCaml ≥ 5.2,
-Reason, dune ≥ 3.17, Menhir 3.0, ppx_deriving, digestif (BLAKE2B), alcotest /
-qcheck for the substrate; Bonsai / Virtual_dom / Core / js_of_ocaml (v0.17) for
-the web layer only. The `src/` substrate library is wrapped (`P12_substrate`);
-the REPL and tests `open P12_substrate`.
+Deferred: longest-suffix name resolution (from p9).
