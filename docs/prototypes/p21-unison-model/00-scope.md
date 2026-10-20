@@ -5,7 +5,7 @@
 **Prototype design lives here:** `docs/prototypes/p21-unison-model/`.
 **Implementation code lives at:** `prototypes/p21-unison-model/`.
 
-**Thesis.** `mini-unison.tex` states twenty-nine things about Unison. Every one of them is a
+**Thesis.** `mini-unison.tex` states forty-nine things about Unison. Every one of them is a
 property something can be *run against*. p21 is that something: Unison's model — component hashing,
 references as `(hash, position)` pairs, the type inside the term hash, a namespace that is a
 relation, a watch cache with no invalidation, and update-by-render-and-reparse with
@@ -258,10 +258,11 @@ browser are the qcheck round-trip and the hashing algebra.
 
 ## Out of scope
 
-Everything `mini-unison.tex` §1.7 lists, and for the same reasons: the namespace's representation as
-a hashed Merkle tree, `Causal` and history and merge, suffix resolution and the `lib`-depth priority
-rule, data declarations and `unique`-type minting, synhash, abilities, the ANF runtime, and
-serialization. Also: byte-compatibility with real Unison hashes, and any of p12–p17's
+Everything `mini-unison.tex` §"Not modeled" lists, for the same reasons: the namespace's
+representation as a hashed Merkle tree, `Causal` history and common-ancestor computation (merge is
+modelled, with the ancestor given), suffix resolution and the `lib`-depth priority rule, data
+declarations and `unique`-type minting, abilities, the ANF runtime, and serialization.
+Also: byte-compatibility with real Unison hashes, and any of p12–p17's
 `Opaque`/`Seal` machinery.
 
 ## Directory layout
@@ -270,8 +271,9 @@ serialization. Also: byte-compatibility with real Unison hashes, and any of p12�
 src/     hash reference ty term abt scc builtins store names watch
          typecheck ingest eval resolve ppe pretty parse slurp update
          scratch                      — the buffer's own state, kept out of Store
+         synhash merge                — merge over three namespaces sharing one store
          lexer.mll parser.mly surface
-test/    test_p21.re   — 25 cases, each naming the paper statement it checks
+test/    test_p21.re   — 45 cases, each naming the paper statement it checks
 web/     substrate state ops app browser editor detail
 ```
 
