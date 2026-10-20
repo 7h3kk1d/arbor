@@ -4,198 +4,179 @@
 
 ## Purpose
 
-Establish the substrate's name → hash mapping system: how humans work with definitions via identifiers rather than hashes, and how that stays compatible with the content-addressed storage beneath. This doc covers only the substrate mechanism. Higher-level editing UX (scratch buffers, refactoring commands, diff views) belongs to `06-architecture.md` (Interface layer).
+The substrate's name → hash mapping: how people work with definitions through identifiers instead of hashes, compatibly with the content-addressed storage beneath. This doc covers only the substrate mechanism. Editing UX (scratch buffers, refactoring commands, diff views) belongs to the Interface layer in `06-architecture.md`.
 
 ## Scope and posture
 
-Single-user, single-namespace for this phase. The naming layer is structured so that multi-namespace, branching, merging, and history (Unison-style) can be added later without substrate-level refactoring. We are not paying for any of those capabilities now; we are just not foreclosing them.
+Single user, single namespace for this phase. The layer is structured so that multiple namespaces, branching, merging, and history (Unison-style) can be added later without substrate refactoring. None of those is paid for now, and none is foreclosed.
 
 ## Core concept: the namespace
 
 A **namespace** is a first-class object holding name → hash bindings.
 
-- For the current phase there is one namespace. This is not hardcoded as a singleton; the substrate API treats namespaces as objects from the start, so introducing multiple later is additive.
-- A namespace entry is a pair `(name, hash)`. The language of the referenced definition is a property of the definition itself (per `03-content-addressing.md`) and is not part of the namespace entry.
-- Multiple names can point to the same hash (aliases are free).
-- A single name cannot bind to multiple hashes in one namespace. Resolution is deterministic; no ambiguity at this layer.
+- There is one namespace in this phase, but the API treats namespaces as objects from the start, so adding more is additive.
+- An entry is a pair `(name, hash)`. The referenced definition's language is a property of the definition (per `03-content-addressing.md`), not of the entry.
+- Several names can point to one hash, so aliases are free.
+- One name cannot bind several hashes in one namespace. Resolution is deterministic, with no ambiguity at this layer.
 
 ## Names
 
 - Names are **opaque strings** at the substrate level.
-- The substrate does not impose hierarchy, separator conventions, or reserved prefixes. Any structure — dot-paths, slash-paths, tags, language-qualified prefixes — is an editing-layer convention that can vary by interface.
-- This preserves the path to Unison-style hierarchical namespaces later without committing now.
+- The substrate imposes no hierarchy, separator convention, or reserved prefix. Dot-paths, slash-paths, tags, and language-qualified prefixes are editing-layer conventions that may vary by interface.
+- This keeps Unison-style hierarchical namespaces reachable without committing to them.
 
 ## Resolution
 
-- **At edit time.** Name → hash resolution happens when an editor produces a stored program. Stored programs carry only `Ref(hash)`; names are gone by the time anything is persisted.
-- Resolution is a pure function: given a namespace and a name, return a hash or a "not found" result.
-- At display / load time, interfaces may do **reverse lookup** (hash → names) to show human-friendly identifiers. This is also a namespace query.
-- When reverse lookup finds no name for a referenced hash (common after editing), the interface decides how to present the bare hash or an "outdated" marker. The substrate stays out of this.
+- **At edit time.** Name → hash resolution happens when an editor produces a stored program. Stored programs carry only `Ref(hash)`; names are gone before anything is persisted.
+- Resolution is a pure function from a namespace and a name to a hash or "not found".
+- At display or load time, interfaces may do **reverse lookup** (hash → names) to show readable identifiers. This is also a namespace query.
+- When reverse lookup finds no name for a referenced hash, which is common after editing, the interface decides how to show the bare hash or an "outdated" marker. The substrate stays out of it.
 
 ## Mutation
 
 Namespaces are mutable. Operations:
 
-- **Bind** — assign a name to a hash.
-- **Rebind** — change which hash a name points to.
-- **Unbind** — remove a name.
-- **Rename** — unbind one name, bind another to the same hash.
+- **Bind**: assign a name to a hash.
+- **Rebind**: change which hash a name points to.
+- **Unbind**: remove a name.
+- **Rename**: unbind one name and bind another to the same hash.
 
-History of these mutations is not tracked in this phase. Branching eventually requires history; deferred.
+Mutation history is not tracked in this phase. Branching will eventually require it.
 
 ## Interaction with content addressing
 
 The naming layer **never mutates stored programs.** When a name is rebound:
 
 - Existing `Ref(hash)` entries in other definitions are unaffected.
-- Callers remain pinned to their authoring-time hashes.
-- Upgrading a caller to use the new target is an explicit edit action: re-resolve the name, rebuild the caller's AST with the new hash, produce a new hash for the caller, rebind that caller's name to point to the new hash.
+- Callers stay pinned to their authoring-time hashes.
+- Upgrading a caller to the new target is an explicit edit: re-resolve the name, rebuild the caller's AST with the new hash, produce the caller's new hash, and rebind the caller's name to it.
 
-This is the "no silent breakage" property from `03-content-addressing.md`. "Upgrade all callers" is a bulk operation the editing layer may offer; the substrate performs no automatic rewriting.
+This is the "no silent breakage" property from `03-content-addressing.md`. The editing layer may offer "upgrade all callers" as a bulk operation; the substrate performs no automatic rewriting.
 
 ## Relationship to the aspect store
 
-Names live in the namespace, not in the definition-level aspect store from `02-definitions-and-derived-data.md`. The distinction:
+Names live in the namespace, not in the aspect store of `02-definitions-and-derived-data.md`.
 
-- **Aspects** are properties *of* a definition — they follow the definition's identity. Keyed by `(definition-hash, aspect-id)`.
-- **Names** are bindings *to* a definition, organized by namespace — they follow the namespace's identity. Keyed by `name-string`.
+- **Aspects** are properties *of* a definition and follow its identity. Keyed by `(definition-hash, aspect-id)`.
+- **Names** are bindings *to* a definition and follow the namespace's identity. Keyed by name.
 
-Multiple namespaces (future) produce multiple independent name-hash mappings without duplicating the underlying definitions or their aspects. That would be awkward if names were aspects.
+Future multiple namespaces will give independent name → hash mappings without duplicating definitions or their aspects, which would be awkward if names were aspects.
 
-Despite living in separate subsystems, the namespace and the aspect store have **real structural kinship**. Both are stores of assertions linking strings or values to definition hashes; both need bidirectional lookup (name → hash *and* hash → name; aspect-value → hashes *and* hash → aspect-value, as in type-based search); both will accrue per-entry uniqueness invariants that differ by store and aspect. We keep them separate today because the difference in keying direction and invariants is real, and because a unified abstraction would mostly earn its keep around branching and history — which we've deferred. When branching arrives we'll reconsider.
-
-Reverse queries on either system are derivable by scanning; indexing may be added for performance without changing the model.
+The two stores are structurally kin: both relate strings or values to hashes, both need bidirectional lookup, and both will accrue store-specific uniqueness invariants. `02-definitions-and-derived-data.md` §"Kinship with the naming layer" sets this out, along with the deferral of any shared abstraction until branching and history arrive. Reverse queries on either store are derivable by scanning; indexes may be added for performance without changing the model.
 
 ## Future: branching
 
-Unison's central UX contribution is namespace branching and merging: you work in your branch, then merge your changes. We explicitly defer this, but model namespaces as first-class objects so that:
+Unison's central UX contribution is namespace branching and merging: work in a branch, then merge. This is deferred, but namespaces are first-class objects so that:
 
-- Multiple namespaces can coexist without schema changes.
-- Namespace history becomes meaningful when we add branching.
-- Merge operations can be added as namespace-to-namespace operations.
-
-Nothing in the current design forecloses this path; nothing in the current design pays for it either.
+- multiple namespaces can coexist without schema changes;
+- namespace history becomes meaningful once branching exists;
+- merge can be added as a namespace-to-namespace operation.
 
 ### One constraint on that operation, established rather than assumed
 
-`formalism/paper/mini-unison.tex` §7 models Unison's merge and `prototypes/p21-unison-model/src/merge.re`
-runs it. Two results bear directly on the bullet above, and the second is a real constraint on any
-design that takes it up.
+`formalism/paper/mini-unison.tex` §7 models Unison's merge, and `prototypes/p21-unison-model/src/merge.re` runs it. Two results bear on the last bullet above.
 
-**The bullet is right, and cheaper than it sounds.** Merge genuinely is namespace-to-namespace: two
-stores grown independently from a common ancestor union without reconciliation, because the store is
-append-only and keyed by content. The model shares one store across all three namespaces and there is
-no code in it that reconciles stores, because there is nothing for such code to do. Worth knowing
-that this is also *most* of what immutability buys at merge time — everything difficult happens in the
-namespace, which is not content-addressed.
+**Merge is namespace-to-namespace, and that part is cheap.** Two stores grown independently from a common ancestor union without reconciliation, because the store is append-only and keyed by content. The model shares one store across all three namespaces and contains no store-reconciliation code, since there is nothing for it to do. This is also most of what immutability buys at merge time. Everything difficult happens in the namespace, which is not content-addressed.
 
-**A merge whose diff is keyed by name inherits a rename problem.** Unison's diff is a map from names,
-and its test for "did a human write this?" is whether the definition *renders* differently — which is
-name-dependent by construction. That makes propagated updates invisible (the point) and makes renames
-indistinguishable from authorship (the cost). Three failure modes follow, all reproduced: a rename
-plus an edit manufactures a conflict in a definition nobody opened; a rename alone produces no
-conflict but a merge that still fails, because the file is rendered under one branch's names and
-parsed against a namespace holding the other's; and a rename raced by an edit merges *cleanly* and
-silently undoes the rename, because a delete loses to an update and a rename is a delete plus an add.
+**A merge whose diff is keyed by name inherits a rename problem.** Unison's diff is a map from names, and its test for "did a human write this?" is whether the definition renders differently, which is name-dependent by construction. That makes propagated updates invisible, as intended, and makes renames indistinguishable from authorship. Three failure modes follow, all reproduced:
 
-So the design question, if arbor takes up the bullet: a name-keyed diff is the obvious construction
-and it is the one that fails. The alternatives are to key the diff by **referent** — which arbor can
-do and Unison cannot cheaply, since arbor's namespace is a partial function and its reverse index
-already exists — or to carry the **rename relation** as an explicit input to the diff. Unison computes
-that relation (`Merge/Rename.hs`) and, at the pinned commit, passes it to a debug printer; it also
-groups by syntactic hash, so it finds only the renames that carry no edit, which is the case that does
-not conflict. Neither alternative has been designed here. The point of recording it is that the
-cheap construction is known to be wrong before anyone builds it.
+1. A rename plus an edit manufactures a conflict in a definition nobody opened.
+2. A rename alone produces no conflict, but the merge still fails, because the file is rendered under one branch's names and parsed against a namespace holding the other's.
+3. A rename raced by an edit merges cleanly and silently undoes the rename, because a delete loses to an update and a rename is a delete plus an add.
+
+So if arbor takes up merge, the obvious construction, a name-keyed diff, is the one known to fail. The alternatives are to key the diff by **referent**, which arbor can do and Unison cannot cheaply, since arbor's namespace is a partial function and its reverse index already exists; or to pass the **rename relation** to the diff explicitly. Unison computes that relation (`Merge/Rename.hs`) but, at the pinned commit, passes it only to a debug printer. It also groups by syntactic hash, so it finds only renames that carry no edit, which is the case that does not conflict. Neither alternative has been designed here.
 
 ## Threads under exploration
 
-The substrate stance — names as opaque strings, structure deferred — leaves several editing-layer questions on the table. The threads below are open: each sharpens what's actually being asked, surfaces the structural connections that matter, and explicitly stops short of resolution. None has yet been exercised by a prototype.
+With names as opaque strings and structure deferred, several editing-layer questions stay open. Each thread below sharpens the question and its connections and stops short of resolving it. None has been exercised by a prototype.
 
 ### Hierarchical paths
 
-A common convention for organizing names is the dot-delimited path: `data.list.map`, `examples.numbers.factorial`. The thread is *which layer carries the convention*, not whether one exists. Three options:
+Dot-delimited paths are the common convention: `data.list.map`, `examples.numbers.factorial`. The question is which layer carries the convention. Three options:
 
-- **Editing-layer convention only.** Substrate keeps names as opaque strings; specific interfaces choose `.`, `/`, or any other separator. Prefix queries ("list everything under `data.list.*`") are synthesized by the interface scanning the flat namespace. This is the current implicit stance.
-- **Substrate-aware structure, interface rendering.** Substrate exposes paths as `list(string)` (or similar) with prefix-based query primitives. Interfaces pick how to render — `.`, `/`, breadcrumb chips, tree views. Substrate-level operations like prefix-rebind become possible.
-- **Substrate-fixed string format.** A single canonical separator at the substrate level; interfaces are expected to follow.
+- **Editing-layer convention only.** The substrate keeps opaque strings, and interfaces choose `.`, `/`, or another separator. Prefix queries ("everything under `data.list.*`") are synthesized by scanning the flat namespace. This is the current implicit stance.
+- **Substrate-aware structure, interface rendering.** The substrate exposes paths as `list(string)` or similar, with prefix-query primitives, and interfaces choose the rendering: `.`, `/`, breadcrumb chips, tree views. Substrate operations such as prefix-rebind become possible.
+- **Substrate-fixed string format.** One canonical separator at the substrate level, which interfaces follow.
 
-The pivot is what hierarchy is load-bearing for. Display and bulk rename can probably stay in the editing layer over a flat namespace. Branching at sub-namespaces (Unison's "merge `core.math`") plausibly cannot, and would push hierarchy into the substrate. The choice is bound up with when (or whether) namespace branching enters scope.
+The deciding question is what hierarchy is load-bearing for. Display and bulk rename can probably stay in the editing layer over a flat namespace. Branching at sub-namespaces (Unison's "merge `core.math`") probably cannot, and would push hierarchy into the substrate. The choice is tied to when, or whether, namespace branching enters scope.
 
 ### Tags
 
-A second naming-shaped concept: tags. The cardinality differs from names. Names are constrained one-per-string within a namespace — alias-many is permitted in the hash → name direction, but a single name binds to a single hash. Tags would be many-to-many: a tag value (e.g. `deprecated`, `tutorial:chapter-3`) can attach to many hashes, and a hash can carry many tags, with no uniqueness constraint either direction.
+Tags are naming-shaped but have different cardinality. A name binds one hash within a namespace, though a hash may have many names. Tags would be many-to-many: a tag value (e.g., `deprecated`, `tutorial:chapter-3`) can attach to many hashes, and a hash can carry many tags, with no uniqueness either way.
 
-The connection worth surfacing: this looks like an *asserted aspect* (`02-definitions-and-derived-data.md`). The aspect store already keys typed associated data by `(definition-hash, aspect-id)`, and asserted aspects are exactly the shape of human-authored, mutable attachments. A `tag` aspect with a string-valued payload would land in that machinery; reverse queries (`tag-value → hashes`) are the same shape as type-based search, which the aspect store already accommodates.
+That looks like an *asserted aspect* (`02-definitions-and-derived-data.md`). The aspect store already keys typed associated data by `(definition-hash, aspect-id)`, and asserted aspects have the shape of human-authored, mutable attachments. A `tag` aspect with a string payload would fit, and reverse queries (`tag-value → hashes`) have the same shape as type-based search.
 
 Sub-questions if tags fit there:
 
-- **Cardinality on the aspect-store key.** Today's `(hash, aspect-id) → value` keying implies one value per pair. Many-valued aspects (tags or anything similar) need either a list-valued aspect or relaxed key uniqueness. Either way, the choice generalizes beyond tags.
-- **Whether tag values are themselves structured.** `domain:crypto`, `chapter:3` — colon-delimited convention only, or a substrate-recognized tag-namespace? Possibly its own thread.
-- **Whether anything in tags resists the aspect reading.** Interface UX (autocomplete, tag clouds, faceted search) is presumably layerable on top, but worth checking against a concrete need.
+- **Cardinality on the aspect-store key.** `(hash, aspect-id) → value` implies one value per pair. Many-valued aspects need either list-valued aspects or relaxed key uniqueness, a choice that generalizes beyond tags.
+- **Structured tag values.** Is `domain:crypto` or `chapter:3` a colon convention only, or a substrate-recognized tag namespace? Possibly its own thread.
+- **Resistance to the aspect reading.** Interface UX (autocomplete, tag clouds, faceted search) presumably layers on top, but should be checked against a concrete need.
 
-The thread to keep open: is a tag just an asserted aspect, or is there something it needs that aspects don't provide?
+The open question: is a tag just an asserted aspect, or does it need something aspects do not provide?
 
 ### Leaf names independent of path
 
-Suppose one definition (one hash) has two namespace bindings whose final segment matches: `core.math.factorial` and `examples.numbers.factorial`. The intuition is that the leaf name (`factorial`) is what the function is *called*, while the path is where it *lives*. Renaming the leaf in one path could be expected to propagate to the other.
+Suppose one hash has two bindings with the same final segment: `core.math.factorial` and `examples.numbers.factorial`. The intuition is that the leaf (`factorial`) is what the function is called and the path is where it lives, so renaming the leaf in one place might propagate to the other.
 
-Sharpening what this is and isn't:
+What this is and is not:
 
-- Linking by leaf only makes sense for the same hash. Two different definitions that happen to share a leaf segment are coincidentally homonymous and shouldn't be linked.
-- Even for one hash, leaf-linking can be unwanted. A tutorial copy at `examples.factorial` and a production binding at `core.math.factorial` may want to drift — one stays "factorial" for pedagogical reasons while the other becomes `fact`.
-- The analogy to content-addressing is partial. Hashes are stable because they derive from content; leaf names are strings, stable only by discipline. Promoting a leaf to a first-class identity is a modeling choice, not a derivation.
+- Linking by leaf only makes sense for the same hash. Different definitions that share a leaf are coincidental homonyms and should not be linked.
+- Even for one hash, linking can be unwanted. A tutorial copy at `examples.factorial` and a production binding at `core.math.factorial` may drift, one staying "factorial" for teaching while the other becomes `fact`.
+- The analogy to content addressing is partial. Hashes are stable because they derive from content; leaf names are strings, stable only by discipline. Making a leaf a first-class identity is a modeling choice, not a derivation.
 
-Two stances on how to model it:
+Two ways to model it:
 
-- **Leaf as first-class entity.** A leaf carries an identity; path bindings attach paths to a leaf for a given hash. Rename-the-leaf updates all attached paths. New schema; the namespace becomes a 3-way relation rather than a 2-way map.
-- **Bulk-rename UX over today's flat namespace.** No schema change. The interface, on rename of `a.factorial` → `a.fact` for hash `H`, surfaces other bindings of `H` whose leaf is also `factorial` and offers per-binding confirmation.
+- **Leaf as first-class entity.** A leaf has an identity, and path bindings attach paths to a leaf for a given hash. Renaming the leaf updates every attached path. This is a new schema: the namespace becomes a three-way relation instead of a two-way map.
+- **Bulk-rename UX over today's flat namespace.** No schema change. On renaming `a.factorial` → `a.fact` for hash `H`, the interface lists other bindings of `H` whose leaf is `factorial` and asks per binding.
 
-The first promotes a new identity into the substrate; the second keeps the substrate flat and treats leaf-coupling as an editing-layer affordance. Either could be wrong and we wouldn't yet know.
+The first adds an identity to the substrate; the second keeps the substrate flat and treats leaf coupling as an editing affordance. There is not yet evidence for either.
 
 ### Update strategies
 
-When a name is rebound to a new hash, the no-silent-breakage property from §"Interaction with content addressing" means callers of the old hash are not automatically updated. `open-questions.md` §"Update strategies" lists three natural editor strategies — *pin* (never propagate), *follow* (always track latest), *explicit migration* (user-driven rewrite). The synthesis below is exploratory: it recasts those three as points in a 2-axis space, identifies the substrate primitives a real implementation would touch, and is recorded as a working leaning rather than a settled design. No prototype has exercised the cascade primitives yet.
+When a name is rebound, the no-silent-breakage property (§"Interaction with content addressing") means callers of the old hash are not updated. `open-questions.md` §"Update strategies" lists three editor strategies: *pin* (never propagate), *follow* (always track the latest), and *explicit migration* (user-driven rewrite). The synthesis below recasts them as points in a two-axis space and identifies the substrate primitives an implementation would touch. It is a working leaning, not a settled design, and no prototype has exercised the cascade primitives yet.
 
-**Two axes, not three peer strategies.**
+**Two axes.**
 
-- *Scope* — how far updates propagate. None, a chosen subset, or all reachable callers.
-- *User-in-loop* — whether the substrate cascades autonomously, or the user intervenes (to resolve breakage, to pick which call sites participate, or both).
+- *Scope*: how far updates propagate. None, a chosen subset, or all reachable callers.
+- *User-in-loop*: whether the substrate cascades autonomously or the user intervenes, to resolve breakage, to choose call sites, or both.
 
-The three named strategies fall out as points in that space:
+The three strategies are points in that space:
 
-- **Pin.** Scope: none. User-in-loop: no. Rebind the name; *orphan* the old hash — no name resolves to it, but caller content keeps it reachable. Pin reads naturally as the substrate's resting behavior, but it earns the "strategy" name because the user is making an active choice to decline propagation.
-- **Follow.** Scope: all reachable callers. User-in-loop: no. The substrate auto-cascades — for each direct caller of the old hash, substitute the new hash, re-canonicalize, re-typecheck, ingest, rebind the caller's name, recurse. Available cleanly only when a dry-run confirms the whole cascade type-checks end-to-end.
-- **Explicit migration.** Scope: a chosen subset. User-in-loop: yes. The editor surfaces the call-graph reachable from the old hash; the user toggles each site in or out, and resolves whatever breakage the cascade could not handle on its own.
+- **Pin.** Scope none, no user in the loop. Rebind the name and *orphan* the old hash: no name resolves to it, but callers' content keeps it reachable. Pin is the substrate's resting behavior; it counts as a strategy because the user actively declines propagation.
+- **Follow.** Scope all reachable callers, no user in the loop. The substrate cascades: for each direct caller of the old hash, substitute the new hash, re-canonicalize, re-typecheck, ingest, rebind the caller's name, and recurse. Available cleanly only when a dry run confirms the whole cascade type-checks.
+- **Explicit migration.** Scope a chosen subset, user in the loop. The editor shows the call graph reachable from the old hash; the user toggles each site in or out and resolves whatever breakage the cascade could not handle.
 
-The actual UX is hybrid rather than binary: follow runs as far as it can, explicit picks up only the sites it could not. The signal that tells the user up front whether intervention will be required at all is itself a derivable aspect — `follow-clean(h_old, h_new): bool` — which can be cached, and which a type-preserving edit (same `Type_of` on both sides, pure substitution) short-circuits without running the cascade.
+In practice the UX is hybrid: follow runs as far as it can, and explicit migration picks up the sites it could not. Whether intervention will be needed at all is itself a derivable, cacheable aspect, `follow-clean(h_old, h_new): bool`. A type-preserving edit (same `Type_of` on both sides, pure substitution) short-circuits it without running the cascade.
 
 **Substrate primitives this would touch.**
 
 - *Reverse-DAG query*: hash → direct-caller hashes. Implicit in structural sharing today; would become an explicit query.
 - *Atomic multi-rebind*: the cascade commits as a unit so partial states do not leak.
-- *`follow-clean` aspect*: per-(h_old, h_new) cached predicate over the dry-run cascade. Short-circuited by type-preserving edits.
-- *Binding history*: append-only per name, `list((hash, timestamp))`. Optional annotations (commit-message-shaped) layer as aspects on history entries — not built into the entry itself.
+- *`follow-clean` aspect*: a cached predicate per `(h_old, h_new)` over the dry-run cascade, short-circuited by type-preserving edits.
+- *Binding history*: append-only per name, `list((hash, timestamp))`. Optional commit-message-like annotations layer on as aspects of history entries, not as fields of the entry.
 
-**Orphan display depends on binding history.** Under pin, the old hash carries no current name. Rendering it as a bare hash is hostile; rendering it with its prior name plus a disambiguator (`Math.calc#abc`, `Math.calc(v3)`) is informative. That UX makes binding history load-bearing for the interface — not merely a debugging convenience — even though the substrate-level need for history remains modest.
+**Orphan display depends on binding history.** Under pin, the old hash has no current name. Showing a bare hash is hostile; showing its prior name with a disambiguator (`Math.calc#abc`, `Math.calc(v3)`) is informative. That makes binding history load-bearing for the interface, even though the substrate's own need for history stays modest.
 
-**Synonyms.** Two names binding the same hash are independent rows in the namespace; the substrate as currently designed has no built-in notion that they are "the same thing." Whether they should track together under rebind depends on whether the substrate carries identity *across edits*, not merely at a moment. The working leaning (recorded in `10-minted-identity.md` §"Marks that survive content edits") is that a mint mark preserved across edits supplies exactly that identity, and that the mint is best read as the user's *signal* that this term has identity worth preserving — intentional, not automatic. Under that reading, the substrate exposes the grouping (which definitions share mint `m`); the editor uses it or ignores it as appropriate, and "update all bindings of mint `m`" becomes a substrate primitive rather than an editor reconstruction.
+**Synonyms.** Two names bound to one hash are independent namespace rows, and the substrate has no notion that they are the same thing. Whether they should move together on rebind depends on whether the substrate carries identity across edits. The working leaning (`10-minted-identity.md` §"Marks that survive content edits") is that a mint mark preserved across edits supplies that identity, and that the mint is best read as the user's intentional signal that a term has identity worth preserving. The substrate then exposes the grouping (which definitions share mint `m`), the editor uses or ignores it, and "update all bindings of mint `m`" becomes a substrate primitive instead of an editor reconstruction.
 
-**Patch.** A unit of co-dependent edits — the "checked-out context" referenced under `open-questions.md` §"Editing context" — is a natural longer-term home for a *patch*: a set of `(old_hash, new_hash, name?)` triples plus per-pair strategy and any explicit transformations. Whether such a patch is itself content-addressed is left to a later prototype. For now it can sit as the editor's working set — promote it only when a real use forces the question.
+**Patch.** A unit of co-dependent edits, the "checked-out context" of `open-questions.md` §"Editing context", is a natural longer-term home for a *patch*: a set of `(old_hash, new_hash, name?)` triples plus a strategy per pair and any explicit transformations. Whether a patch is itself content-addressed is left to a later prototype. For now it can be the editor's working set, promoted only when a real use forces the question.
 
 ## Non-goals (current phase)
 
 - Namespace branching, merging, diffing.
-- Namespace history / time-travel.
+- Namespace history and time travel.
 - Multi-user or shared namespaces.
-- Automated "update all callers" when a name is rebound. Provided as an editor action, not a substrate guarantee.
-- Hash-qualified names as a disambiguation device (Unison's `f#h1a2b3` convention — a name plus a hash prefix, used to pick one of several referents). Our substrate namespace is unambiguous by construction; ambiguity handling can wait. *(Description corrected 2026-08-07. This bullet previously read "suffix-based name disambiguation (Unison's `f.h1a2b3` convention)," which conflated two unrelated mechanisms and contradicted the prototypes. **Hash-qualification** is the non-goal above. **Suffix resolution** — writing `map` for `base.List.map` when the suffix is unambiguous — is a different mechanism, and p9, p10, and p17 all implement it, with a distinct `Ambiguous` error; see `../prototypes/p9-typed-namespaces/00-scope.md`. Unison's version is richer than any of them: three suffixification strategies chosen by context, plus a dependency-depth priority rule under which names nested deeper below `lib` lose ties, so `lib.base.List.map` wins over `lib.something.lib.base.Set.map` for the bare suffix `map`. arbor has no equivalent of that rule and will want one once namespaces carry vendored dependencies. `../systems/unison/03-namespace-and-history.md` §"Suffix resolution".)*
+- Automatic "update all callers" on rebind. Offered as an editor action, not a substrate guarantee.
+- Hash-qualified names as a disambiguation device (Unison's `f#h1a2b3`: a name plus a hash prefix, used to pick one of several referents). The substrate namespace is unambiguous by construction, so ambiguity handling can wait.
+
+Until 2026-08-07 the last bullet read "suffix-based name disambiguation (Unison's `f.h1a2b3` convention)", which conflated two mechanisms and contradicted the prototypes. **Suffix resolution**, writing `map` for `base.List.map` when the suffix is unambiguous, is a different mechanism, and p9, p10, and p17 all implement it with a distinct `Ambiguous` error (see `../prototypes/p9-typed-namespaces/00-scope.md`). Unison's version is richer: three suffixification strategies chosen by context, plus a dependency-depth priority rule under which names nested deeper below `lib` lose ties, so `lib.base.List.map` beats `lib.something.lib.base.Set.map` for the bare suffix `map`. arbor has no such rule and will want one once namespaces carry vendored dependencies. `../systems/unison/03-namespace-and-history.md` §"Suffix resolution".
 
 ## Open sub-questions
 
 Tracked in `open-questions.md` under "Naming layer."
 
-- **Name structure.** Substrate default is opaque strings. Three sub-threads sharpened in *Threads under exploration* above: hierarchical paths, tags, leaf-names independent of path. Language-qualified prefixes remain a separate un-elaborated thread.
-- **Language-qualified names.** If two languages want to use the same logical name (e.g., `factorial`), do we expect the editing layer to scope names per language, or to present a cross-language search that disambiguates by language?
-- **Rename as an explicit operation.** Is rename atomic at the substrate level (one op) or derived (unbind + bind)? Matters for future history tracking.
-- **Handling dangling references on display.** When a caller references a hash that has no current name, what's the default interface behavior? Probably surface the hash with a "prior version" marker, but this is UX.
-- **When multiple namespaces arrive.** What's the data model — separate objects, forking, a namespace graph? Deferred until branching is actually on the table.
+- **Name structure.** The substrate default is opaque strings. Three sub-threads are sharpened under *Threads under exploration*: hierarchical paths, tags, and leaf names independent of path. Language-qualified prefixes are a separate, unelaborated thread.
+- **Language-qualified names.** If two languages want the same logical name (e.g., `factorial`), should the editing layer scope names per language, or present a cross-language search that disambiguates by language?
+- **Rename as an explicit operation.** Is rename atomic at the substrate level, or derived (unbind + bind)? This matters for future history tracking.
+- **Dangling references on display.** When a caller references a hash with no current name, what should interfaces do by default? Probably show the hash with a "prior version" marker, but this is UX.
+- **Multiple namespaces.** Separate objects, forking, a namespace graph? Deferred until branching is on the table.
