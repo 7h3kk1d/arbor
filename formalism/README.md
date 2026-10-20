@@ -1,40 +1,39 @@
 # arbor — formalism
 
-A mathematical formalism of the arbor substrate, developed the way the prototypes are:
-**start small, work up.** The first artifact, `arbor-core`, formalizes the untyped
-λ-calculus fragment of the substrate together with its three stores and an edit calculus.
-The second, `arbor-stlc`, adds simple types as a delta document over it. A third, `mini-unison`,
-is not a rung at all — it models *another system* so arbor's choices have something precise to be
-different from.
+A mathematical formalism of the arbor substrate, developed the way the prototypes are: start small,
+work up. The first artifact, `arbor-core`, formalizes the untyped λ-calculus fragment of the
+substrate with its three stores and an edit calculus. The second, `arbor-stlc`, adds simple types as
+a delta document over it. A third, `mini-unison`, is not a rung: it models another system, so that
+arbor's choices can be compared against something precise.
 
-This directory is a first-class, *enduring* artifact (like `docs/design/`), distinct from the
-disposable `prototypes/`. Where a design doc argues in prose and a prototype demonstrates in
-code, the formalism states — precisely, and increasingly machine-checked — *what the substrate
-guarantees and why content-addressing earns its complexity.* Both of `arbor-core`'s headline
-theorems are now proved in Agda; see [Mechanization](#mechanization).
+This directory is an enduring artifact, like `docs/design/`, distinct from the disposable
+`prototypes/`. A design doc argues in prose and a prototype demonstrates in code; the formalism
+states precisely, and increasingly machine-checked, what the substrate guarantees and why content
+addressing is worth its complexity. Both of `arbor-core`'s headline theorems are proved in Agda; see
+[Mechanization](#mechanization).
 
 ## What `arbor-core` covers
 
 One content-addressed **term store** `Σ`, one **namespace** `N` (name → hash), one derived
-**evaluation cache** `E`, and an **edit calculus** (bind / rebind / unbind / explicit
-migration) operating on the configuration `⟨Σ, N, E, H⟩` (`H` = append-only binding history).
-The store carries **no definition sort**: naming a closed stored term is the only assertion of
-definition-hood, and migration is a **whole-store structural rewrite** — names follow their
-hashes (unit-scoped following would need mints, which this artifact defers).
+**evaluation cache** `E`, and an **edit calculus** (bind / rebind / unbind / explicit migration) over
+the configuration `⟨Σ, N, E, H⟩`, where `H` is the append-only binding history. The store has no
+definition sort: naming a closed stored term is the only assertion of definition-hood. Migration is a
+whole-store structural rewrite in which names follow their hashes. Unit-scoped following would need
+mints, which this artifact defers.
 
-The document is built around two dual metatheorems, both consequences of one fact —
-`eval` is a pure function of `(Σ, hash)` and `Σ` is immutable and monotone:
+The document is built around two dual metatheorems. Both follow from one fact: `eval` is a pure
+function of `(Σ, hash)`, and `Σ` is immutable and monotone.
 
-- **No silent breakage** — editing names never changes the meaning of a stored term.
-- **Evaluation stability / no re-evaluation** — a once-computed result is valid in every future
-  store; migration re-evaluates only genuinely new definitions.
+- **No silent breakage.** Editing names never changes the meaning of a stored term.
+- **Evaluation stability / no re-evaluation.** A computed result is valid in every future store;
+  migration re-evaluates only new definitions.
 
-See `paper/arbor-core.tex` §1 for the full scope statement and the deferred list.
+`paper/arbor-core.tex` §1 has the full scope statement and the deferred list.
 
 ## Relationship to the rest of the repo
 
-The formalism is faithful to two prototypes and two design docs; every definition in the paper
-cites its source of truth by path:
+The formalism follows two prototypes and two design docs, and every definition in the paper cites its
+source of truth by path:
 
 | Formal object | Source of truth |
 | --- | --- |
@@ -49,90 +48,92 @@ cites its source of truth by path:
 | Content-addressed types, hash-valued `Type_of` (arbor-stlc) | `prototypes/p9-typed-namespaces/src/{node,ty,definition,typecheck}.re` |
 | Clean oracle / dry run, migration report (arbor-stlc) | `prototypes/p11-mint-threads/src/{follow_clean,update_strategy}.re` |
 
-Two deliberate generalizations of the prototypes are recorded in `decisions.md`: the formalism
-**reintroduces `Ref(hash)`** (which p4 elided by inlining), and **drops the mint/thread axis**
-(p10/p11) and **types** (p9 line) from this first artifact. The gate p11 implements as a
-typecheck becomes an untyped gate that is in fact **total** — Follow cannot fail here. A third
-block of commitments (2026-07-30, from the first design review and revised the same day) added
-premises on the `Ingest`/`Bind`/`Rebind` transitions, a **ref-acyclicity** clause in `wf`, and
-the **no-definition-sort** stance (a briefly-introduced explicit root set `R` was retracted as
-mint-flavored; migration became the whole-store rewrite) — see `decisions.md`.
+`decisions.md` records where the formalism generalizes the prototypes. It reintroduces `Ref(hash)`,
+which p4 elided by inlining. It drops the mint/thread axis (p10/p11) and types (p9 line) from the
+first artifact. The gate p11 implements as a typecheck becomes an untyped gate that is total: Follow
+cannot fail here. The 2026-07-30 entries, from the first design review and revised the same day, add
+premises on the `Ingest`/`Bind`/`Rebind` transitions, a ref-acyclicity clause in `wf`, and the
+no-definition-sort stance. A briefly introduced explicit root set `R` was retracted as mint-flavored,
+and migration became the whole-store rewrite.
 
 ## What `arbor-stlc` covers
 
-The STLC rung (`paper/arbor-stlc.tex`), a **delta document**: it restates only what changes
-and cites arbor-core (via `xr-hyper`; external references render "arbor-core Definition
-N.M"). It adds simple types per p6 with **content-addressed types** per p9's extension (the
-store becomes two-sorted; a `Lam` carries a type hash; type equality = hash equality), a
-syntax-directed typing judgment with a new **T-Ref** rule (p6 inlines references; the rule is
-new formal content), and a second derived aspect `Θ` (hash-valued `TypeOf`). Nothing is
-gated on types — store *and namespace* stay permissive; typing is observational. Headline
-results: **local soundness** (a well-typed term evaluates safely amid ill-typed neighbors),
-**residual exactness** (migration commits and reports exactly the names it broke — the
-"continue the refactor" list, with a standing `broken` query), **type-preserving migration is
-total** (same type at the seed ⟹ empty residual under every scope), and the **clean oracle**
-(decidable ahead of time, but *not* stable under store growth — exposing an unsound cache in
-p11's `follow-clean:v1`). Sources: `decisions.md` 2026-07-30 (arbor-stlc entry).
+The STLC rung (`paper/arbor-stlc.tex`) is a delta document. It restates only what changes and cites
+arbor-core via `xr-hyper`; external references render as "arbor-core Definition N.M". It adds:
+
+- simple types per p6, with content-addressed types per p9's extension (the store becomes two-sorted,
+  a `Lam` carries a type hash, and type equality is hash equality);
+- a syntax-directed typing judgment with a new **T-Ref** rule (p6 inlines references, so the rule is
+  new formal content);
+- a second derived aspect `Θ`, the hash-valued `TypeOf`.
+
+Nothing is gated on types. Store and namespace stay permissive, and typing is observational. Headline
+results:
+
+- **Local soundness.** A well-typed term evaluates safely amid ill-typed neighbors.
+- **Residual exactness.** Migration commits and reports exactly the names it broke, the "continue the
+  refactor" list, with a standing `broken` query.
+- **Type-preserving migration is total.** Same type at the seed ⟹ empty residual under every scope.
+- **The clean oracle** is decidable ahead of time but not stable under store growth, which exposes an
+  unsound cache in p11's `follow-clean:v1`.
+
+Source: `decisions.md` 2026-07-30 (arbor-stlc entry).
 
 ## What `mini-unison` covers — and why it is not a rung
 
-`paper/mini-unison.tex` is a **contrast artifact**. It formalizes Unison's content addressing and
-update scheme, faithful to the implementation at commit `db60ce2`, and proposes nothing. It exists
-because Unison is the system arbor is closest to, it has **no publication**, and every "arbor
-differs because…" claim in `docs/` was therefore being made against prose rather than against a
-stated design.
+`paper/mini-unison.tex` is a contrast artifact. It formalizes Unison's content addressing and update
+scheme, faithful to the implementation at commit `db60ce2`, and proposes nothing. Unison is the system
+arbor is closest to and has no publication, so every "arbor differs because…" claim in `docs/` was
+being made against prose instead of a stated design.
 
-Scope: a small object language (untyped λ + `Nat`/`Text` + simple types — typed because Unison's
-`update` re-typechecks, and the interesting half of `update` is what happens when that *fails*);
-components and `(Hash, Pos)` references; reference transparency; the type inside the term hash;
-names as a relation; the watch cache; and `update` as render/parse/typecheck with eviction on
-failure. Deferred, and listed in the paper's §1.4: the namespace's Merkle representation, `Causal`
-history, branching and merge, suffix resolution, data declarations and minting, synhash.
+Scope: a small object language (untyped λ + `Nat`/`Text` + simple types, typed because Unison's
+`update` re-typechecks and the interesting half of `update` is what happens when that fails);
+components and `(Hash, Pos)` references; reference transparency; the type inside the term hash; names
+as a relation; the watch cache; and `update` as render/parse/typecheck with eviction on failure.
+Deferred, and listed in the paper's §1.4: the namespace's Merkle representation, `Causal` history,
+branching and merge, suffix resolution, data declarations and minting, synhash. (Merge and synhash
+have since been added as §7; see `decisions.md` 2026-09-03.)
 
-Three results are worth knowing:
+Three early results:
 
-- **Presentation-independence of component hashing is *conditional*.** When two members of a cycle
-  are structurally equivalent modulo intra-cycle references, the component's hash depends on the
-  members' **names**. The condition is decidable, and the implementation aborts rather than store a
-  name-dependent hash — which is a stronger position than the "it's a partial function" reading the
-  source read had recorded.
-- **Reference transparency holds exactly at `Pos = 0`.** Non-head cycle members hash opaquely.
-  Transparency and the component model are not independent features.
-- **Unison's `update` rests on print-then-parse preserving hashes**, a property it never states and
-  maintains with a golden-file corpus named `reparses-with-same-hash.u`. That property is
-  `arbor-core`'s `prop:print-elab`, proved.
+- **Presentation-independence of component hashing is conditional.** When two members of a cycle are
+  structurally equivalent modulo intra-cycle references, the component's hash depends on the members'
+  names. The condition is decidable, and the implementation aborts instead of storing a
+  name-dependent hash. That is stronger than the "partial function" reading the source read had
+  recorded.
+- **Reference transparency holds only at `Pos = 0`.** Non-head cycle members hash opaquely, so
+  transparency and the component model are not independent features.
+- **Unison's `update` rests on print-then-parse preserving hashes.** Unison never states this property
+  and maintains it with a golden-file corpus, `reparses-with-same-hash.u`. It is `arbor-core`'s
+  `prop:print-elab`, proved.
 
-Two of these corrected `docs/systems/unison/02-store-and-hashing.md`, which is the point of the
-exercise: formalizing another system's design is a way of *reading* it, and it finds different
-things than reading it as prose does.
+Two of these corrected `docs/systems/unison/02-store-and-hashing.md`. Formalizing another system's
+design is a way of reading it, and it finds different things than prose reading does.
 
-**`mini-unison` is paper-only.** It is deliberately outside the Agda discipline — `make check`,
-`make status` and `make labels` are pointed at `arbor-core` and `arbor-stlc` and should stay that
-way, so a green build is never taken to say anything about this document.
+**`mini-unison` is paper-only.** It is outside the Agda discipline. `make check`, `make status` and
+`make labels` target `arbor-core` and `arbor-stlc` and should stay that way, so a green build is never
+read as saying anything about this document.
 
 ## Mechanization
 
-`arbor-core` is largely machine-checked (Agda 2.7.0, `agda-stdlib` 2.1): **17 of the
-paper's 18 statements**, including both headline theorems — *no silent breakage* and
-*evaluation stability* — plus coherence preservation, history coherence, α-collapse,
-monotonicity, cache soundness, incrementality, the fuel/⇓ bridge, and the naming
-round-trips, and `cor:transfer` — the sharing property a commons needs, which turned out
-to be `thm:stability`'s proof verbatim, stated too narrowly. M3 is under way: **ρ itself is now defined** (well-founded recursion on
-the reference graph, with `def:cascade`'s seed clause proved), and what remains is
-registering its image and re-establishing `wf` for the rewritten store — the latter
-blocked on the fact that ρ is not injective, so acyclicity does not transfer along it
-and the registration order has to be made explicit. `arbor-stlc` is M4.
+`arbor-core` is machine-checked in Agda 2.7.0 with `agda-stdlib` 2.1: **17 of the paper's 18
+statements**. These include both headline theorems (no silent breakage, evaluation stability),
+coherence preservation, history coherence, α-collapse, monotonicity, cache soundness, incrementality,
+the fuel/⇓ bridge, the naming round-trips, and `cor:transfer`, the sharing property a commons needs,
+whose proof is `thm:stability`'s verbatim. M3 is done: ρ is constructed by well-founded recursion on
+the reference graph, its image registered and `wf` re-established for the rewritten store
+(`decisions.md` 2026-08-07). Only `lem:cascade-order` remains, deferred and no longer a prerequisite.
+`arbor-stlc` is M4, now under way on a signature-generic store layer (`agda/README.md`).
 
-Mechanizing turned up four gaps in the paper, now fixed there: `lem:closed-no-stuck`
-was **false** as stated (there is a machine-checked counterexample), which in turn
-forced a missing closedness premise onto the `Eval` transition; `thm:mono` tacitly
-assumed the store is keyed by hash; and two hypotheses elsewhere are redundant.
+Mechanizing found four gaps in the paper, now fixed there. `lem:closed-no-stuck` was false as stated
+(there is a machine-checked counterexample), which forced a missing closedness premise onto the `Eval`
+transition. `thm:mono` tacitly assumed the store is keyed by hash. Two hypotheses elsewhere are
+redundant.
 
-The whole library checks under `agda --safe` with **no postulates**: the paper's one axiom
-(★) is a field of a record the development is parameterized over, and a consistency witness
-for that record is exhibited, so no proved statement is vacuous. Statements not yet proved
-are named types with no inhabitant, which is why a green build cannot be mistaken for a
-complete one — and why nothing can quietly lean on an unproved lemma.
+The library checks under `agda --safe` with no postulates. The paper's one axiom (★) is a field of a
+record the development is parameterized over, and a consistency witness for that record is exhibited,
+so no proved statement is vacuous. Unproved statements are named types with no inhabitant, so a green
+build cannot be mistaken for a complete one and nothing can lean on an unproved lemma.
 
 ```sh
 cd formalism/agda
@@ -141,12 +142,11 @@ make status    # proved / open / deferred, per paper label
 make labels    # paper labels with no counterpart in the Agda sources
 ```
 
-`make labels` is the anti-drift check: it diffs the paper's `\label{}`s against `(label)`
-mentions in the Agda sources. It exists because the two artifacts had drifted badly —
-`agda/README.md` sat unchanged across the whole `arbor-stlc` landing, and both it and
-`decisions.md` went on indexing theorems as `T1`–`T8`, a numbering neither paper uses.
-Paper labels are now the only names. See `agda/README.md` for the status table and the
-representation choices, and `decisions.md` 2026-08-05 for why each was made.
+`make labels` is the anti-drift check. It diffs the paper's `\label{}`s against `(label)` mentions in
+the Agda sources. It exists because the two artifacts had drifted: `agda/README.md` sat unchanged
+through the `arbor-stlc` landing, and both it and `decisions.md` indexed theorems as `T1`–`T8`, a
+numbering neither paper uses. Paper labels are now the only names. `agda/README.md` has the status
+table and representation choices; `decisions.md` 2026-08-05 has the reasons.
 
 ## Building the paper
 
@@ -181,5 +181,5 @@ formalism/
   agda/
     README.md          # status table, representation choices, milestones
     Everything.agda    # the --safe check target
-    Arbor/             # Prelude, Hash, NodeSig + Core/ (the untyped λ instance)
+    Arbor/             # Prelude, Hash, Sig, NodeSig, Generic/, Core/ (untyped λ), Stlc/
 ```

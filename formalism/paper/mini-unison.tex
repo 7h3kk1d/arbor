@@ -64,33 +64,32 @@
 \maketitle
 
 \begin{abstract}
-Unison is a programming language whose codebase is content-addressed: a definition is identified by
-the hash of its syntax, names are metadata attached to hashes rather than part of the code, and a
-computed result is cached against a hash and never invalidated. These properties are widely cited.
-As far as we can determine they have never been formally stated, and Unison has no peer-reviewed
-publication, so the implementation is the only citable description of what it guarantees.
+Unison is a programming language whose codebase is content-addressed. A definition is identified by
+the hash of its syntax, names are metadata attached to hashes, and a computed result is cached
+against a hash and never invalidated. These properties are widely cited. As far as we can determine
+they have never been formally stated, and Unison has no peer-reviewed publication, so the
+implementation is the only citable description of what it guarantees.
 
-This document states them. We give a small object language --- the simply-typed $\lambda$-calculus
-with $\TNat$ and $\TText$ --- and model, faithfully to the implementation at a pinned commit: hashing a strongly connected component of mutually recursive definitions; references as
+This document states them. Over a small object language, the simply-typed $\lambda$-calculus with
+$\TNat$ and $\TText$, we model the following, faithfully to the implementation at a pinned commit:
+hashing a strongly connected component of mutually recursive definitions; references as
 $(\mathit{hash}, \mathit{position})$ pairs; reference transparency; the type inside the term hash;
-the namespace as a relation in which conflicts are representable; the watch cache; and
-\texttt{update}, which propagates an edit by rendering dependents to source, re-parsing, and
-re-typechecking them; and \texttt{merge}, which reconciles two independently edited namespaces by
-comparing a second hash computed from names rather than from content.
+the namespace as a relation in which conflicts are representable; the watch cache; \texttt{update},
+which propagates an edit by rendering dependents to source, re-parsing and re-typechecking them; and
+\texttt{merge}, which reconciles two independently edited namespaces by comparing a second hash
+computed from names instead of content.
 
-Four of the results are, we think, not obvious from reading the source. Two are about what a hash
-identifies: whether the identity of a group of mutually
-recursive definitions can depend on what its members are \emph{named}, and whether the
-interchangeability a hash is supposed to confer applies to every member of such a group or only to
-one. Two are about what happens when names are attached back onto hashes: \texttt{update} is correct
-only if printing a definition and parsing it back preserves its hash --- an obligation the
-implementation maintains by testing rather than by stating --- and \texttt{merge} distinguishes a
-human's edit from an automatic rebuild by asking whether the definition \emph{looks} different, which
-leaves renaming indistinguishable from authorship.
+Four results are, we think, not obvious from the source. Two concern what a hash identifies: whether
+the identity of a mutually recursive group can depend on what its members are \emph{named}, and
+whether the interchangeability a hash confers applies to every member of such a group or only to one.
+Two concern what happens when names are attached back onto hashes. \texttt{update} is correct only if
+printing a definition and parsing it back preserves its hash, an obligation the implementation
+maintains by testing and never states. \texttt{merge} distinguishes a human's edit from an automatic
+rebuild by asking whether the definition \emph{looks} different, so a rename is indistinguishable
+from authorship.
 
 A closing section compares the design with \emph{arbor}, a content-addressed substrate the authors
-are developing, for which a companion formalization exists. That section is the only place arbor
-appears; the rest of the document is about Unison alone.
+are developing, for which a companion formalization exists. Arbor appears nowhere else.
 \end{abstract}
 
 \tableofcontents
@@ -101,221 +100,196 @@ appears; the rest of the document is about Unison alone.
 \subsection{What Unison does differently}
 
 In a conventional language a definition is identified by its name and located in a file. In Unison a
-definition is identified by the hash of its own syntax, with names --- of its binders and of the
-other definitions it mentions --- playing no part in that identity. The consequences that follow are
-the system's design:
+definition is identified by the hash of its own syntax. Names, of its binders and of the definitions
+it mentions, play no part in that identity. Three consequences follow:
 
 \begin{itemize}[nosep]
-  \item \textbf{Names are metadata.} Renaming a definition does not change it, because its identity
-        never mentioned the name: nothing is rebuilt and no cached result is invalidated. That is
-        true of the machinery only --- a rename is also the one action that can hand someone a merge
-        conflict in code they never opened (\cref{sec:umerge}).
-  \item \textbf{Definitions are immutable.} ``Editing'' one produces a new hash and so a new
-        definition, and \texttt{update} rebuilds every dependent, transitively, into new definitions
-        too (\cref{sec:uupdate}). The old ones are left alone, still meaning what they meant.
+  \item \textbf{Names are metadata.} Renaming a definition does not change it, so nothing is rebuilt
+        and no cached result is invalidated. This holds of the machinery only: a rename is also the
+        one action that can hand someone a merge conflict in code they never opened
+        (\cref{sec:umerge}).
+  \item \textbf{Definitions are immutable.} Editing one produces a new hash and so a new definition,
+        and \texttt{update} rebuilds every dependent, transitively, into new definitions too
+        (\cref{sec:uupdate}). The old ones still mean what they meant.
   \item \textbf{Caches need no invalidation.} A computed value is stored against the hash of the
-        expression that produced it. Since that hash denotes one fixed expression forever, the entry
+        expression that produced it. That hash denotes one fixed expression forever, so the entry
         cannot go stale.
 \end{itemize}
 
-Mutually recursive definitions are the exception that shapes everything in \cref{sec:ustore}. A
-member of a cycle cannot carry its neighbours' hashes, because computing any of them requires all of
-them; so a cycle is hashed as a \emph{unit}, with its internal references standing as indices rather
-than hashes. That single exception is why the store maps hashes to components rather than to
-definitions, why a reference is a pair, and why \cref{def:comphash} needs a canonical ordering at
-all.
+Mutually recursive definitions shape everything in \cref{sec:ustore}. A member of a cycle cannot
+carry its neighbours' hashes, because computing any of them requires all of them. A cycle is
+therefore hashed as a unit, with its internal references standing as indices. This is why the store
+maps hashes to components, why a reference is a pair, and why \cref{def:comphash} needs a canonical
+ordering.
 
-The mechanism that makes this work also creates the rest of the problems the system has to solve, and
-those are what this document is mostly about: names have to be reattached to hashes when code is
-displayed, and propagating an edit to the code that depends on it is not a rename but a rebuild.
+Most of this document concerns the problems content addressing creates: names have to be reattached
+to hashes when code is displayed, and propagating an edit to its dependents is a rebuild, not a
+rename.
 
 \subsection{Why formalize it}
 
-Unison's claims about identity, immutability and caching are stated in its documentation and blog
-posts as design intent. What is not available anywhere is a statement of them precise enough to
-check, or to compare against another design --- what exactly is being identified with what, under
-which conditions, and what has to hold for the conclusions to follow. Absent a publication, the
-implementation is the specification, and the implementation is roughly 161{,}000 lines of Haskell.
+Unison's documentation and blog posts state its claims about identity, immutability and caching as
+design intent. No statement of them exists that is precise enough to check or to compare against
+another design: what is identified with what, under which conditions, and what has to hold for the
+conclusions to follow. Absent a publication, the implementation is the specification, and it is
+roughly 161{,}000 lines of Haskell.
 
-We wrote this in order to compare Unison with a system we are building (\cref{sec:contrast}), and it
-proved worth writing on its own terms. Several of the observations below --- the position-$0$
-boundary of \cref{prop:transparent}, the two orderings of \cref{rem:twoorders}, the three
-representations of \cref{rem:unhash} --- concern behaviour the code fixes precisely but which no
-prose description we have found states. Writing down what a system does, in a form precise enough to
-prove things about, turns out to be a different activity from reading it, and to surface different
-things.
+We wrote this to compare Unison with a system we are building (\cref{sec:contrast}). Several
+observations below concern behaviour the code fixes but no prose description we have found states:
+the position-$0$ boundary of \cref{prop:transparent}, the two orderings of \cref{rem:twoorders}, and
+the three representations of \cref{rem:unhash}.
 
 \subsection{Summary of results}\label{sec:summary}
 
-The cross-references are for finding a statement afterwards; nothing here needs them to be read.
+Cross-references are for locating a statement later; this section reads without them.
 
-\textbf{What a hash identifies.} Hashing a definition identifies it up to renaming of its bound
-variables and up to rotation of a recursive cycle, and no further --- two definitions that compute the
-same thing by different means stay distinct. But the identity of a recursive \emph{group} is only
-conditionally independent of how it was written down. The construction orders the group's members and
-uses their positions as indices, and when two members are indistinguishable except for which one they
-call, the ordering has nothing to break the tie with and falls back on what the members are
-\emph{named}. Unison detects that case and refuses to store such a hash --- at the top level. One
-nesting level down, inside a \texttt{let rec}, the same detection runs and its result is discarded, so
-the enclosing definition's identity silently depends on which of the two bindings was typed first.
-The construction computes \emph{two} different orderings of the same group, one fixing the indices
-used while hashing and one fixing the positions stored in references. And the interchangeability a
-hash is supposed to confer --- substitute anything with the same hash, get the same enclosing hash ---
-applies only to the member at position $0$; every other member is referenced opaquely, so reference
-transparency and the group-hashing model are not independent features. A cyclic definition is not
-stored in the form that was hashed: its
-self-references carry no hash at all, and an explicit inverse bridges the two forms.
+\textbf{What a hash identifies.} Hashing a definition identifies it up to renaming of bound variables
+and rotation of a recursive cycle, and no further. Two definitions that compute the same thing by
+different means stay distinct. The identity of a recursive \emph{group} is only conditionally
+independent of how it was written. The construction orders the group's members and uses their
+positions as indices. When two members are indistinguishable except for which one they call, nothing
+breaks the tie and the ordering falls back on what the members are \emph{named}. Unison detects this
+at the top level and refuses to store such a hash. Inside a \texttt{let rec} the same detection runs
+and its result is discarded, so the enclosing definition's identity depends on which binding was
+typed first. The construction computes two different orderings of the same group: one fixes the
+indices used while hashing, the other the positions stored in references. The interchangeability a
+hash confers (substitute anything with the same hash, get the same enclosing hash) applies only to the
+member at position $0$. Every other member is referenced opaquely, so reference transparency and the
+group-hashing model are not independent features. A cyclic definition is not stored in the form that
+was hashed: its self-references carry no hash, and an explicit inverse bridges the two forms.
 \Cref{thm:ualpha,thm:ordering,cor:detect,rem:notpartial,rem:innercycle,def:comphash,rem:twoorders,prop:transparent,rem:unhash}.
 
-\textbf{When a definition acquires its identity.} Not when it is added to the codebase. When the file
-containing it \emph{typechecks}, which happens on every save --- storing it and giving it a name are a
-separate, later gesture. The evaluation cache is therefore filled with no commit involved. And a save
-confers identities on things nothing ever stores, so the cache can be keyed by a hash that denotes
-nothing in the codebase --- the argument for the cache's soundness turns out never to have depended on
-the key being a definition at all.
+\textbf{When a definition acquires its identity.} When the file containing it \emph{typechecks},
+which happens on every save. Storing it and naming it are a separate, later gesture, so the
+evaluation cache fills with no commit involved. A save also confers identities on things nothing ever
+stores, so the cache can be keyed by a hash that denotes nothing in the codebase. The cache's
+soundness argument never depended on the key being a definition.
 \Cref{def:usave,rem:saveident,prop:watchdom}.
 
-\textbf{Why the cache needs no invalidation.} Because a result is stored against the hash of exactly
-the expression that produced it, and that hash denotes one fixed expression forever. Staleness is not
-rare, it is unrepresentable. This is a consequence of immutability rather than a policy that could be
-traded away. \Cref{cor:wnoinval}.
+\textbf{Why the cache needs no invalidation.} A result is stored against the hash of the expression
+that produced it, and that hash denotes one fixed expression forever. Staleness is unrepresentable.
+This follows from immutability; it is not a policy that could be traded away. \Cref{cor:wnoinval}.
 
 \textbf{What \texttt{update} rests on.} A stored definition refers to its dependencies by hash, so
-making one call a new version means changing a hash buried inside it --- and Unison never edits a
-stored tree. It prints the dependent back out as source instead, where that dependency appears as a
-\emph{name}, and parses the text again in a namespace where the name now denotes the new version; the
-definition that comes back holds the new hash. Substitution is therefore performed by the printer and
-the parser rather than by anything operating on the tree, which is why \texttt{update} is correct only
-if printing a definition and parsing it back returns what it started from, apart from exactly the
-reference meant to move --- an obligation the implementation never states and maintains instead as a
-golden-file regression corpus. Every named dependent is rebuilt, and there is no way to ask that some
-callers be left alone. \Cref{prop:print-parse,prop:follow-only}.
+making it call a new version means changing a hash inside it, and Unison never edits a stored tree.
+It prints the dependent back out as source, where the dependency appears as a \emph{name}, and parses
+the text again in a namespace where that name denotes the new version. The printer and parser perform
+the substitution. \texttt{update} is therefore correct only if printing a definition and parsing it
+back returns what it started from, apart from the reference meant to move. The implementation never
+states this obligation; it maintains it as a golden-file regression corpus. Every named dependent is
+rebuilt, and no caller can be left alone. \Cref{prop:print-parse,prop:follow-only}.
 
-Substituting the new reference into each dependent's stored tree would look more direct, but it saves
-less than it appears to: the dependents have to be rebuilt, re-typechecked and rebound either way, so
-the only question is whether that happens through the path ingest already provides or through a second
-one written for trees. The round trip reuses the first, and gets the failure case for nothing --- what
-is handed back when the rebuild does not typecheck is a file the user can edit.
+Substituting the new reference into each stored tree would look more direct but saves less than it
+appears to. The dependents must be rebuilt, re-typechecked and rebound either way. The round trip
+reuses the path ingest already provides, and its failure case comes free: when the rebuild does not
+typecheck, the user gets back a file they can edit.
 
 \textbf{What \texttt{merge} can and cannot tell.} Two codebases grown independently from a common
-ancestor can be unioned without reconciling anything, which is the property content-addressed
-codebases are usually sold on. It is true, and close to all that immutability buys: every difficult
-case is in the namespace, which is not content-addressed. There, merge has to decide, for every definition a branch
-has changed, whether a person changed it or a rebuild did. It decides by printing the definition back
-out and asking whether it reads as it did before. The test is a second hash taken over the printed
-form, each reference replaced by the name it is shown under --- the first hash inverted, names where
-that one has hashes --- and nothing stores it. A rebuilt definition still calls its dependency by the
-same name, so it prints as it always did and the test passes over it. A renamed one prints
-differently, so a definition nobody touched can be taken for someone's work.
+ancestor can be unioned without reconciling anything. This is the property content-addressed
+codebases are usually sold on, and it is close to all that immutability buys. Every difficult case is
+in the namespace, which is not content-addressed. There, for every definition a branch changed, merge
+has to decide whether a person or a rebuild changed it. It prints the definition and asks whether it
+reads as before. The test is a second hash over the printed form, with each reference replaced by the
+name it is shown under; nothing stores it. A rebuilt definition still calls its dependency by the
+same name, so it prints as before and passes. A renamed one prints differently, so a definition
+nobody touched can be taken for someone's work.
 
 Renaming is otherwise free: one row, no caller broken, no cached result lost, because no stored
-definition contains a name to rewrite. Merge is the single operation that reads names as though they
-were content. So a definition nobody wrote cannot be conflicted, provided neither party moved,
-aliased or deleted a name --- and changing a definition's names is the only user action that can hand
-someone a conflict in code they never opened. It does not always arrive as a conflict: a rename carrying no edit produces
-none and fails a step later, when the file is rendered under one branch's names and parsed against a
-namespace holding the other's, and a rename raced by an edit of the renamed definition merges
-\emph{cleanly} and silently undoes the rename. Unison computes the renames --- though only those
-carrying no edit, which is the case that does not conflict --- and at the pinned commit passes the
-result to a debug printer. Merge is also not commutative: the same two branches can merge cleanly in
-one direction and fail in the other, with nothing reported either way.
+definition contains a name. Merge is the single operation that reads names as content. A definition
+nobody wrote cannot be conflicted provided neither party moved, aliased or deleted a name, and
+changing a definition's names is the only user action that can hand someone a conflict in code they
+never opened. It does not always arrive as a conflict. A rename carrying no edit produces none and
+fails a step later, when the file is rendered under one branch's names and parsed against a namespace
+holding the other's. A rename raced by an edit of the renamed definition merges cleanly and silently
+undoes the rename. Unison computes the renames, but only those carrying no edit (the case that does
+not conflict), and at the pinned commit passes the result to a debug printer. Merge is also not
+commutative: the same two branches can merge cleanly in one direction and fail in the other, with
+nothing reported either way.
 \Cref{prop:merge-store,def:synhash,rem:syn-only,def:gestures,rem:renamefree,thm:noconflict,cor:noedit-user,rem:onlyrenames,prop:rename-conflict,cor:unchecked,prop:merge-asym,prop:merge-print-parse}.
 
 \subsection{What this document is, and is not}
 
-It is a model of an existing system, faithful to the implementation at commit \texttt{db60ce2}. It
-proposes no changes. Where we describe something as a cost or a limitation we mean it descriptively:
-every design pays somewhere, and pointing at where is not the same as saying it is wrong. The one
-condition we identify that Unison treats as an error (\cref{cor:detect}) is already known and
-tracked upstream as issue \#2787, and the implementation's handling of it --- detect and abort ---
-is in our view the right response.
+It is a model of an existing system, faithful to the implementation at commit \texttt{db60ce2}, and
+it proposes no changes. Where we call something a cost or a limitation we mean it descriptively. The
+one condition we identify that Unison treats as an error (\cref{cor:detect}) is already tracked
+upstream as issue \#2787, and we think the implementation's response, detect and abort, is right.
 
-We are not modeling Unison's language. There are no abilities, no data declarations, no pattern
-matching, no ANF runtime. \Cref{sec:unotmodeled} lists what is left out. Anything a Unison developer
-finds surprising here is more likely to be our error than a discovery, and we would welcome
-correction.
+We do not model Unison's language: there are no abilities, data declarations, pattern matching or
+ANF runtime. \Cref{sec:unotmodeled} lists what is left out. Anything a Unison developer finds
+surprising here is more likely our error than a discovery, and we welcome correction.
 
 \subsection{The object language, and why it is typed}
 
-The object language is the simply-typed $\lambda$-calculus with $\TNat$, $\TText$ and references
---- deliberately small, and typed for one reason. Unison's
-\texttt{update} re-typechecks the code it rebuilds, and the interesting half of \texttt{update} is
-what happens when that \emph{fails} --- Unison removes the broken definitions from the namespace and
-hands them back to the user as editable source. Without a type system that branch is unreachable and
-the most distinctive thing about the operation cannot be stated.
+The object language is the simply-typed $\lambda$-calculus with $\TNat$, $\TText$ and references.
+It is typed for one reason. Unison's \texttt{update} re-typechecks the code it rebuilds, and when
+that fails it removes the broken definitions from the namespace and hands them back as editable
+source. Without a type system that branch is unreachable and cannot be stated.
 
 \subsection{What is modeled}
 
-Stated as the operations a user can perform, what each is observed to do, and the gesture that
-performs it in \texttt{ucm}.
+Each operation a user can perform, what it is observed to do, and the gesture that performs it in
+\texttt{ucm}:
 
 \begin{itemize}[nosep]
-  \item \textbf{Save.} You write definitions into a file. Nothing is asked for: \texttt{ucm} watches
-        the file, and on each write typechecks all of it, works out an identity for every definition
-        and every watch expression in it, evaluates the watches and caches the results. Nothing is
-        stored and no name is bound. \emph{In \texttt{ucm}: saving \texttt{scratch.u}, which is not a
-        command.}
-  \item \textbf{Commit, and propagate.} What the save already identified is written to the codebase
-        and the file's names are bound to it; then everything that depended on a superseded version
-        is rebuilt. Either all of it typechecks, or the broken definitions come back to you as source.
-        These are not steps that can be taken separately. \emph{In \texttt{ucm}: \texttt{update} ---
-        and \texttt{add}, which at this commit is the same command.}
+  \item \textbf{Save.} You write definitions into a file. \texttt{ucm} watches the file and on each
+        write typechecks all of it, computes an identity for every definition and watch expression,
+        evaluates the watches and caches the results. Nothing is stored and no name is bound.
+        \emph{In \texttt{ucm}: saving \texttt{scratch.u}, which is not a command.}
+  \item \textbf{Commit, and propagate.} What the save identified is written to the codebase and the
+        file's names are bound to it. Then everything that depended on a superseded version is
+        rebuilt. Either all of it typechecks, or the broken definitions come back to you as source.
+        The steps cannot be taken separately. \emph{In \texttt{ucm}: \texttt{update}, and
+        \texttt{add}, which at this commit is the same command.}
   \item \textbf{Reference.} A stored definition may mention others. What it mentions is fixed when it
-        is stored and cannot afterwards change, so no edit anywhere alters what an existing
-        definition means. \emph{In \texttt{ucm}: \texttt{view} shows a definition with names put back;
-        \texttt{dependents} reads the relation the other way.}
-  \item \textbf{Naming.} Names are attached to identities from outside, and are not part of what is
-        stored. A name may denote more than one thing at once, and the system continues to function
-        when it does. \emph{In \texttt{ucm}: \texttt{ls} and \texttt{names} to look;
-        \texttt{move.term}, \texttt{alias.term} and \texttt{delete.term} to change --- none of which
-        touches a definition.}
+        is stored, so no edit anywhere alters what an existing definition means. \emph{In
+        \texttt{ucm}: \texttt{view} shows a definition with names put back; \texttt{dependents}
+        reads the relation the other way.}
+  \item \textbf{Naming.} Names are attached to identities from outside and are not stored with them.
+        A name may denote more than one thing at once, and the system continues to function when it
+        does. \emph{In \texttt{ucm}: \texttt{ls} and \texttt{names} to look; \texttt{move.term},
+        \texttt{alias.term} and \texttt{delete.term} to change. None touches a definition.}
   \item \textbf{Evaluation and caching.} A result is remembered against the identity of the
-        expression that produced it, and never has to be discarded. \emph{In \texttt{ucm}: a line of
+        expression that produced it and never has to be discarded. \emph{In \texttt{ucm}: a line of
         the file beginning \texttt{>}, evaluated by the save, its answer printed beneath it on every
-        save thereafter without being recomputed.}
+        later save without being recomputed.}
   \item \textbf{Merge.} Two people edit from a common starting point and the results are combined.
         The system decides, definition by definition, whether each side's version was written by a
-        person or produced by rebuilding, and asks about only the ones both people wrote. \emph{In
+        person or produced by rebuilding, and asks only about the ones both people wrote. \emph{In
         \texttt{ucm}: \texttt{branch} to fork, \texttt{merge /other} to combine.}
 \end{itemize}
 
-Two things visible only through their consequences are modeled as well, because the rest does not
-make sense without them: how the identity of a mutually recursive group is fixed
-(\cref{def:comphash}), and the fact that a definition's recorded type is part of its identity
-(\cref{def:typeinhash}).
+Two things visible only through their consequences are also modeled, because the rest depends on
+them: how the identity of a mutually recursive group is fixed (\cref{def:comphash}), and the fact
+that a definition's recorded type is part of its identity (\cref{def:typeinhash}).
 
 \subsection{Not modeled}\label{sec:unotmodeled}
-
-Stated so the boundary is explicit rather than implied.
 
 \begin{itemize}[nosep]
   \item \textbf{The namespace's representation.} Unison's \texttt{Branch} is a hashed Merkle tree of
         name segments whose \texttt{children} field points at each child's \emph{causal} hash, so
-        every level of the tree has its own history \src{branchh:22-39}. Here the namespace
-        is a bare relation. \Cref{sec:unaming} models the naming \emph{semantics}, which
-        \texttt{update} needs; it does not model the object that carries them.
+        every level of the tree has its own history \src{branchh:22-39}. Here the namespace is a bare
+        relation. \Cref{sec:unaming} models the naming semantics, which \texttt{update} needs, and
+        not the object that carries them.
   \item \textbf{History and branching.} \texttt{Causal} as a content-addressed DAG, and with it the
-        computation of the common ancestor of two branches. \Cref{sec:umerge} models merge as a
-        function of three namespaces and takes the ancestor as given.
-  \item \textbf{Suffix resolution and the \texttt{lib}-depth priority rule.} Names here are atomic;
-        in Unison a name is a sequence of segments and may be abbreviated to any unambiguous suffix.
+        computation of two branches' common ancestor. \Cref{sec:umerge} models merge as a function
+        of three namespaces and takes the ancestor as given.
+  \item \textbf{Suffix resolution and the \texttt{lib}-depth priority rule.} Names here are atomic.
+        In Unison a name is a sequence of segments and may be abbreviated to any unambiguous suffix.
   \item \textbf{Data declarations and \texttt{unique}-type minting.} With only $\TNat$, $\TText$ and
         arrows there are no declarations, so the $\UCon{\cdot}{\cdot}$ arm of $\Referent$ is present
-        but vestigial, and the minting axis is absent entirely.
+        but vestigial and the minting axis is absent.
   \item \textbf{Abilities, the ANF runtime, \texttt{LocalIds}, and the serialization layer.}
 \end{itemize}
 
 % =====================================================================
 \section{The object language}\label{sec:ulang}
 
-There are two grammars, and keeping them apart is the point of this section. A term as \emph{written}
-mentions other definitions by name, and names are variables. A term as \emph{stored} mentions them by
-reference, and a reference carries a hash. Name resolution is the map between the two, and it is
-partial in a way that matters later.
+There are two grammars. A term as \emph{written} mentions other definitions by name, and names are
+variables. A term as \emph{stored} mentions them by reference, and a reference carries a hash. Name
+resolution maps one to the other, and it is partial in a way that matters later.
 
-In the implementation these are one datatype with one set of constructors; the distinction is which
-constructors occur at which stage. Splitting them here is an idealization, and it is the idealization
-that makes the rest of the document legible.
+In the implementation these are one datatype; the stage determines which constructors occur.
+Splitting them here is an idealization that makes the rest of the document easier to read.
 
 \subsection{Source terms}
 
@@ -325,9 +299,9 @@ Fix a countable set of variables $x,y,z$.
   e \;::=\; \uvar{x} \;\mid\; \ulam{x}{e} \;\mid\; \uapp{e}{e'}
         \;\mid\; \unat{n} \;\mid\; \utext{s} \;\mid\; \uann{e}{T}
 \]
-This is what a user writes. Note what is absent: there is no way to write a hash, and no term former
-denotes a stored definition. A mention of another definition is a \emph{free variable}, exactly as a
-mention of a local binding is a bound one, and the two are told apart only by an environment.
+This is what a user writes. There is no way to write a hash, and no term former denotes a stored
+definition. A mention of another definition is a \emph{free variable}, as a mention of a local
+binding is a bound one, and only an environment tells the two apart.
 \end{definition}
 
 \subsection{References}
@@ -338,17 +312,16 @@ mention of a local binding is a bound one, and the two are told apart only by an
   r \;::=\; \UBuiltin{b} \;\mid\; \UDer{h}{i}
   \qquad b \in \TText,\; h \in \Hash,\; i \in \Pos = \mathbb{N}
 \]
-$\UBuiltin{b}$ names a primitive, by text rather than by hash. $\UDer{h}{i}$ names the $i$-th member
-of the group stored at $h$; \cref{def:ustore} explains why that is a pair.
+$\UBuiltin{b}$ names a primitive by text. $\UDer{h}{i}$ names the $i$-th member of the group stored
+at $h$; \cref{def:ustore} explains why that is a pair.
 \end{definition}
 
 \begin{remark}[Primitives are named extrinsically]\label{rem:builtin}
 An identifier is \emph{intrinsic} when it can be recomputed from the thing it names and
-\emph{extrinsic} when it is an assertion by some authority; a hash is the former and a builtin name
-is the latter. So the system is intrinsically identified everywhere except at its primitives, and the
-boundary is visible in the type of a reference rather than hidden in a convention. This is not
-avoidable --- a hash chain must bottom out at things whose content the system does not model --- and
-it is worth noting only because the sum type makes the seam unusually legible.
+\emph{extrinsic} when it is an assertion by some authority. A hash is intrinsic; a builtin name is
+extrinsic. The system is intrinsically identified everywhere except at its primitives, and the sum
+type makes that boundary visible in the type of a reference. It is unavoidable: a hash chain must
+bottom out at things whose content the system does not model.
 \end{remark}
 
 \subsection{Resolved terms}
@@ -358,22 +331,22 @@ it is worth noting only because the sum type makes the seam unusually legible.
   t \;::=\; \uvar{x} \;\mid\; \ulam{x}{t} \;\mid\; \uapp{t}{u}
         \;\mid\; \unat{n} \;\mid\; \utext{s} \;\mid\; \uref{r} \;\mid\; \uann{t}{T}
 \]
-\Cref{def:uterm} extended with references. Binders still carry \emph{names}, and those names are
-stored --- \cref{def:uhash} erases them only while hashing.
+\Cref{def:uterm} extended with references. Binders still carry names, and those names are stored;
+\cref{def:uhash} erases them only while hashing.
 \end{definition}
 
 \begin{definition}[$\alpha$-equivalence]\label{def:ualpha}
 $t \equiv_\alpha u$ is the least congruence identifying $\ulam{x}{t}$ with $\ulam{y}{t[x := y]}$ for
 $y$ fresh in $t$. In the implementation it is the equality on terms, so $\alpha$-equivalent terms are
-\emph{equal} before any hashing takes place.
+equal before any hashing takes place.
 \end{definition}
 
 \begin{remark}[Why storing binder names matters]\label{rem:names}
 Storing de Bruijn indices and inventing names for display would produce the same hashes, so the
-choice looks free. It is not. \Cref{sec:uupdate}'s \texttt{update} renders stored definitions back to
-source that a human reads and a parser resolves, and because names survive storage, what is rendered
-uses the \emph{author's} variable names. A system that discarded them could state its round trip only
-up to a choice of names.
+choice looks free. It is not. \texttt{update} (\cref{sec:uupdate}) renders stored definitions back to
+source that a human reads and a parser resolves. Because names survive storage, the rendering uses
+the author's variable names. A system that discarded them could state its round trip only up to a
+choice of names.
 \end{remark}
 
 \begin{definition}[Name resolution]\label{def:uresolution}
@@ -391,19 +364,17 @@ to a resolved term, homomorphically except at variables:
 \end{definition}
 
 \begin{remark}[Resolution is deliberately partial]\label{rem:staging}
-Three of these cases leave a variable in place, and only one produces a reference. That is not an
-omission.
+Three of these cases leave a variable in place and only one produces a reference.
 
-A name bound by the group being ingested \emph{cannot} be resolved --- its referent does not exist
-yet, and for a recursive group it cannot exist until the group is hashed (\cref{sec:comphash}).
-Resolution therefore stops at the boundary of what is already stored, and the remaining variables are
-discharged by ingest.
+A name bound by the group being ingested cannot be resolved: its referent does not exist yet, and for
+a recursive group it cannot exist until the group is hashed (\cref{sec:comphash}). Resolution stops at
+the boundary of what is already stored, and ingest discharges the remaining variables.
 
-The last case is more interesting: a name that resolves to nothing, or to more than one thing, is
-left free \emph{on purpose}. The implementation's comments are explicit \src{coreterm:175-176} --- ``not found: leave free
-for telling user about expected type'' and ``ambiguous: leave free for TDNR'' --- so an unresolved
-name survives into typechecking, where the expected type may disambiguate it or produce a better
-error than resolution could. Failure to resolve is not an error in itself.
+A name that resolves to nothing, or to more than one thing, is left free on purpose. The
+implementation's comments say so \src{coreterm:175-176}: ``not found: leave free for telling user
+about expected type'' and ``ambiguous: leave free for TDNR''. An unresolved name survives into
+typechecking, where the expected type may disambiguate it or produce a better error than resolution
+could. Failure to resolve is not itself an error.
 \end{remark}
 
 \subsection{Types and typing}
@@ -412,9 +383,9 @@ error than resolution could. Failure to resolve is not an error in itself.
 \[
   T,U \;::=\; \TNat \;\mid\; \TText \;\mid\; \uarr{T}{U}
 \]
-Typing is over \emph{resolved} terms. A context $\Gamma$ maps variables to types; a signature
-$\Delta$ maps references to types --- given for builtins, and read off the store for derived
-references (\cref{def:typeinhash}). Syntax-directed, with no inference:
+Typing is over resolved terms. A context $\Gamma$ maps variables to types. A signature $\Delta$ maps
+references to types: given for builtins, read off the store for derived references
+(\cref{def:typeinhash}). Syntax-directed, with no inference:
 \begin{mathpar}
   \inferrule*[right=U-Var]{\Gamma(x) = T}{\utypes{\Gamma}{\uvar{x}}{T}}
   \and
@@ -431,8 +402,8 @@ references (\cref{def:typeinhash}). Syntax-directed, with no inference:
   \and
   \inferrule*[right=U-Ann]{\utypes{\Gamma}{t}{T}}{\utypes{\Gamma}{\uann{t}{T}}{T}}
 \end{mathpar}
-A term with a free variable is not typeable, which is how \cref{rem:staging}'s unresolved names
-become errors --- at typechecking, with a type to report, rather than at resolution.
+A term with a free variable is not typeable. That is how \cref{rem:staging}'s unresolved names become
+errors: at typechecking, with a type to report.
 \end{definition}
 
 \subsection{Binding groups}
@@ -444,25 +415,23 @@ variables all lie in $\dom(\bg)$. Ingest takes a binding group, not a single ter
 
 \begin{definition}[File]\label{def:ufile}
 \src{ufile:270-290} A \emph{file} is a pair $F = (\bg, \overline{w})$ of a binding group and a
-finite sequence of \emph{watch expressions} $\overline{w} = w_1,\dots,w_m$ --- resolved terms with
-no name, whose free variables also lie in $\dom(\bg)$. What the user edits is a file; what
-\cref{def:bindgroup} describes is only half of it.
+finite sequence of \emph{watch expressions} $\overline{w} = w_1,\dots,w_m$: resolved terms with no
+name, whose free variables also lie in $\dom(\bg)$. The user edits a file, of which
+\cref{def:bindgroup} describes only half.
 
-The distinction is not a matter of presentation. A watch is anonymous, so nothing can ever refer to
-it, so it is always its own singleton component; but it is closed over the group's names exactly as a
-definition is, and \cref{def:uingest} hashes it in the same pass. The implementation is explicit
-that the two travel together --- \texttt{allTerms = join tlcs ++ join (snd <\$> watches)}, under a
-comment reading ``includes watches''.
+A watch is anonymous, so nothing can refer to it and it is always its own singleton component. It is
+closed over the group's names as a definition is, and \cref{def:uingest} hashes it in the same pass.
+The implementation keeps the two together: \texttt{allTerms = join tlcs ++ join (snd <\$> watches)},
+under a comment reading ``includes watches''.
 \end{definition}
 
 \begin{remark}[Why ingest is group-at-a-time]\label{rem:mutrec}
 There is no recursive term former. Mutual recursion is several bindings that mention one another, so
-the unit that can be given identities is the group, not the definition. Everything distinctive about
-\cref{sec:ustore} follows from this: with single-term ingest every component would be a singleton and
-\cref{def:comphash} would be invisible.
+the unit that can be given identities is the group. With single-term ingest every component would be
+a singleton and \cref{def:comphash} would be invisible.
 
-The closedness condition is what \cref{rem:staging} left over --- the variables resolution could not
-discharge are exactly the group's own names, and ingest discharges them by hashing.
+The closedness condition is what \cref{rem:staging} left over: the variables resolution could not
+discharge are the group's own names, and ingest discharges them by hashing.
 \end{remark}
 
 % =====================================================================
@@ -471,9 +440,8 @@ discharge are exactly the group's own names, and ingest discharges them by hashi
 \subsection{The store and its components}
 
 \begin{definition}[Component and store]\label{def:ustore}
- A \emph{component} is a
-non-empty finite sequence of terms, $\Comp = \Term^{+}$ --- a strongly connected component of the
-dependency graph, hashed as a unit. The store is
+A \emph{component} is a non-empty finite sequence of terms, $\Comp = \Term^{+}$: a strongly connected
+component of the dependency graph, hashed as a unit. The store is
 \[
   \UStore : \Hash \pfn \Comp .
 \]
@@ -482,12 +450,11 @@ at $h$. A non-recursive definition is a singleton component with $i = 0$.
 \end{definition}
 
 \begin{remark}[The store is not hash-to-definition]\label{rem:storetype}
-It is natural to summarize content addressing as ``a definition is identified by its hash'', and for
-non-recursive code that is what happens. But the map is from a hash to a \emph{component}, and a
-definition is a pair. Mutual recursion is the reason: a member of a cycle cannot be hashed before its
-neighbours, since it refers to them, and they refer back. Hashing the cycle as a unit breaks the
-knot, at the price of making every reference positional and every property below a property of
-components rather than of definitions.
+Content addressing is often summarized as ``a definition is identified by its hash'', and for
+non-recursive code that is what happens. But the map is from a hash to a component, and a definition
+is a pair. A member of a cycle cannot be hashed before its neighbours, since it refers to them and
+they refer back. Hashing the cycle as a unit breaks the knot, at the price of making every reference
+positional and every property below a property of components.
 \end{remark}
 
 \subsection{Hashing}
@@ -503,13 +470,12 @@ The function is SHA3-512, untruncated.
 \end{definition}
 
 \begin{remark}[Versioning the hash function]\label{rem:version}
-The leading version token exists so that changing the hash function changes \emph{every} hash --- if
-it did not, simple values would collide across generations in a single global hash table. Underneath,
-the schema carries a many-hashes-to-one-object indirection so that hashes computed under an old
-scheme keep resolving --- ``if the hashing algorithm for the object is changed'' \src{sql:33-49}.
-This is a comparatively rare thing for a content-addressed system to plan for, and worth recording:
-the intended migration story for ``we changed the hash'' is versioning plus indirection, not
-recomputation. It is provisioned rather than exercised: every write hardcodes version $2$, with a
+The leading version token makes a change of hash function change every hash, so simple values cannot
+collide across generations in one global hash table. Underneath, the schema carries a
+many-hashes-to-one-object indirection so that hashes computed under an old scheme keep resolving: ``if
+the hashing algorithm for the object is changed'' \src{sql:33-49}. Few content-addressed systems plan
+for this. The intended migration for a changed hash is versioning plus indirection, not
+recomputation. It is provisioned but not exercised: every write hardcodes version $2$, with a
 standing note to revisit ``once there are v1 and v2 hashes'' \src{queries:778}.
 \end{remark}
 
@@ -523,15 +489,14 @@ $\mathsf{L}(V)$ is a \emph{cycle frame} naming a whole set at once. Write $\uhas
   \uhash{\HEnv}{\ulam{x}{t}} &= \mathsf{acc}[\ldots,\ \mathsf{Hashed}\;\uhash{\mathsf{R}(x)\cdot\HEnv}{t}]\\
   \uhash{\HEnv}{\uapp{t}{u}} &= \mathsf{acc}[\ldots,\ \mathsf{Hashed}\;\uhash{\HEnv}{t},\ \mathsf{Hashed}\;\uhash{\HEnv}{u}]
 \end{align*}
-and correspondingly at the other formers. Three details are load-bearing. Binder \emph{names are
-discarded} on the way in, so $\alpha$-equivalent terms hash equally. \emph{Source annotations are excluded by
-construction} --- ``we ignore annotations in the \texttt{Term}, as these should never affect the
-meaning of the term'' \src{abt:136-137}. The word is the implementation's, and it means the ABT's
-annotation parameter, which carries source spans; a \emph{type} ascription $\uann{t}{T}$ is a term
-former and \emph{is} hashed, which is what makes \cref{def:typeinhash} work at all. And a variable
-bound by a cycle frame
-$\mathsf{L}(V)$ hashes to the frame's index, \emph{the same index for every member of $V$}; that is
-what \cref{def:comphash} exploits. A free variable is an error.
+and correspondingly at the other formers. Three details matter. Binder names are discarded, so
+$\alpha$-equivalent terms hash equally. Source annotations are excluded by construction: ``we ignore
+annotations in the \texttt{Term}, as these should never affect the meaning of the term''
+\src{abt:136-137}. Here ``annotation'' is the ABT's annotation parameter, which carries source spans;
+a type ascription $\uann{t}{T}$ is a term former and is hashed, which is what makes
+\cref{def:typeinhash} work. Finally, a variable bound by a cycle frame $\mathsf{L}(V)$ hashes to the
+frame's index, the same index for every member of $V$, which \cref{def:comphash} exploits. A free
+variable is an error.
 \end{definition}
 
 \begin{definition}[The type is inside the term hash]\label{def:typeinhash}
@@ -542,26 +507,24 @@ change of identity.
 \end{definition}
 
 \begin{remark}[The exception that proves the rule]\label{rem:typeinhash}
-There is a \texttt{hashTermComponentsWithoutTypes} \src{term:120-122} used where no type is
-available, and its own caller is warned off: ``this shouldn't be used when storing terms in the
-codebase, as it doesn't incorporate the type into the hash'' \src{convert:87-89}. Its existence is
-the clearest statement that the usual path deliberately puts the type in: hashing without the type is
-possible, and is treated as the special case.
+A \texttt{hashTermComponentsWithoutTypes} \src{term:120-122} exists for use where no type is
+available, and its caller is warned off: ``this shouldn't be used when storing terms in the codebase,
+as it doesn't incorporate the type into the hash'' \src{convert:87-89}. Hashing without the type is
+possible and is treated as the special case.
 \end{remark}
 
 \begin{remark}[\textsc{U-Ref} is a lookup, not a re-derivation]\label{rem:uref-delta}
-Typing a reference costs nothing: $\Delta$ is consulted and no derivation about the target is
-required. That is affordable precisely because the type is inside the hash
-(\cref{def:typeinhash}) --- a stored definition's recorded type cannot disagree with the definition,
-since changing the type would change the hash and therefore produce a different definition. The store
-admits no ill-typed entry, so there is nothing for \textsc{U-Ref} to check.
+Typing a reference consults $\Delta$ and requires no derivation about the target. This is affordable
+because the type is inside the hash (\cref{def:typeinhash}). A stored definition's recorded type
+cannot disagree with the definition, since changing the type would change the hash and produce a
+different definition. The store admits no ill-typed entry, so \textsc{U-Ref} has nothing to check.
 \end{remark}
 
 \subsection{Reference transparency, and its boundary}
 
 A hash is meant to be interchangeable with the thing it names: if two terms hash alike, putting one
-where the other was should leave every enclosing hash unchanged. Most of the intuition about content
-addressing rests on that. It does hold here --- and for less of the store than it looks like.
+where the other was should leave every enclosing hash unchanged. This holds here, for less of the
+store than it appears to.
 
 \begin{proposition}[Transparency holds exactly at position $0$]\label{prop:transparent}
 \src{term:135-146} In the term layer,
@@ -574,56 +537,52 @@ addressing rests on that. It does hold here --- and for less of the store than i
 \end{proposition}
 
 \begin{remark}[What transparency does, and where its boundary falls]\label{rem:transparent}
-For $i = 0$ --- every non-recursive definition, and one distinguished member of each cycle
-(\cref{sec:comphash} assigns the positions) --- a reference contributes \emph{literally} the
-referent's hash. A reference to position $0$ is therefore interchangeable, inside any enclosing hash,
-with any term that hashes to $h$.
+For $i = 0$, which covers every non-recursive definition and one member of each cycle
+(\cref{sec:comphash} assigns the positions), a reference contributes literally the referent's hash.
+A reference to position $0$ is therefore interchangeable, inside any enclosing hash, with any term
+that hashes to $h$.
 
 For $i \neq 0$ it is opaque, tagged with its position. So transparency and the component model are
-not independent features; the boundary between them falls at $\Pos = 0$. Whether that is deliberate
---- inlining a singleton component is free, so there is a plausible reason --- or an artifact of the
-encoding, we do not know; the source comment justifies only the $0$ case.
+not independent features; the boundary between them falls at $\Pos = 0$. We do not know whether this
+is intended (inlining a singleton component is free, which is a plausible reason) or an artifact of
+the encoding. The source comment justifies only the $0$ case.
 
-\Cref{ex:transparency} works through what this does and does not give, and the answer is narrower
-than the usual summary of it.
+\Cref{ex:transparency} works through what this gives, which is less than the usual summary claims.
 \end{remark}
 
 \subsection{Component hashing}\label{sec:comphash}
 
-This is the deepest mechanism in the document and the one whose properties are least apparent from
-the code.
+This mechanism's properties are the least apparent from the code.
 
 \begin{definition}[Component hashing]\label{def:comphash}
 \src{abt:73-100, 175-217} Let $C = \langle (y_1,u_1),\dots,(y_k,u_k)\rangle$ be a
-component, \emph{listed in name order} --- the implementation always obtains it as
+component, \emph{listed in name order}; the implementation always obtains it as
 $\mathsf{Map.toList}$.\footnote{Strictly the order is on $(\mathit{freshening\ id}, \mathit{var\
-kind})$ rather than on the name; it coincides with alphabetical order here because top-level bindings
-have their freshening id reset to $0$ and all carry the same var kind. The distinction matters on the
-re-hash path of \cref{rem:unhash}, where the variables are machine-generated from stored positions
-and the listing is therefore by $\Pos$: re-hashing agrees with hashing precisely because
-\cref{thm:ordering}(a)'s side condition makes the two listings induce the same $\pi$.} Let
-$V = \{y_1,\dots,y_k\}$.
+kind})$, not the name. It coincides with alphabetical order here because top-level bindings have their
+freshening id reset to $0$ and all carry the same var kind. The distinction matters on the re-hash
+path of \cref{rem:unhash}, where the variables are machine-generated from stored positions and the
+listing is therefore by $\Pos$. Re-hashing agrees with hashing because \cref{thm:ordering}(a)'s side
+condition makes the two listings induce the same $\pi$.} Let $V = \{y_1,\dots,y_k\}$.
 
-\emph{Step 1 --- permutation hashes.} In the environment $\HEnv_p = \mathsf{L}(V)$, every intra-cycle
-reference resolves to the same index, so member bodies become comparable without any of them yet
-having an identity:
+\emph{Step 1: permutation hashes.} In the environment $\HEnv_p = \mathsf{L}(V)$, every intra-cycle
+reference resolves to the same index, so member bodies become comparable before any of them has an
+identity:
 \[
   \phash{y_j} \;=\; \uhash{\HEnv_p}{u_j}.
 \]
 
-\emph{Step 2 --- the binding order.} Sort the members by $\phash{\cdot}$, \textbf{stably}, giving a
+\emph{Step 2: the binding order.} Sort the members by $\phash{\cdot}$, \textbf{stably}, giving a
 permutation $\pi$; set $\HEnv = \mathsf{R}(y_{\pi(1)})\cdots\mathsf{R}(y_{\pi(k)})$. Each member now
 has a distinct de Bruijn index, and the member hashes are $h_j = \uhash{\HEnv}{u_{\pi(j)}}$.
 
-\emph{Step 3 --- the storage order.} With
+\emph{Step 3: the storage order.} With
 $\overline{\tau} = \mathsf{Tag}\;1,\ \mathsf{Hashed}\;h_1,\dots,\mathsf{Hashed}\;h_k$ shared by every
 member, put
 \[
   \nhash{y} \;=\; \mathsf{acc}\bigl(\overline{\tau} \;+\!\!+\; [\mathsf{Hashed}\;\uhash{\HEnv}{\uvar{y}}]\bigr),
 \]
-so a member is disambiguated \emph{only} by its own index in $\HEnv$. Sort the members by
-$\nhash{\cdot}$; that order is the component's storage order, the position $i$ in $\UDer{h}{i}$
-counts in it, and
+so a member is disambiguated only by its own index in $\HEnv$. Sort the members by $\nhash{\cdot}$.
+That order is the component's storage order, the position $i$ in $\UDer{h}{i}$ counts in it, and
 \[
   \comphash(C) \;=\; \mathsf{acc}[\mathsf{Hashed}\;\nhash{y_{\sigma(1)}},\dots,\mathsf{Hashed}\;\nhash{y_{\sigma(k)}}]
 \]
@@ -632,22 +591,21 @@ for $\sigma$ the sorting permutation.
 
 \begin{remark}[Two orders, not one]\label{rem:twoorders}
 $\pi$ and $\sigma$ are different permutations of the same component. $\pi$ fixes the de Bruijn
-indices used \emph{while hashing} member bodies; $\sigma$ fixes the $\Pos$ indices that appear \emph{in
-stored references}. They coincide only by accident, since $\sigma$ sorts by a hash of the $\pi$-index.
-Nothing observable depends on the difference --- re-hashing re-derives $\HEnv$ from scratch --- but a
+indices used while hashing member bodies; $\sigma$ fixes the $\Pos$ indices that appear in stored
+references. They coincide only by accident, since $\sigma$ sorts by a hash of the $\pi$-index.
+Nothing observable depends on the difference, because re-hashing re-derives $\HEnv$ from scratch. A
 reimplementation that conflated them would produce different hashes for the same code, and no prose
-description of the algorithm we are aware of mentions that there are two.
+description of the algorithm we know of mentions that there are two.
 \end{remark}
 
 \begin{definition}[Ingest]\label{def:uingest}
 \src{abt:106-134; ufile:274-284} $\hashcomps(F)$ decomposes $\bg \cup \overline{w}$ into strongly
 connected components in topological order and folds \cref{def:comphash} over them, replacing the
 names of already-hashed components with $\UDer{h}{i}$ before hashing the next. It returns a reference
-for \emph{every} member, definitions and watches alike.
+for every member, definitions and watches alike.
 
-$\hashcomps$ \emph{only} computes references. It extends neither $\UStore$ nor $\UNames$; those are
-the business of the two transitions below, and separating them is not tidiness --- see
-\cref{def:usave}.
+$\hashcomps$ only computes references. It extends neither $\UStore$ nor $\UNames$; the two
+transitions below do that, and the separation matters (\cref{def:usave}).
 \end{definition}
 
 \begin{definition}[Save]\label{def:usave}
@@ -658,41 +616,37 @@ the business of the two transitions below, and separating them is not tidiness -
   \UConfig{\UStore}{\UNames}{\UCache'}
 \]
 given by: typecheck $F$; if it fails, stop. Otherwise compute $\hashcomps(F)$, and for each watch
-$w_j$ with reference $r_j$, set $\UCache' = \UCache[r_j \mapsto v_j]$ where $v_j$ is $w_j$'s value
---- evaluated against $\UStore$ \emph{together with} the definitions $\hashcomps$ just gave
-references to, and \textbf{only when $r_j \notin \dom(\UCache)$ already}.
+$w_j$ with reference $r_j$, set $\UCache' = \UCache[r_j \mapsto v_j]$ where $v_j$ is $w_j$'s value,
+evaluated against $\UStore$ together with the definitions $\hashcomps$ just gave references to, and
+\textbf{only when $r_j \notin \dom(\UCache)$ already}.
 
-Note the two components that do not move. $\UStore$ is unchanged: a save stores nothing.
-$\UNames$ is unchanged: a save names nothing. What a save does is \emph{confer identity} and
-\emph{populate the cache}.
+$\UStore$ is unchanged: a save stores nothing. $\UNames$ is unchanged: a save names nothing. A save
+confers identity and populates the cache.
 \end{definition}
 
 \begin{remark}[Identity is conferred by typechecking, not by committing]\label{rem:saveident}
-A definition acquires its identity when the file \emph{typechecks}, which happens on every save, not
-when it is added. The implementation keeps it there: a \texttt{TypecheckedUnisonFile} carries a
-reference $r$ (\cref{def:uref}) for every member in its \texttt{hashTermsId} field, and nothing has
-been added to anything. \Cref{def:update} then \emph{stores and binds} what already has a hash. The
-commit gate of \cref{rem:mutrec} is easily misread as putting identity at the \texttt{add}; it does
-not.
+A definition acquires its identity when the file typechecks, on every save, not when it is added. A
+\texttt{TypecheckedUnisonFile} carries a reference $r$ (\cref{def:uref}) for every member in its
+\texttt{hashTermsId} field, and nothing has been added to anything. \Cref{def:update} then stores and
+binds what already has a hash. The commit gate of \cref{rem:mutrec} is easily misread as putting
+identity at the \texttt{add}; it does not.
 
-Two consequences that are hard to see otherwise. First, the gate is a gate on \emph{identity}, not on
-storage --- which is why a buffer that does not typecheck has nothing to talk about at all, rather
-than merely nothing stored. Second, the caching of \cref{sec:ucache} happens at save time, so
-re-saving an unchanged expensive watch is free \emph{with no commit anywhere in the picture}. That is
-observable: on \texttt{ucm} release/1.1.1 one expensive watch costs 5.79\,s, the same watch saved
+Two consequences follow. First, the gate is on identity, not storage, so a buffer that does not
+typecheck has no identities at all, not merely nothing stored. Second, caching (\cref{sec:ucache})
+happens at save time, so re-saving an unchanged expensive watch is free with no commit anywhere. This
+is observable: on \texttt{ucm} release/1.1.1 one expensive watch costs 5.79\,s, the same watch saved
 twice costs 5.82\,s, and two distinct watches of equal cost 11.45\,s.
 
-The implementation makes the hit/miss distinction explicit rather than implicit, which is the clearest
-evidence that this is the intended reading: \texttt{evaluateWatches} returns an
-$\mathit{isHit}$ flag per watch, and the save path writes the cache
-``only when there are no errors'' and $\mathsf{not}\ \mathit{isHit}$ \src{load:490-493}.
+The implementation makes hit and miss explicit: \texttt{evaluateWatches} returns an $\mathit{isHit}$
+flag per watch, and the save path writes the cache ``only when there are no errors'' and
+$\mathsf{not}\ \mathit{isHit}$ \src{load:490-493}.
 \end{remark}
 
 \begin{remark}[Where a watch parts company from a definition]\label{rem:watchsplit}
-Both are hashed by the same call, so up to \cref{def:usave} they are treated alike. They diverge only
-at \cref{def:update}: a definition's component is added to $\UStore$ and its name bound in $\UNames$;
-a watch's is added to neither, and only its value survives, in $\UCache$ at the reference the save
-computed. So the system mints identities for things it never stores, which is \cref{prop:watchdom}.
+Both are hashed by the same call and treated alike up to \cref{def:usave}. They diverge at
+\cref{def:update}: a definition's component is added to $\UStore$ and its name bound in $\UNames$; a
+watch's is added to neither, and only its value survives, in $\UCache$ at the reference the save
+computed. The system mints identities for things it never stores (\cref{prop:watchdom}).
 \end{remark}
 
 \begin{proposition}[The cache's domain is not contained in the store's]\label{prop:watchdom}
@@ -700,55 +654,51 @@ There are configurations reachable by \cref{def:update} in which
 $\dom(\UCache) \not\subseteq \{\,\UDer{h}{i} \mid h \in \dom(\UStore)\,\}$.
 \end{proposition}
 \begin{proof}
-\emph{Save} (\cref{def:usave}) a file whose binding group is empty and whose watch list is a single
-closed expression $w$. Then $w$ receives a reference $\UDer{h}{0}$ and $\UCache$ is extended at it,
-while $\UStore$ is unchanged by definition. Note that no commit is required, or even possible to
-help: \cref{def:update} adds components for the file's \emph{definitions}, of which there are none.
-Since $w$ is unnamed, no later operation can reach it either --- $\tdeps$ ranges over named
-references (\cref{def:uscope}), and $\render$ has no name to print it by (\cref{def:ppe}). So
-$h \notin \dom(\UStore)$ permanently.
+Save (\cref{def:usave}) a file whose binding group is empty and whose watch list is a single closed
+expression $w$. Then $w$ receives a reference $\UDer{h}{0}$ and $\UCache$ is extended at it, while
+$\UStore$ is unchanged by definition. No commit is required, and none would help: \cref{def:update}
+adds components for the file's definitions, of which there are none. Since $w$ is unnamed, no later
+operation can reach it: $\tdeps$ ranges over named references (\cref{def:uscope}), and $\render$ has
+no name to print it by (\cref{def:ppe}). So $h \notin \dom(\UStore)$ permanently.
 \end{proof}
 
 \begin{remark}[A cyclic definition is not stored in the form that was hashed]\label{rem:unhash}
-Three representations of an intra-component reference have to be kept apart, and the difference is
-invisible unless one looks for it.
+An intra-component reference has three representations.
 
 \emph{While hashing}, a reference from one cycle member to another is a \textbf{variable}, resolved
-by \cref{def:uhash} to an index into the cycle frame. It has to be: the component's hash is what is
-being computed.
+by \cref{def:uhash} to an index into the cycle frame. It must be, because the component's hash is
+what is being computed.
 
 \emph{In memory}, once \cref{def:uingest} has finished, those variables have been substituted by
 $\UDer{h}{i}$ carrying the component's own freshly computed hash.
 
-\emph{Serialized}, a self-reference is stored with \textbf{no hash at all}: the hash field becomes
+\emph{Serialized}, a self-reference is stored with \textbf{no hash at all}. The hash field becomes
 optional, and the absent case marks a reference into the enclosing component. The type is named for
-it --- ``a possibly-self (R = \emph{recursive}) reference'' \src{ref:51-52} --- and the storage
-format says what the absence means: ``an added distinguished element (here \texttt{Nothing}) which
-represents a self-reference'' \src{tformat:19-23}.
+it, ``a possibly-self (R = \emph{recursive}) reference'' \src{ref:51-52}, and the storage format says
+what absence means: ``an added distinguished element (here \texttt{Nothing}) which represents a
+self-reference'' \src{tformat:19-23}.
 
-Consequently the bytes on disk are \emph{not} the bytes that were hashed, and re-deriving a stored
-component's hash requires undoing the substitution first. That operation exists and is documented as
-such: \texttt{unhashComponent} \src{cterm:265-276} --- whose declaration analogue is documented as
-``replaces all \texttt{Nothing} self-referential hashes with a variable reference to the relevant
-piece of the component'' \src{decl:81-83} --- and the hash-validation path calls it before re-hashing
-and compares \src{termhash:26-45}.
+So the bytes on disk are not the bytes that were hashed, and re-deriving a stored component's hash
+requires undoing the substitution first. That operation is \texttt{unhashComponent}
+\src{cterm:265-276}. Its declaration analogue is documented as ``replaces all \texttt{Nothing}
+self-referential hashes with a variable reference to the relevant piece of the component''
+\src{decl:81-83}, and the hash-validation path calls it before re-hashing and compares
+\src{termhash:26-45}.
 
-None of this is observable through the API, and it is a sensible encoding --- writing a component's
-own hash into its members' serialized bytes would mean the bytes could not be produced until the hash
-was known, which is the circularity the whole construction exists to break. It is worth stating
-because ``the hash of a definition is the hash of what is stored'' is a natural thing to assume, and
-for cyclic definitions it is false in three distinct ways.
+None of this is observable through the API, and the encoding is sensible: writing a component's own
+hash into its members' serialized bytes would mean the bytes could not be produced until the hash was
+known, which is the circularity the construction exists to break. We state it because ``the hash of
+a definition is the hash of what is stored'' is a natural assumption, and for cyclic definitions it
+fails in three ways.
 \end{remark}
 
 \subsection{What component hashing guarantees}
 
-Content addressing exists so that a definition's identity does not depend on how it was written down.
-For one definition that is unconditional, and \cref{thm:ualpha} says exactly how far it goes. For a
-recursive \emph{group} it is not, and the reason is visible in \cref{def:comphash}: the members had to
-be put in some order, and the order was chosen by comparing their bodies. When two bodies are
-indistinguishable --- which for members of a cycle means indistinguishable except for which neighbour
-each one calls --- that comparison has nothing to work with, and the tie falls to the one thing the
-design set out to eliminate: what the members are called.
+For one definition, identity is independent of presentation unconditionally, and \cref{thm:ualpha}
+says how far that goes. For a recursive group it is conditional. \Cref{def:comphash} orders the
+members by comparing their bodies. When two bodies are indistinguishable (for members of a cycle,
+indistinguishable except for which neighbour each calls), the comparison cannot break the tie, and it
+falls to what the members are called.
 
 \begin{theorem}[Conditional presentation-independence]\label{thm:ordering}
 Let $C$ and $C'$ be the same component listed in two different orders.
@@ -756,7 +706,7 @@ Let $C$ and $C'$ be the same component listed in two different orders.
   \item If $\phash{\cdot}$ is \emph{injective} on $V$, then $\comphash(C) = \comphash(C')$, the member
         hashes agree, and each member receives the same $\Pos$.
   \item If $\phash{\cdot}$ is not injective, the tied members' de Bruijn indices are decided by the
-        listed order, and hence --- since the list is always obtained in name order --- by the
+        listed order, and hence, since the list is always obtained in name order, by the
         members' \textbf{names}. Two consequences, of different strengths:
         \begin{enumerate}[nosep,label=(b\arabic*)]
           \item \emph{Always}: which member receives which $\Pos$ depends on the names. Renaming a
@@ -771,44 +721,41 @@ $\HEnv_p$ mentions no member individually, so $\phash{y}$ is a function of $u_y$
 unaffected by the listing. (a) If $\phash{\cdot}$ is injective, sorting by it is a total order on $V$
 determined by the members' bodies, so $\pi$, hence $\HEnv$, hence every $h_j$, hence every
 $\nhash{\cdot}$, hence $\sigma$ and $\comphash$, are all listing-independent. (b) If
-$\phash{y} = \phash{y'}$ for $y \neq y'$, the sort in Step 2 is stable and therefore returns them in
-listed order; exchanging them in the listing exchanges their de Bruijn indices. That gives (b1)
-immediately, since $\HEnv$ is what $\nhash{\cdot}$, hence $\sigma$, hence $\Pos$, is computed from.
-It does not give (b2) immediately, because the last step of \cref{def:comphash} accumulates the
-$\nhash{\cdot}$ values \emph{sorted}: if exchanging two members merely permutes the multiset
-$\{\nhash{y}\}$, $\comphash$ is unchanged and only the assignment moves. (b2) needs the exchange to
-change the multiset, which it does whenever it changes some $h_j$ --- and $h_j$ is computed in
-$\HEnv$, so this is the typical case. \Cref{ex:ambiguous} exhibits both behaviours.
+$\phash{y} = \phash{y'}$ for $y \neq y'$, the sort in Step 2 is stable and returns them in listed
+order; exchanging them in the listing exchanges their de Bruijn indices. That gives (b1) immediately,
+since $\HEnv$ is what $\nhash{\cdot}$, hence $\sigma$, hence $\Pos$, is computed from. It does not
+give (b2) immediately, because the last step of \cref{def:comphash} accumulates the $\nhash{\cdot}$
+values sorted: if exchanging two members merely permutes the multiset $\{\nhash{y}\}$, $\comphash$ is
+unchanged and only the assignment moves. (b2) needs the exchange to change the multiset, which it
+does whenever it changes some $h_j$. Since $h_j$ is computed in $\HEnv$, this is the typical case.
+\Cref{ex:ambiguous} exhibits both behaviours.
 \end{proof}
 
 \begin{corollary}[The side condition is decidable, and is computed]\label{cor:detect}
 \src{abt:186-192, 210-217} Injectivity of $\phash{\cdot}$ on $V$ is decided by grouping the
-members by permutation hash. \texttt{doHashCycle} does exactly this and emits
+members by permutation hash. \texttt{doHashCycle} does this and emits
 \texttt{IncompleteElementOrderingError}, listing the structurally equivalent sets.
 \end{corollary}
 
 \begin{remark}[Total function, conditional guarantee, aborting caller]\label{rem:notpartial}
-$\comphash$ is a \emph{total} function: on the ambiguous input it returns a hash. What fails is not
-definedness but \emph{presentation-independence} --- the property content addressing exists to
-provide. The fallback is alphabetical order of user-chosen names, precisely the kind of dependency the
-design is meant to eliminate. So the usual summary --- ``canonical ordering is a partial function'',
-``Unison refuses'' --- is wrong twice over, and the accurate version is more interesting.
+$\comphash$ is a \emph{total} function: on the ambiguous input it returns a hash. What fails is
+presentation-independence, the property content addressing exists to provide, and the fallback is
+alphabetical order of user-chosen names. The usual summary (``canonical ordering is a partial
+function'', ``Unison refuses'') is therefore wrong on both counts.
 
-The refusal is at the \emph{caller}. \texttt{doHashCycle} returns the condition as a warning, and its
-own comment says ``hashing always succeeds even if it generates warnings'';
-\texttt{crashOnHashingWarning} turns it into an exception, and the main term-component path takes that
-route \src{ufile:284}, with a top-level handler rendering it as bug \texttt{E253299} plus a
-workaround --- add a distinguishing binding such as \texttt{\_ = "this is the foo definition"}
-\src{abt:41, 55-62; main:116}.
+The refusal is at the caller. \texttt{doHashCycle} returns the condition as a warning, and its own
+comment says ``hashing always succeeds even if it generates warnings''. \texttt{crashOnHashingWarning}
+turns it into an exception, and the main term-component path takes that route \src{ufile:284}. A
+top-level handler renders it as bug \texttt{E253299} with a workaround: add a distinguishing binding
+such as \texttt{\_ = "this is the foo definition"} \src{abt:41, 55-62; main:116}.
 
-So for a top-level component the accurate statement is: \emph{a decidable side condition guards
-presentation-independence, and the implementation aborts rather than store a hash that violates it.}
-That is a stronger engineering position than a partial function --- no top-level component ever
-receives a presentation-dependent identity --- and a sharper obligation for a formalism, because the
-side condition has to appear in the statement of every downstream result about component identity. The
-condition is tracked upstream as unisonweb/unison\#2787.
+For a top-level component, then, a decidable side condition guards presentation-independence, and the
+implementation aborts instead of storing a hash that violates it. No top-level component ever receives
+a presentation-dependent identity, which is stronger than a partial function. For a formalism the
+obligation is sharper: the side condition has to appear in the statement of every downstream result
+about component identity. The condition is tracked upstream as unisonweb/unison\#2787.
 
-There is one caller for which none of that holds, and \cref{rem:innercycle} is it.
+\Cref{rem:innercycle} describes the one caller for which none of this holds.
 \end{remark}
 
 \begin{remark}[Inside a \texttt{let rec} the same condition is computed and discarded]\label{rem:innercycle}
@@ -818,13 +765,12 @@ There is one caller for which none of that holds, and \cref{rem:innercycle} is i
 ``We ignore incomplete element ordering warnings when calling in from \texttt{hash'}; we don't want to
 error on that when hashing internal let-bindings.''
 \end{quote}
-The warning is bound to \texttt{\_warnings} and dropped. What is left is step 2 of
-\cref{def:comphash}, whose sort is \emph{stable}: tied members keep their listing order, and that
-order fixes their de Bruijn indices and so the enclosing definition's hash. For an inner cycle the
-listing is not reset to name order the way top-level bindings are (\cref{def:comphash}, footnote), so
-what survives into $\pi$ is the order the bindings were written.
+The warning is bound to \texttt{\_warnings} and dropped. Step 2 of \cref{def:comphash} sorts stably,
+so tied members keep their listing order, which fixes their de Bruijn indices and so the enclosing
+definition's hash. For an inner cycle the listing is not reset to name order as top-level bindings are
+(\cref{def:comphash}, footnote), so $\pi$ inherits the order the bindings were written in.
 
-It is observable, and the demonstration needs three definitions of the same function:
+Three definitions of the same function show it:
 \[
 \begin{array}{l@{\qquad}l@{\qquad}l}
   \texttt{m1 n = (a x = b x;\ b x = a x;\ a n)} & \texttt{\#2d5bs110vr} & \\
@@ -832,17 +778,15 @@ It is observable, and the demonstration needs three definitions of the same func
   \texttt{m3 n = (b x = a x;\ a x = b x;\ a n)} & \texttt{\#qqn1r2c1od} & \just{members reordered}
 \end{array}
 \]
-Renaming the two members changes nothing, which is \cref{thm:ualpha} behaving as advertised. Writing
-them in the other order changes the identity of the definition that contains them, though no reader
-could tell the two apart. Lifting the very same pair of bindings to the top level aborts with
-\texttt{E253299}.
+Renaming the two members changes nothing, as \cref{thm:ualpha} promises. Writing them in the other
+order changes the identity of the containing definition, though no reader could tell the two apart.
+Lifting the same pair of bindings to the top level aborts with \texttt{E253299}.
 
-Two things follow. The guarantee of \cref{rem:notpartial} is a guarantee about top-level components
-and not about hashing in general --- the system does silently produce a presentation-dependent
-identity, one nesting level down. And the dependence there is on \emph{source order} rather than on
-names, which is a different coordinate from \cref{thm:ordering}'s and arguably a worse one: a name is
-at least something the user chose deliberately. The published workaround applies unchanged --- add a
-distinguishing binding --- but nothing reports that it is needed.
+The guarantee of \cref{rem:notpartial} therefore concerns top-level components, not hashing in
+general: one nesting level down, the system silently produces a presentation-dependent identity. The
+dependence there is on source order, a different coordinate from \cref{thm:ordering}'s names and
+arguably a worse one, since a name is at least something the user chose. The published workaround
+(add a distinguishing binding) applies unchanged, but nothing reports that it is needed.
 \end{remark}
 
 \begin{theorem}[Hashing collapses $\alpha$-equivalence and cycle permutation]\label{thm:ualpha}
@@ -859,15 +803,15 @@ domain-separating tags of \cref{def:tokens}, downward through the structure.
 % =====================================================================
 \section{Naming}\label{sec:unaming}
 
-Names are not part of a definition, and nothing above consulted one. This section says what they are
-attached to and what a namespace is, which is as much as \cref{sec:uupdate} needs; the object that
-carries a namespace, and its history, are out of scope (\cref{sec:unotmodeled}).
+Names are not part of a definition, and nothing above consulted one. This section says what names are
+attached to and what a namespace is, which is what \cref{sec:uupdate} needs. The object that carries a
+namespace, and its history, are out of scope (\cref{sec:unotmodeled}).
 
 \begin{definition}[Referent]\label{def:ureferent}
 \src{referent:27-30} $\Referent ::= \URefT{r} \mid \UCon{r}{k}$. Names denote
-\emph{referents}, not references: a name may denote a data constructor rather than a definition. With
-no data declarations in scope (\cref{sec:unotmodeled}) the second arm is vestigial here, and is
-retained only so that \cref{def:unames} has the right shape.
+\emph{referents}, not references, because a name may denote a data constructor. With no data
+declarations in scope (\cref{sec:unotmodeled}) the second arm is vestigial here, retained so that
+\cref{def:unames} has the right shape.
 \end{definition}
 
 \begin{definition}[Namespace]\label{def:unames}
@@ -876,33 +820,30 @@ retained only so that \cref{def:unames} has the right shape.
   \UNames \;\subseteq\; \Name \times \Referent ,
 \]
 written $\UNames(x)$ for $\{\,\varrho \mid (x,\varrho) \in \UNames\,\}$. One name may denote several
-referents and one referent may have several names; both are ordinary states rather than errors. The
-derived view has the same shape --- names are recovered in memory as a \emph{relation} between
-referents and names \src{branchtype:110-111}. The database agreed too, in the name-lookup index whose
-key included the referent columns \src{sql:271}; that index was deleted in 2025 and the fragment is
-now vestigial, which is itself the point of \cref{rem:conflict}.
+referents and one referent may have several names; both are ordinary states, not errors. The derived
+view has the same shape: names are recovered in memory as a relation between referents and names
+\src{branchtype:110-111}. The database agreed, in the name-lookup index whose key included the
+referent columns \src{sql:271}. That index was deleted in 2025 and the fragment is now vestigial (see
+\cref{rem:conflict}).
 \end{definition}
 
 \begin{definition}[Unconflictedness]\label{def:unconf}
 \src{branchtype:280-289} $\unconf{\UNames}{x}$ holds iff
 $|\UNames(x)| = 1$, and $\unconf{\UNames}{}$ holds iff it holds at every name in $\dom(\UNames)$.
 When it does, $\UNames$ determines a partial function and we write
-$\uresolve{\UNames}{x}{\varrho}$. It is computed as a derived view, recomputed rather than
-maintained --- and it is all-or-nothing: the implementation's \texttt{asUnconflicted} returns either
-the whole unconflicted namespace or the offending name, never the unconflicted \emph{part} of a
-namespace. So $\unconf{\UNames}{}$, not $\unconf{\UNames}{x}$, is the predicate operations actually
-have available.
+$\uresolve{\UNames}{x}{\varrho}$. It is a derived view, recomputed and not maintained, and it is
+all-or-nothing: \texttt{asUnconflicted} returns either the whole unconflicted namespace or the
+offending name, never the unconflicted part of a namespace. So operations have $\unconf{\UNames}{}$
+available as a predicate, not $\unconf{\UNames}{x}$.
 \end{definition}
 
 \begin{remark}[Conflict is representable; operations demand its absence]\label{rem:conflict}
-Making conflict a legal state rather than an error at bind time is what lets a merge complete without
-resolving everything first: the namespace can hold both candidates and the user can sort it out
-afterwards. It is worth noting where the cost lands. \texttt{update} cannot proceed against a
-conflicted namespace and \emph{asserts} unconflictedness before doing anything
-\src{update:99-102}. And Unison's own forward-looking
-\texttt{BranchV3} format removes conflicted names outright --- ``a V3 branch is a trimmed-down V2
-branch: Names can't be conflicted'' \src{branchv3:16-30}. So the generality is
-real, and the direction of travel appears to be away from it.
+Making conflict a legal state lets a merge complete without resolving everything first: the namespace
+holds both candidates and the user sorts it out afterwards. The cost lands elsewhere. \texttt{update}
+cannot proceed against a conflicted namespace and asserts unconflictedness before doing anything
+\src{update:99-102}. Unison's forward-looking \texttt{BranchV3} format removes conflicted names
+outright: ``a V3 branch is a trimmed-down V2 branch: Names can't be conflicted''
+\src{branchv3:16-30}. The generality is real, and the direction of travel appears to be away from it.
 \end{remark}
 
 \begin{definition}[Namespace gestures]\label{def:gestures}
@@ -918,24 +859,22 @@ nothing else. Writing $\varrho$ for the referent $\UNames$ binds at $x$:
 None of the three reads or writes $\UStore$, none can fail on a typing ground, and none changes any
 hash. They are \texttt{move.term}, \texttt{alias.term} and \texttt{delete.term} in the interface.
 
-Two preconditions are carried by the notation rather than by the equations. Writing $\varrho$ for
-``the referent at $x$'' presupposes $\unconf{\UNames}{x}$. And the target of a \texttt{move} or an
-\texttt{alias} must be unbound: the relation would hold the union perfectly well --- $y$ would simply
-become conflicted --- but the commands refuse, with \emph{``A term named \texttt{bar} already
-exists.''} So conflict remains representable and no gesture here can produce one, which is a third
-instance of \cref{rem:conflict}'s pattern after \cref{def:unconf}'s all-or-nothing view and
-\cref{def:update}'s precondition.
+The notation carries two preconditions. Writing $\varrho$ for ``the referent at $x$'' presupposes
+$\unconf{\UNames}{x}$. And the target of a \texttt{move} or an \texttt{alias} must be unbound. The
+relation could hold the union ($y$ would become conflicted), but the commands refuse with \emph{``A
+term named \texttt{bar} already exists.''} Conflict remains representable and no gesture here can
+produce one. This is a third instance of \cref{rem:conflict}'s pattern, after \cref{def:unconf}'s
+all-or-nothing view and \cref{def:update}'s precondition.
 \end{definition}
 
 \begin{remark}[Renaming is free, and this is the usual reason given for content addressing]\label{rem:renamefree}
 \Cref{def:gestures} is the formal content of the claim that a content-addressed codebase makes
-renaming free. It is true and it is not a small thing: a rename is one row, it cannot break a caller,
-it cannot invalidate a cached result (\cref{cor:wnoinval}), and no definition anywhere is rewritten,
-because no definition anywhere contains the name. Nothing in \crefrange{sec:ustore}{sec:uupdate} can
-even observe that one happened.
+renaming free. A rename is one row. It cannot break a caller or invalidate a cached result
+(\cref{cor:wnoinval}), and no definition is rewritten, because no definition contains the name.
+Nothing in \crefrange{sec:ustore}{sec:uupdate} can observe that one happened.
 
-\Cref{sec:umerge} is where that stops being true. Merge is the one operation that reads names as
-though they were content, and \cref{cor:noedit-user} is where the bill arrives.
+This stops being true in \cref{sec:umerge}. Merge is the one operation that reads names as content,
+and \cref{cor:noedit-user} states the consequence.
 \end{remark}
 
 % =====================================================================
@@ -946,24 +885,22 @@ though they were content, and \cref{cor:noedit-user} is where the bill arrives.
 \[
   \UCache \;:\; (\Hash \times \Pos) \pfn \Term ,
 \]
-from the identity of an expression to its value. Two details are easy to get wrong and are worth
-stating. The key is a \emph{reference}, not a bare hash --- the primary key is
-$(\mathit{hash}, \mathit{component\ index})$, so a watch is addressed exactly the way
-\cref{def:uref} addresses a definition. And the value is the evaluated result \emph{term}, stored
-inline as a blob \src{sql:124}, not a hash into $\UStore$: nothing about caching a result puts that
-result in the store.
+from the identity of an expression to its value. Two details are easy to get wrong. The key is a
+\emph{reference}, not a bare hash: the primary key is $(\mathit{hash}, \mathit{component\ index})$, so
+a watch is addressed the way \cref{def:uref} addresses a definition. The value is the evaluated result
+\emph{term}, stored inline as a blob \src{sql:124}, not a hash into $\UStore$; caching a result does
+not put it in the store.
 \end{definition}
 
 \begin{remark}[The key need not be a definition]\label{rem:watchkey}
-$\dom(\UCache)$ identifies an \emph{expression}, which need not be named and need not be anything
-the user declared --- the schema note says so outright: the key ``is an unevaluated term reference
-\dots\ because the unevaluated term may not exist in the codebase: it is not added merely by watching
-it without a name, e.g \texttt{> 2 + 3}'' \src{sql:141-143}. \Cref{prop:watchdom} is that sentence
-as a statement about the model, and it is observable in a running system: after evaluating one watch,
-the codebase's \texttt{hash} table has interned the watch's hash and its \texttt{hash\_object} table
-has no row for it --- an identity with no object behind it. There is no notion of ``is a definition'' attached to stored data that the cache
-would have to respect; a hash is a hash. This is what lets a watch expression in a scratch file be
-cached on the same footing as a top-level binding.
+$\dom(\UCache)$ identifies an expression, which need not be named or declared. The schema note says
+the key ``is an unevaluated term reference \dots\ because the unevaluated term may not exist in the
+codebase: it is not added merely by watching it without a name, e.g \texttt{> 2 + 3}''
+\src{sql:141-143}. \Cref{prop:watchdom} is that sentence as a statement about the model. It is
+observable in a running system: after evaluating one watch, the codebase's \texttt{hash} table has
+interned the watch's hash and its \texttt{hash\_object} table has no row for it. Stored data carries
+no notion of ``is a definition'' that the cache would have to respect, which is what lets a watch
+expression in a scratch file be cached on the same footing as a top-level binding.
 \end{remark}
 
 \begin{theorem}[Cache soundness is stable under growth]\label{thm:wstable}
@@ -977,31 +914,26 @@ the namespace, and is indifferent to whether the codomain is a hash or an inline
 \end{proof}
 
 \begin{remark}[Why \cref{prop:watchdom} costs the cache nothing]\label{rem:watchdom-ok}
-It is worth noticing what the proof above did \emph{not} use: that $r$ itself is in the store. It
-used only that everything $r$ \emph{reads} is. A cached key that names nothing --- the situation
-\cref{prop:watchdom} shows is reachable --- is therefore not an edge case the soundness argument has
-to exclude; it is outside the argument's hypotheses altogether. That is the technical content of
-``there is no notion of \emph{is a definition} attached to stored data'': had the cache been
-specified as a map on definitions, this proposition would have been a bug report rather than an
-observation.
+The proof above did not use that $r$ itself is in the store, only that everything $r$ reads is. A
+cached key that names nothing, which \cref{prop:watchdom} shows is reachable, lies outside the
+argument's hypotheses; it is not an edge case to exclude. Had the cache been specified as a map on
+definitions, that proposition would have been a bug report.
 \end{remark}
 
 \begin{corollary}[No invalidation is needed]\label{cor:wnoinval}
 An entry, once written, is valid in every future store. Consequently no invalidation logic is
-required --- and none exists; a search for one across the storage, codebase and CLI layers returns
-nothing. Two removal paths exist and neither is invalidation: a debug-only wholesale
-\texttt{clear\-Watches}, reachable as \texttt{debug.clear-cache}, and a garbage collection of
-watches whose hash has no object, which deletes from the \texttt{watch} table rather than
-\texttt{watch\_result} and whose only caller is a one-time schema migration.
+required, and none exists: a search across the storage, codebase and CLI layers finds none. Two
+removal paths exist and neither is invalidation: a debug-only wholesale \texttt{clear\-Watches},
+reachable as \texttt{debug.clear-cache}, and a garbage collection of watches whose hash has no
+object, which deletes from the \texttt{watch} table, not \texttt{watch\_result}, and whose only
+caller is a one-time schema migration.
 \end{corollary}
 
 \begin{remark}[What ``never invalidated'' actually means]\label{rem:cachemeaning}
-This is the claim Unison is best known for, and it is worth stating precisely because the informal
-version invites a weaker reading. ``Caches are never invalidated'' is not an empirical observation
-that definitions rarely change, and not a policy that could be traded away for freshness. It is a
-consequence of two facts: the store is append-only, and the cache is keyed by a hash of exactly the
-expression that was evaluated. Together they make staleness unrepresentable. Nothing in the argument
-mentions names, types, or how often anyone edits anything.
+This is the claim Unison is best known for, and the informal version invites a weaker reading. It is
+not an empirical observation that definitions rarely change, nor a policy traded against freshness.
+It follows from two facts: the store is append-only, and the cache is keyed by a hash of the
+expression that was evaluated. The argument mentions no names, types, or edit frequency.
 \end{remark}
 
 % =====================================================================
@@ -1011,10 +943,10 @@ mentions names, types, or how often anyone edits anything.
 
 \begin{definition}[Dependents]\label{def:dependents}
 $\deps(h,i)$ is the set of references occurring in the $i$-th member of the component at $h$;
-$\dependents$ is its converse, maintained as an index populated when a definition is saved. Note that
-this index can exist because a reference remains a node in the stored representation even though it
-hashes transparently at position $0$ (\cref{prop:transparent}): transparency is a property of the
-hash, not of the representation.
+$\dependents$ is its converse, maintained as an index populated when a definition is saved. The index
+can exist because a reference remains a node in the stored representation even though it hashes
+transparently at position $0$ (\cref{prop:transparent}). Transparency is a property of the hash, not
+of the representation.
 \end{definition}
 
 \begin{definition}[Update scope]\label{def:uscope}
@@ -1025,38 +957,34 @@ and a namespace $\UNames$,
 \]
 where $\dependents^{+}$ is the transitive closure excluding self-references, $F$ is what the incoming
 file itself shadows, and $\mathcal{S}$ is the set of references named in $\UNames$ once $\lib$ has
-been removed. Note where the two side conditions actually sit. Excluding $\lib$ is not a filter
-applied to the dependents; $\lib$ is deleted from the namespace \emph{before} $\mathcal{S}$ is read
-off it. And unconflictedness is not a filter either: by \cref{def:unconf} the implementation cannot
-take the unconflicted \emph{part} of a namespace, so $\mathcal{S}$ is well defined only because
-\cref{def:update} has already demanded $\unconf{\UNames}{}$ of the whole non-$\lib$ namespace. A
-separate rule, not part of $\tdeps$, rejects the update outright if the incoming file itself binds
-anything under $\lib$ \src{update:139-144}.
+been removed. Neither side condition is a filter on the dependents. $\lib$ is deleted from the
+namespace before $\mathcal{S}$ is read off it. Unconflictedness is also not a filter: by
+\cref{def:unconf} the implementation cannot take the unconflicted part of a namespace, so
+$\mathcal{S}$ is well defined only because \cref{def:update} has already demanded
+$\unconf{\UNames}{}$ of the whole non-$\lib$ namespace. A separate rule, not part of $\tdeps$, rejects
+the update outright if the incoming file binds anything under $\lib$ \src{update:139-144}.
 \end{definition}
 
 \begin{remark}[Naming is what puts a definition in scope]\label{rem:scopenaming}
-An unnamed definition is not a dependent to be updated, even if it references the target. Naming is
-the only thing that makes a stored object a participant in an edit --- which is a second place, after
-\cref{rem:watchkey}, where the system declines to attach a ``definition'' status to stored data and
-lets the namespace carry it instead.
+An unnamed definition is not a dependent to be updated, even if it references the target. Only naming
+makes a stored object a participant in an edit. As in \cref{rem:watchkey}, the namespace carries
+``definition'' status and stored data does not.
 
-Note also what is \emph{absent}: there is no type-based gating. Unison formerly classified each edit
-as $\mathsf{Same} \mid \mathsf{Subtype} \mid \mathsf{Different}$ and propagated only the first two
+There is no type-based gating. Unison formerly classified each edit as
+$\mathsf{Same} \mid \mathsf{Subtype} \mid \mathsf{Different}$ and propagated only the first two
 automatically. The propagation machinery that consumed that classification was deleted in 2025; the
-datatype itself survives, with no callers, because old history has to keep deserializing. The current
-design computes the closure and lets the typechecker decide, reporting failure rather than predicting
-it.
+datatype survives, with no callers, because old history has to keep deserializing. The current design
+computes the closure and lets the typechecker decide, reporting failure instead of predicting it.
 \end{remark}
 
 \subsection{Update, as rendering}
 
 \begin{definition}[Pretty-print environment]\label{def:ppe}
-\src{update:429-463} A $\ppe$ assigns each reference a name to
-render it by, under two different suffixification strategies: definitions \emph{in the file} are
-suffixified by name, definitions \emph{in the codebase} by hash. The asymmetry is forced --- aliases
-sharing a suffix may be referred to by that suffix in the codebase but not in a file, where the parser
-reports an ambiguity. The source gives the example: with \texttt{one.foo} and \texttt{two.foo} both in
-the file, \texttt{hey = foo + foo} fails to parse.
+\src{update:429-463} A $\ppe$ assigns each reference a name to render it by, under two
+suffixification strategies: definitions in the file are suffixified by name, definitions in the
+codebase by hash. The asymmetry is forced. Aliases sharing a suffix may be referred to by that suffix
+in the codebase but not in a file, where the parser reports an ambiguity. The source's example: with
+\texttt{one.foo} and \texttt{two.foo} both in the file, \texttt{hey = foo + foo} fails to parse.
 \end{definition}
 
 \begin{definition}[Update]\label{def:update}
@@ -1068,8 +996,7 @@ configuration $\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
   \item Parse and typecheck $F \cup S$ \emph{as one file}.
   \item If it typechecks, \textbf{store} each definition's component at the hash
         \cref{def:usave} already gave it, and rebind every affected name. This step is the
-        \emph{commit}: by \cref{rem:saveident} the hashes are not computed here, they are merely
-        acted on.
+        \emph{commit}. By \cref{rem:saveident} the hashes are not computed here, only acted on.
   \item If it does not, nothing is ingested; \textbf{remove from $\UNames$ every name $F$ binds and
         every name in $D$}, and deliver $F \cup S$ to the user as editable source on a dedicated
         update branch.
@@ -1077,56 +1004,49 @@ configuration $\UConfig{\UStore}{\UNames}{\UCache}$ with $\unconf{\UNames}{}$:
 \end{definition}
 
 \begin{remark}[How much step 5 removes]\label{rem:step5}
-Two things about it are stronger than the natural reading. First, the removal is not confined to the
-definitions that failed: the implementation subtracts, by name, \emph{everything the file binds}
-together with \emph{every dependent it rendered}, whatever the typechecker's verdict on each. Second,
-$F$'s own definitions do not survive either --- since nothing is ingested, the name the user was
-trying to update is left denoting nothing at all, rather than still denoting its old referent.
-\Cref{ex:update-fail} works this through, and it is the reason the operation is coherent: the
-namespace is not left holding a mixture of old and new.
+Step 5 removes more than the natural reading suggests. The implementation subtracts, by name,
+everything the file binds together with every dependent it rendered, whatever the typechecker's
+verdict on each. $F$'s own definitions do not survive either: since nothing is ingested, the name the
+user was updating is left denoting nothing, not its old referent. This keeps the operation coherent,
+since the namespace never holds a mixture of old and new. \Cref{ex:update-fail} works it through.
 \end{remark}
 
 \begin{remark}[The failure case is the interesting one]\label{rem:residual}
-Step 5 is the part of \texttt{update} least anticipated by informal descriptions of it. When
-propagation fails, the namespace is not left holding broken definitions and the operation does not
-roll back: the whole edit --- what the user wrote and everything it touched --- is \emph{evicted}
-from the namespace, and its source becomes the user's working state. The namespace stays coherent by
-construction, and the unfinished work is the scratch file. Note the dependency on \cref{rem:names} ---
-what is handed back has to be readable, so binder names must have survived storage.
-
-Neither ``commit'' nor ``roll back'' describes this. A rollback would restore the pre-edit namespace,
-leaving the user's work only in whatever buffer they typed it into; a commit would leave broken
-bindings. Step 5 does a third thing: it makes the namespace smaller and hands the difference to the
-user as code. \Cref{rem:step5} records how much it removes, which is more than the name suggests.
+Informal descriptions of \texttt{update} rarely anticipate step 5. When propagation fails, the
+operation neither commits broken definitions nor rolls back. The whole edit, what the user wrote and
+everything it touched, is evicted from the namespace, and its source becomes the user's working
+state. A rollback would restore the pre-edit namespace and leave the user's work only in whatever
+buffer they typed it into; a commit would leave broken bindings. Step 5 makes the namespace smaller
+and hands the difference to the user as code. What is handed back has to be readable, so this
+depends on binder names surviving storage (\cref{rem:names}).
 
 The same closure computation feeds \texttt{merge}, which puts conflicted definitions and their
-dependents into a scratch file together for the same reason: a conflict cannot be resolved in
-isolation, because whatever the user picks, everything downstream must be re-typechecked against it.
+dependents into a scratch file together for the same reason: whatever the user picks, everything
+downstream must be re-typechecked against it.
 \end{remark}
 
 \begin{proposition}[Update propagates by exactly one strategy]\label{prop:follow-only}
 The transition of \cref{def:update} admits no parameter controlling propagation: $\tdeps$ is fixed.
 Every transitive dependent with an unconflicted name outside $\lib$ is rebuilt, and there is no way to
-\emph{request} that some callers be left pointing at the old definition. One can be brought about all
-the same. Give the definition a second name before updating: $\tdeps$ still selects every dependent
-and each is still rebuilt, but rebuilding means rendering, and the renderer shows the dependency under
-one of its names. The alias still denotes the old definition, so a dependent rendered under it parses
-back to what it already said and the retarget is a no-op --- the caller is pinned, by the naming layer
-rather than by an option. \Cref{ex:merge-alias} exhibits it. Abstention is available too, by choosing a
-name nothing depends on so that $\tdeps(Q)$ is empty; it is not a separate command either, since at
-this commit \texttt{add} is an alias for \texttt{update} \src{inputpat:882-896}, the two having been
-merged in 2025. A per-definition choice does reappear at \emph{failure} time, since whatever
-fails to typecheck comes back as source for the user to edit.
+\emph{request} that some callers keep pointing at the old definition. One can be brought about anyway.
+Give the definition a second name before updating. $\tdeps$ still selects every dependent and each is
+still rebuilt, but rebuilding means rendering, and the renderer shows the dependency under one of its
+names. The alias still denotes the old definition, so a dependent rendered under it parses back to
+what it already said and the retarget is a no-op. The naming layer pins the caller, not an option.
+\Cref{ex:merge-alias} exhibits it. Abstention is also available, by choosing a name nothing depends
+on so that $\tdeps(Q)$ is empty. It is not a separate command either: at this commit \texttt{add} is
+an alias for \texttt{update} \src{inputpat:882-896}, the two having been merged in 2025. A
+per-definition choice does reappear at failure time, since whatever fails to typecheck comes back as
+source for the user to edit.
 \end{proposition}
 
 \subsection{The obligation update rests on}
 
-A stored definition refers to its dependencies by hash. Rebuilding one so that it calls a new version
-therefore means changing a hash inside it, and \cref{def:update} manages that without touching the
-stored tree: it prints the definition out, so the dependency becomes a \emph{name} again, and parses
-it back in a namespace where that name denotes the new version. The printer and the parser are doing
-the substitution, so the operation is only as correct as the round trip between them --- an unusual
-thing for a system's core edit operation to rest on, and easy to state.
+A stored definition refers to its dependencies by hash, so rebuilding one to call a new version means
+changing a hash inside it. \Cref{def:update} does this without touching the stored tree. It prints
+the definition, so the dependency becomes a name again, and parses it back in a namespace where that
+name denotes the new version. The printer and parser perform the substitution, so the operation is
+only as correct as the round trip between them.
 
 \begin{proposition}[Update is correct only if printing inverts parsing]\label{prop:print-parse}
 Let $d$ be a dependent not redefined by $F$, and let $d'$ be the definition obtained from step 4 for
@@ -1138,53 +1058,48 @@ its references to $Q$ replaced by their new targets. This holds iff, for every $
 \]
 \end{proposition}
 \begin{proof}[Proof sketch]
-Step 3 reconstructs $d'$ from text alone. Any discrepancy introduced by the round trip --- a binder
-renamed so as to change capture, an identifier resolving to a different alias, a different
-associativity --- is preserved into $d'$ and changes its hash for a reason unrelated to the update.
-Conversely, if the round trip is exact except at the references being retargeted, $d'$ is by
-construction the intended substitution.
+Step 3 reconstructs $d'$ from text alone. Any discrepancy the round trip introduces (a binder renamed
+so as to change capture, an identifier resolving to a different alias, a different associativity) is
+preserved into $d'$ and changes its hash for a reason unrelated to the update. Conversely, if the
+round trip is exact except at the references being retargeted, $d'$ is by construction the intended
+substitution.
 \end{proof}
 
 \begin{remark}[The property is understood precisely, and lives in a test]\label{rem:printparse}
-The implementation's own comment for this step is: ``We are updating old references to new references
+The implementation's comment for this step reads: ``We are updating old references to new references
 by rendering old references as names that are then parsed back to resolve to new references (the
-world's weirdest implementation of AST substitution)''
-\src{update:424-427}. The correctness property that comment
-presupposes does not appear as a statement anywhere in the source. It is instead \emph{tested}:
+world's weirdest implementation of AST substitution)'' \src{update:424-427}. The correctness property
+that comment presupposes is not stated anywhere in the source. It is tested:
 \texttt{unison-src/transcripts-round-trip/} renders a regression corpus, re-adds it to a fresh
-namespace, and asserts that the namespace diff is empty --- ``this diff should be empty if the two
-namespaces are equivalent. If it's nonempty, the diff will show us the hashes that differ.'' The
+namespace, and asserts that the namespace diff is empty (``this diff should be empty if the two
+namespaces are equivalent. If it's nonempty, the diff will show us the hashes that differ.''). The
 corpus file is named \texttt{reparses-with-same-hash.u}, and its sibling \texttt{reparses.u} holds the
 weaker cases that need only parse.
 
-The naming is the point. The property is understood exactly, and the distinction between ``reparses''
-and ``reparses with the same hash'' is drawn in the file names --- it is simply maintained as a golden
-corpus rather than stated as an invariant. Given the size of Unison's surface language that is a
-defensible engineering choice. \Cref{prop:print-parse} makes explicit what the corpus is protecting,
-and the difficulty demonstrably concentrates in one place: the pretty-print environment of
+The file names draw the distinction between ``reparses'' and ``reparses with the same hash'', so the
+property is understood; it is maintained as a golden corpus instead of stated as an invariant. Given
+the size of Unison's surface language that is a defensible choice. \Cref{prop:print-parse} makes
+explicit what the corpus protects, and the difficulty concentrates in the pretty-print environment of
 \cref{def:ppe}.
 \end{remark}
 
 % =====================================================================
-% =====================================================================
 \section{Merge}\label{sec:umerge}
 
 \texttt{update} rebuilds a namespace after one person edits it. \texttt{merge} reconciles two
-namespaces edited independently. The two share a mechanism --- both work by rendering stored
-definitions to source and parsing them back --- and therefore share the obligation of
-\cref{prop:print-parse}. What merge adds is a decision \texttt{update} never has to make: given that
-a definition differs on both branches, decide whether a \emph{human} changed it, or whether it
-changed because something underneath it did. That decision is made by a second hash, computed from
-names.
+namespaces edited independently. Both render stored definitions to source and parse them back, so
+both carry the obligation of \cref{prop:print-parse}. Merge also has to decide something
+\texttt{update} never does: given that a definition differs on both branches, did a person change it,
+or did something underneath it change? A second hash, computed from names, makes that decision.
 
 \subsection{Three namespaces, one store}
 
-A branch is modeled here as a namespace. The causal history Unison attaches to one is out of scope
-(\cref{sec:unotmodeled}), and so is computing the common ancestor of two branches. Merge is a
-function of three namespaces in the sense of \cref{def:unames} --- $\NO$ (the common ancestor), $\NA$
-(the branch being merged \emph{into}) and $\NB$ (the branch being merged \emph{from}) --- over one
-store. The asymmetry of the last two is not incidental and is retained throughout: several steps
-prefer $\NA$, and \cref{prop:merge-asym} is the consequence.
+A branch is modeled as a namespace. The causal history Unison attaches to one is out of scope
+(\cref{sec:unotmodeled}), and so is computing two branches' common ancestor. Merge is a function of
+three namespaces in the sense of \cref{def:unames} over one store: $\NO$ (the common ancestor), $\NA$
+(the branch being merged \emph{into}) and $\NB$ (the branch being merged \emph{from}). The asymmetry
+between the last two is retained throughout. Several steps prefer $\NA$, and \cref{prop:merge-asym} is
+the consequence.
 
 \begin{proposition}[The store never merges]\label{prop:merge-store}
 Let $\UStore^{\mathsf{a}}$ and $\UStore^{\mathsf{b}}$ arise from independent sequences of ingests
@@ -1201,29 +1116,28 @@ closed under the references its components contain, and closure is preserved by 
 
 \begin{remark}[What that proposition is and is not]\label{rem:merge-store}
 It is the formal content of the claim, often made for content-addressed codebases, that two people
-cannot conflict in the code. The claim is true, and \cref{prop:merge-store} is why: the store is
-append-only and keyed by content, so a union is always a store and never needs a decision.
+cannot conflict in the code. The store is append-only and keyed by content, so a union is always a
+store and never needs a decision.
 
-It is also close to vacuous. Nothing a user would call a merge conflict lives in $\UStore$; conflicts
-live in $\UNames$, which is not content-addressed --- it is a relation over names people choose.
-Everything in the rest of this section is about $\UNames$, and none of it follows from
-\cref{prop:merge-store}.
+It is also close to vacuous. Nothing a user would call a merge conflict lives in $\UStore$. Conflicts
+live in $\UNames$, which is not content-addressed: it is a relation over names people choose. The
+rest of this section concerns $\UNames$, and none of it follows from \cref{prop:merge-store}.
 \end{remark}
 
 \begin{definition}[Merge preconditions]\label{def:mergepre}
 \src{merge2:208-222; mblob:98-102} Merge demands three things before it computes anything.
 \begin{enumerate}[nosep,label=(\roman*)]
   \item $\unconf{\NO}{}$, $\unconf{\NA}{}$ and $\unconf{\NB}{}$. By \cref{def:unconf} this is
-        all-or-nothing on each of the three; a single conflicted name anywhere aborts the merge, and
-        for $\NO$ the user cannot even act on the diagnosis.
+        all-or-nothing on each of the three. A single conflicted name anywhere aborts the merge, and
+        for $\NO$ the user cannot act on the diagnosis.
   \item Neither $\NA$ nor $\NB$ binds anything under $\lib$, the same restriction
         \cref{def:uscope} imposes on \texttt{update}.
   \item No \emph{conflicted alias}: no pair of names that denote one referent in $\NO$ and different
         ones on a branch. If \texttt{foo} and \texttt{bar} were aliases and one branch left them
         denoting different things, merge stops.
 \end{enumerate}
-Condition (iii) is what makes the rest of the section well posed. Everything below indexes by name,
-so a definition must not be able to be updated at one of its names and not at another.
+Condition (iii) makes the rest of the section well posed. Everything below indexes by name, so a
+definition must not be updatable at one of its names and not at another.
 \end{definition}
 
 \subsection{The syntactic hash}
@@ -1231,30 +1145,30 @@ so a definition must not be able to be updated at one of its names and not at an
 \begin{definition}[Naming function]\label{def:namer}
 \src{mdiffblob:412-422; names:359-369} $\namer : \Referent \rightharpoonup \Name$ assigns each
 referent one \emph{fully qualified} name, drawn from $\NA$ if $\NA$ names it at all, otherwise from
-$\NB$, otherwise from $\NO$. The bias is by \emph{referent}, not by name: if $\NA$ has any name for
-$r$, none of $\NB$'s names for $r$ are considered. Referents named nowhere are outside $\dom(\namer)$
-and are treated below as denoting themselves.
+$\NB$, otherwise from $\NO$. The bias is by referent, not by name: if $\NA$ has any name for $r$, none
+of $\NB$'s names for $r$ are considered. Referents named nowhere are outside $\dom(\namer)$ and are
+treated below as denoting themselves.
 \end{definition}
 
 \begin{definition}[Syntactic hash]\label{def:synhash}
 \src{msynhash:237-246, 327-329, 386-390} For a resolved term $t$ (\cref{def:urterm}),
 $\syn{\namer}{t}$ is computed by the recursion of \cref{def:uhash} with one substitution reversed: a
-bound variable contributes its de Bruijn index, exactly as before, and a reference $r$ contributes
-$\namer(r)$ as \emph{text} --- or, when $r \notin \dom(\namer)$, its hash. Binder names are discarded;
+bound variable contributes its de Bruijn index, as before, and a reference $r$ contributes
+$\namer(r)$ as \emph{text}, or its hash when $r \notin \dom(\namer)$. Binder names are discarded;
 reference hashes are not consulted.
 \end{definition}
 
 \begin{remark}[The two hashes are duals, and only one is stored]\label{rem:syn-dual}
 \Cref{def:uhash} erases names and keeps hashes. \Cref{def:synhash} erases hashes and keeps names.
-They run over the same syntax with the same treatment of binders, and differ in exactly one clause.
-The content hash is the definition's identity and is stored; the syntactic hash is computed during a
-merge, used to make one decision, and discarded --- it appears in no table, and there is no operation
-that retrieves a definition by it.
+They run over the same syntax with the same treatment of binders and differ in one clause. The
+content hash is the definition's identity and is stored. The syntactic hash is computed during a
+merge, used for one decision and discarded: it appears in no table, and no operation retrieves a
+definition by it.
 
-Two consequences follow. First, $\syn{\namer}{t}$ is a function of the namespace as well as the term:
-the same stored definition has different syntactic hashes in different namespaces. Second, equality of
-syntactic hashes is equality of \emph{rendered} form --- a reader shown both under $\namer$ would see
-the same code. \Cref{def:mergediff} is built entirely on that reading.
+Two consequences follow. $\syn{\namer}{t}$ is a function of the namespace as well as the term, so the
+same stored definition has different syntactic hashes in different namespaces. And equality of
+syntactic hashes is equality of rendered form: a reader shown both under $\namer$ would see the same
+code. \Cref{def:mergediff} is built on that reading.
 \end{remark}
 
 \begin{lemma}[Propagation is invisible to the syntactic hash]\label{lem:prop-silent}
@@ -1267,14 +1181,14 @@ agree everywhere else.
 \end{proof}
 
 \begin{remark}[Why that lemma is the whole idea]\label{rem:prop-silent}
-\Cref{def:update} rebuilds every transitive dependent of an edit, so after any edit a great many
-definitions have new hashes that no human typed. \Cref{lem:prop-silent} says those definitions are
-nonetheless syntactically unchanged --- provided the edited definition kept its name, so that its old
-and new versions have the same $\namer$-image. The implementation's own illustration is exactly this
-hypothesis: with \texttt{foo = \#bar + 3} becoming \texttt{foo = \#bar2 + 3}, ``our pretty-print
-environment has mapped both \texttt{\#bar} and \texttt{\#bar2} to the name \texttt{helper}, so each
-version of \texttt{foo} would have the same syntactic hash. This indicates (to our merge algorithm)
-that this was an auto-propagated update'' \src{msynhash:1-25}.
+\Cref{def:update} rebuilds every transitive dependent of an edit, so after any edit many definitions
+have new hashes that no human typed. By \cref{lem:prop-silent} those definitions are syntactically
+unchanged, provided the edited definition kept its name so that its old and new versions have the
+same $\namer$-image. The implementation's own illustration is this hypothesis: with
+\texttt{foo = \#bar + 3} becoming \texttt{foo = \#bar2 + 3}, ``our pretty-print environment has mapped
+both \texttt{\#bar} and \texttt{\#bar2} to the name \texttt{helper}, so each version of \texttt{foo}
+would have the same syntactic hash. This indicates (to our merge algorithm) that this was an
+auto-propagated update'' \src{msynhash:1-25}.
 \end{remark}
 
 \subsection{The diff, and what a conflict is}
@@ -1291,21 +1205,21 @@ $\delta_P(x)$ is
   \dupd & \NO(x) \neq P(x) \text{ and } \syn{\namer}{\NO(x)} \neq \syn{\namer}{P(x)}
 \end{array}
 \]
-Only $\dadd$, $\ddel$ and $\dupd$ enter the diff. $\dnil$ is discarded before any hashing happens ---
-equal referents have equal syntactic hashes, so the case is decided on the content hash alone --- and
-$\dprop$ is partitioned off as an automatic propagation. Held back from the diff is not discarded:
+Only $\dadd$, $\ddel$ and $\dupd$ enter the diff. $\dnil$ is discarded before any hashing, since
+equal referents have equal syntactic hashes and the content hash decides the case alone. $\dprop$ is
+partitioned off as an automatic propagation. It is held back from the diff, not discarded:
 \cref{def:umerge} still applies the $\dprop$ bindings to the merged namespace, because a definition
-\texttt{update} rebuilt is still the version that branch has. What it is spared is being put to the
-user.
+\texttt{update} rebuilt is still the version that branch has. It is only spared from being put to
+the user.
 \end{definition}
 
 \begin{remark}[Only the syntactic hash decides]\label{rem:syn-only}
-\src{msynhashed:9-26} The distinction between $\dprop$ and $\dupd$ is the only place in the algorithm
-where the content hash of a definition is consulted at all, and even there it is consulted second: the
-type carrying a definition through the diff pairs a referent with its syntactic hash, and its equality
-instance compares \emph{only the syntactic hash} --- ``the \texttt{Eq} and \texttt{Ord} instances only
-compares syntactic hashes''. Once two definitions' syntactic hashes differ, nothing downstream asks
-what they actually are. A content-addressed system decides its merges by name.
+\src{msynhashed:9-26} The $\dprop$/$\dupd$ distinction is the only place the algorithm consults a
+definition's content hash, and even there it is consulted second. The type carrying a definition
+through the diff pairs a referent with its syntactic hash, and its equality instance compares only the
+syntactic hash: ``the \texttt{Eq} and \texttt{Ord} instances only compares syntactic hashes''. Once
+two definitions' syntactic hashes differ, nothing downstream asks what they are. A content-addressed
+system decides its merges by name.
 \end{remark}
 
 \begin{definition}[Combination]\label{def:mergecombine}
@@ -1328,13 +1242,12 @@ The merged namespace $\NM$ is $\NO$ with the resolved operations applied.
 \end{definition}
 
 \begin{remark}[A delete never wins]\label{rem:updel}
-The fourth row is a deliberate choice and the source says so: ``These two are not a conflicts,
-perhaps only temporarily, because it's easier to implement. We just ignore these deletes and keep the
-updates'' \src{mcombine:60-63}. It matters more than it looks, because Unison has no rename
-operation at the level of this diff: moving \texttt{foo} to \texttt{bar} appears as $\ddel$ at
-\texttt{foo} and $\dadd$ at \texttt{bar}. So a rename racing an ordinary edit of the renamed
-definition resolves by keeping both halves --- the new name from the rename, the old name from the
-edit --- and \cref{ex:merge-dup} works that through.
+The source says the fourth row is a choice: ``These two are not a conflicts, perhaps only temporarily,
+because it's easier to implement. We just ignore these deletes and keep the updates''
+\src{mcombine:60-63}. It matters because Unison has no rename operation at the level of this diff:
+moving \texttt{foo} to \texttt{bar} appears as $\ddel$ at \texttt{foo} and $\dadd$ at \texttt{bar}.
+A rename racing an ordinary edit of the renamed definition therefore resolves by keeping both halves,
+the new name from the rename and the old name from the edit. \Cref{ex:merge-dup} works that through.
 \end{remark}
 
 \begin{definition}[Merge]\label{def:umerge}
@@ -1342,30 +1255,29 @@ edit --- and \cref{ex:merge-dup} works that through.
 \begin{enumerate}[nosep,label=\arabic*.]
   \item Compute $\delta_{\NA}$, $\delta_{\NB}$ and the conflicted names (\cref{def:mergecombine}).
         Form $\NM$ from $\NO$ by applying the $\dprop$ bindings, then the resolved operations on top;
-        conflicted names are removed rather than bound.
+        conflicted names are removed, not bound.
   \item Call a referent \emph{superseded} if $\NO$ bound some name to it and $\NM$ no longer does.
         Let $D$ be every name $\NM$ binds whose definition reaches a superseded referent, together
-        with the conflicted names. These are what must be rebuilt: an update supersedes (the name
-        means something else now), a rename supersedes (the name is gone), and a definition all of
-        whose dependencies still mean what they meant needs no attention.
+        with the conflicted names. These must be rebuilt. An update supersedes (the name means
+        something else now), a rename supersedes (the name is gone), and a definition all of whose
+        dependencies still mean what they meant needs no attention.
   \item Render $D$ to source under a naming function $\rnamer$, producing one file.
-  \item If no name is conflicted, parse and typecheck that file against $\NM$ --- from which the
-        names in $D$ have been removed, so the re-ingest rebinds them, exactly as \texttt{update}
-        treats what it rebuilds. On success the merge is complete.
-  \item Otherwise --- a conflicted name, or a file that does not parse or typecheck --- create a
+  \item If no name is conflicted, parse and typecheck that file against $\NM$, from which the names
+        in $D$ have been removed so that the re-ingest rebinds them, as \texttt{update} treats what
+        it rebuilds. On success the merge is complete.
+  \item Otherwise (a conflicted name, or a file that does not parse or typecheck), create a
         temporary branch holding $\NM$ and deliver the file to the user as editable source.
 \end{enumerate}
-$\rnamer$ is built like $\namer$ but suffixified, and prefers $\NA$'s names for the stated reason that
-the result should ``look familiar to Alice (the one merging in Bob's changes)'' and should avoid
-``superfluous textual conflicts that would arise from preferring Bob's names for Bob's code''
-\src{mrender:93-104}.
+$\rnamer$ is built like $\namer$ but suffixified, and prefers $\NA$'s names so that the result should
+``look familiar to Alice (the one merging in Bob's changes)'' and avoid ``superfluous textual
+conflicts that would arise from preferring Bob's names for Bob's code'' \src{mrender:93-104}.
 \end{definition}
 
 \begin{remark}[Two failures, one message]\label{rem:merge-twofail}
-Step 5 covers two distinct situations that the implementation reports identically. Either a name is
+Step 5 covers two situations that the implementation reports identically. Either a name is
 conflicted, in which case the file contains two definitions under that name and cannot parse by
 construction; or no name is conflicted and the file still fails, because rendering and re-parsing did
-not round-trip. \Cref{prop:merge-print-parse} is about the second, and \cref{ex:merge-dangling}
+not round-trip. \Cref{prop:merge-print-parse} concerns the second, and \cref{ex:merge-dangling}
 exhibits it. The user sees the same sentence either way and must read the file to tell which happened.
 \end{remark}
 
@@ -1392,9 +1304,9 @@ The first case gives $\delta_{\NA}(x) = \dnil$; the second gives $\dprop$ by
 \end{proof}
 
 \begin{definition}[Authored; name-stable]\label{def:namestable}
-\Cref{cor:noedit}'s hypothesis is about $\namer$, and no user has ever thought about $\namer$. Restated
-as a condition on what people did: fix a branch $P$ reached from $\NO$ by a sequence of gestures, each
-an \texttt{update} (\cref{def:update}) or a \texttt{move}, \texttt{alias} or \texttt{delete}
+\Cref{cor:noedit}'s hypothesis is about $\namer$, which no user thinks about. Restated as a condition
+on what people did: fix a branch $P$ reached from $\NO$ by a sequence of gestures, each an
+\texttt{update} (\cref{def:update}) or a \texttt{move}, \texttt{alias} or \texttt{delete}
 (\cref{def:gestures}).
 \begin{itemize}[nosep]
   \item A name $x$ is \textbf{authored on $P$} if some \texttt{update} in the sequence submitted a
@@ -1402,7 +1314,7 @@ an \texttt{update} (\cref{def:update}) or a \texttt{move}, \texttt{alias} or \te
         are not authored.
   \item $P$ is \textbf{name-stable} if no gesture is a \texttt{move}, an \texttt{alias} or a
         \texttt{delete}, and no \texttt{update} binds a name to a definition that already has one.
-        That last clause is not redundant with \texttt{alias}: by \cref{thm:ualpha} writing out a
+        The last clause is not redundant with \texttt{alias}: by \cref{thm:ualpha}, writing out a
         definition that already exists produces the same referent, so a duplicate is an alias arrived
         at without asking for one.
 \end{itemize}
@@ -1419,35 +1331,35 @@ and by \cref{thm:noconflict} and \cref{cor:noedit} it is enough to show $\namer(
 each reference $r$ of $\NO(x)$ that \cref{def:update} retargeted to $r'$.
 
 Let $y$ be the name at which that dependency sits, so $\NO(y) = r$ and $\NA(y) = r'$. Since $\NA$ is
-name-stable, $y$ is its only name for $r'$, so $\namer(r') = y$; and $\NA$ has no name for $r$ at all,
-since $y$ now denotes $r'$ and no alias or duplicate gave $r$ another. So $\namer(r)$ falls through to
-$\NB$, which by its own name-stability names $r$ at $y$ or nowhere --- at $y$ if it left the dependency
-alone, nowhere if it updated it, in which case $\namer(r)$ falls through again to $\NO$, where $r$ is
-named $y$. Either way $\namer(r) = y = \namer(r')$.
+name-stable, $y$ is its only name for $r'$, so $\namer(r') = y$. $\NA$ has no name for $r$, since $y$
+now denotes $r'$ and no alias or duplicate gave $r$ another. So $\namer(r)$ falls through to $\NB$,
+which by its own name-stability names $r$ at $y$ if it left the dependency alone, or nowhere if it
+updated it. In the latter case $\namer(r)$ falls through again to $\NO$, where $r$ is named $y$.
+Either way $\namer(r) = y = \namer(r')$.
 \end{proof}
 
 \begin{remark}[Which is to say: only a change of names does this]\label{rem:onlyrenames}
-Contrapositively: the \emph{only} user action that can put someone in front of a conflict in a
-definition they never opened is one that changes which names a definition has. Adding, updating and
-deleting definitions are safe at any depth and in any combination. \Cref{def:gestures} is the exception --- and it is the one class of gesture that
-costs nothing anywhere else in the system.
+Contrapositively, the only user action that can put someone in front of a conflict in a definition
+they never opened is one that changes which names a definition has. Adding, updating and deleting
+definitions are safe at any depth and in any combination. The gestures of \cref{def:gestures} are the
+exception, and they are the one class of gesture that costs nothing anywhere else in the system.
 
-Three details of the hypothesis do not survive paraphrase.
+Three details of the hypothesis matter.
 
 \emph{It binds both branches, not only the one that abstained.} If $\NA$ updates a dependency in place
 and $\NB$ renames it, $\namer$ takes $\NB$'s new name for the old version and $\NA$'s unchanged name
-for the new one, and $\NA$'s untouched dependents are classified as authored. $\NA$ can be perfectly
+for the new one, and $\NA$'s untouched dependents are classified as authored. $\NA$ can be fully
 disciplined and still be asked about code it never wrote.
 
 \emph{An alias suffices; a \texttt{move} is not needed}, which is why \cref{def:namestable} excludes
-one. $\namer$ picks among a referent's names by a fixed priority --- relative before absolute, then
-fewest segments \src{ppenames:141-151} --- so giving an updated definition a second, higher-priority
+aliases. $\namer$ picks among a referent's names by a fixed priority, relative before absolute and
+then fewest segments \src{ppenames:141-151}. Giving an updated definition a second, higher-priority
 name changes what it renders as, while the superseded version keeps the original name from the other
-branch. \Cref{ex:merge-alias} is that, and also the reverse case: an alias created \emph{before} the
+branch. \Cref{ex:merge-alias} shows this, and also the reverse case: an alias created before the
 update pins the dependents instead of conflicting them.
 
 \emph{Unconflicted is not unseen.} Step 2 of \cref{def:umerge} pulls the dependents of every conflict
-into the same file. What \cref{cor:noedit-user} rules out is being asked to \emph{choose}.
+into the same file. \Cref{cor:noedit-user} rules out only being asked to choose.
 \end{remark}
 
 \begin{proposition}[Renaming defeats the side condition]\label{prop:rename-conflict}
@@ -1457,7 +1369,7 @@ $y$ on which $x$ depends and change $y$'s name in the same operation, and that $
 \end{proposition}
 \begin{proof}
 Let $\NO$ bind $y \mapsto r$ and $x \mapsto d$ with $r$ occurring in $d$. Let $\NA$ bind
-$y' \mapsto r'$ and $x \mapsto d'$, where $d'$ is $d$ with $r$ replaced by $r'$ --- the propagation
+$y' \mapsto r'$ and $x \mapsto d'$, where $d'$ is $d$ with $r$ replaced by $r'$, the propagation
 \cref{def:update} performs. Since $\NA$ has no name for $r$ and $\NB$ does, $\namer(r) = y$; since
 $\NA$ names $r'$, $\namer(r') = y'$. So $\syn{\namer}{d} \neq \syn{\namer}{d'}$ and
 $\delta_{\NA}(x) = \dupd$. If $\NB$ edits $x$ then $\delta_{\NB}(x) = \dupd$ with a different
@@ -1465,43 +1377,44 @@ syntactic hash, and $x$ is conflicted by \cref{def:mergecombine}.
 \end{proof}
 
 \begin{remark}[Two gestures, one intention]\label{rem:rename-gesture}
-The hypothesis is not exotic. Renaming is \texttt{move} and editing is \texttt{update}, so they are
-two commands --- but ``this is badly named and also wrong'' is one thought, discharged by running them
-back to back. A \texttt{move} with no \texttt{update} does \emph{not} conflict: $\namer$ follows the
-referent, so the ancestor's version of $x$ renders under the new name too and the two syntactic hashes
-agree. It fails differently. \Crefrange{ex:merge-rename}{ex:merge-dup} are the three cases.
+The hypothesis is not exotic. Renaming is \texttt{move} and editing is \texttt{update}, two commands,
+but ``this is badly named and also wrong'' is one thought, discharged by running them back to back. A
+\texttt{move} with no \texttt{update} does not conflict: $\namer$ follows the referent, so the
+ancestor's version of $x$ renders under the new name too and the two syntactic hashes agree. It fails
+differently. \Crefrange{ex:merge-rename}{ex:merge-dup} are the three cases.
 \end{remark}
 
 \begin{corollary}[The side condition is computed, and discarded]\label{cor:unchecked}
 \src{mrename:31-96; mdiffblob:171-177} Merge builds, for each definition, the set of names it gained
-and the set it lost between $\NO$ and each branch, and narrows that to the one-to-one cases --- the
+and the set it lost between $\NO$ and each branch, and narrows that to the one-to-one cases, the
 renames. At \texttt{db60ce2} the result reaches a debug printer and nothing else: no part of the diff,
 the combination, $\NM$ or the rendered file consults it.
 \end{corollary}
 
 \begin{remark}[Compare \cref{cor:detect}]\label{rem:two-side-conditions}
-Two conditional guarantees now stand, handled oppositely. \Cref{thm:ordering} fails when two members
-of a cycle are indistinguishable; that is decided at ingest and the implementation aborts
-(\cref{cor:detect}). \Cref{cor:noedit} fails when a name moves; that is computed and discarded, and
+Two conditional guarantees are handled oppositely. \Cref{thm:ordering} fails when two members of a
+cycle are indistinguishable; this is decided at ingest and the implementation aborts
+(\cref{cor:detect}). \Cref{cor:noedit} fails when a name moves; this is computed and discarded, and
 merge proceeds either way, reporting a conflict it cannot tell from a real one.
 
-They are not equally tractable. \Cref{cor:unchecked}'s detection groups definitions by \emph{syntactic
-hash}, so it finds a name that moved while the definition stayed put --- the case
-\cref{rem:rename-gesture} says does not conflict. The case that does is a rename \emph{and} an edit,
-where the syntactic hash moves too and the two versions are never grouped. The machinery that exists
-addresses the harmless case; the harmful one needs a signal a diff of two namespaces does not carry.
+They are not equally tractable. \Cref{cor:unchecked}'s detection groups definitions by syntactic
+hash, so it finds a name that moved while the definition stayed put, the case
+\cref{rem:rename-gesture} says does not conflict. The case that does conflict is a rename plus an
+edit, where the syntactic hash moves too and the two versions are never grouped. The existing
+machinery addresses the harmless case; the harmful one needs a signal a diff of two namespaces does
+not carry.
 \end{remark}
 
 \begin{remark}[The one place the condition is repaired]\label{rem:libcanon}
 \src{mdiffblob:463-505} Before $\namer$ is built, names under $\lib$ have a trailing mangled version
-number stripped, so that \texttt{base\_1\_0\_0} and \texttt{base\_2\_0\_0} become one name.
-The source says why --- ``to make it more likely that we classify things that are \emph{probably} true
-propagated updates as such'' --- and calls it a hack.
+number stripped, so that \texttt{base\_1\_0\_0} and \texttt{base\_2\_0\_0} become one name. The source
+gives the reason, ``to make it more likely that we classify things that are \emph{probably} true
+propagated updates as such'', and calls it a hack.
 
-It is \cref{cor:noedit}'s hypothesis restored by hand. Upgrading a library renames everything in it,
-so without this every definition mentioning the library classifies as authored and every concurrent
-edit conflicts. Rather than track the rename, merge forces the two names equal --- which works for the
-one renaming scheme whose shape is known in advance.
+This restores \cref{cor:noedit}'s hypothesis by hand. Upgrading a library renames everything in it,
+so without the stripping every definition mentioning the library classifies as authored and every
+concurrent edit conflicts. Merge forces the two names equal instead of tracking the rename, which
+works for the one renaming scheme whose shape is known in advance.
 \end{remark}
 
 \begin{proposition}[Merge is not commutative]\label{prop:merge-asym}
@@ -1526,35 +1439,35 @@ environment that parses: $\rnamer$ prefers $\NA$'s names, while $\NM$ has applie
 deletions and additions. And nothing requires that a name $\rnamer$ emits still exists in $\NM$.
 \end{proposition}
 \begin{remark}[The gap is reachable]\label{rem:merge-gap}
-If $\NB$ renames a definition and $\NA$ does not, $\NM$ holds $\NB$'s new name and not the old one ---
-a rename is an unconflicted delete plus an unconflicted add, so both halves apply. But $\rnamer$
-prefers $\NA$'s names, and $\NA$ still calls it by the old one. The file is written using a name the
+If $\NB$ renames a definition and $\NA$ does not, $\NM$ holds $\NB$'s new name and not the old one,
+since a rename is an unconflicted delete plus an unconflicted add and both halves apply. But $\rnamer$
+prefers $\NA$'s names, and $\NA$ still uses the old one. The file is written with a name the
 namespace it will be parsed against no longer has, and step 4 fails (\cref{ex:merge-dangling}).
 Reversing the roles removes the mismatch, which is \cref{prop:merge-asym}.
 \end{remark}
 
 \begin{remark}[The silent resolution, and what it hides]\label{rem:merge-soundness}
-\Cref{thm:noconflict} and its corollary bound \emph{spurious} conflicts. The dual question is whether
-every real disagreement is reported, and the case to examine is the second row of
-\cref{def:mergecombine}: when both branches update $x$ to definitions with equal syntactic hashes but
-different referents, merge takes $\NA$'s and says nothing.
+\Cref{thm:noconflict} and its corollary bound spurious conflicts. The dual question is whether every
+real disagreement is reported. The case to examine is the second row of \cref{def:mergecombine}: when
+both branches update $x$ to definitions with equal syntactic hashes but different referents, merge
+takes $\NA$'s and says nothing.
 
-The case is reachable. Let both branches update a shared dependency $y$ differently; each rebuilds $x$
-by \cref{def:update}, and both rebuilds render as the same code, because $\namer$ gives each branch's
-version of $y$ the same name. So $x$ has two versions, one syntactic hash, and is resolved in silence.
+The case is reachable. Let both branches update a shared dependency $y$ differently. Each rebuilds
+$x$ by \cref{def:update}, and both rebuilds render as the same code, because $\namer$ gives each
+branch's version of $y$ the same name. So $x$ has two versions and one syntactic hash, and is resolved
+silently.
 
-It is nonetheless not hiding anything, and the reason is that the collapse cannot go all the way down.
+Nothing is hidden, because the collapse cannot go all the way down.
 $\syn{\namer}{\NA(x)} = \syn{\namer}{\NB(x)}$ says the two render alike; if their referents differ,
-some dependency differs, and at that dependency's name the same question recurs. The recursion cannot
-continue forever: \cref{def:synhash} records literals, structure and types verbatim, and a referent
-$\namer$ does not name contributes its hash, so a difference that is invisible at every level does not
-exist. It therefore surfaces at some name --- as a conflict if the two versions render differently
-there, which is where the recursion stops. In the two-definition case above it is reported at $y$,
-while $x$ resolves silently, which is the right division of labour: $x$ is not what the parties
-disagree about.
+some dependency differs, and the same question recurs at that dependency's name. The recursion
+terminates: \cref{def:synhash} records literals, structure and types verbatim, and a referent $\namer$
+does not name contributes its hash, so a difference invisible at every level does not exist. It
+surfaces at some name, as a conflict if the two versions render differently there, which is where the
+recursion stops. In the two-definition case it is reported at $y$ while $x$ resolves silently, and
+$x$ is not what the parties disagree about.
 
-We state this as an argument rather than a theorem. What is checked is the witness: the configuration
-above, with the conflict landing on the dependency and not on the definition resolved for it.
+We state this as an argument, not a theorem. What is checked is the witness: the configuration above,
+with the conflict landing on the dependency and not on the definition resolved for it.
 \end{remark}
 
 % =====================================================================
@@ -1598,9 +1511,8 @@ $\UBuiltin{\texttt{Nat.+}}$, a builtin, which therefore never acquires a hash of
 \end{array}
 \]
 
-The name is attached last, to a definition that was complete without it. And note the two
-accumulations in the final three lines: $\comphash(C) \neq h_1$ even at $k = 1$, which
-\cref{ex:transparency} turns on.
+The name is attached last, to a definition that was complete without it. Step 3 applies two
+accumulations, so $\comphash(C) \neq h_1$ even at $k = 1$; \cref{ex:transparency} turns on this.
 
 \subsection{An alias, and what transparency gives}\label{ex:transparency}
 
@@ -1631,28 +1543,28 @@ accumulations in the final three lines: $\comphash(C) \neq h_1$ even at $k = 1$,
 \]
 
 \begin{remark}[The usual summary of transparency is too strong]\label{rem:transparency-limit}
-The source comment illustrates transparency with exactly this pair, saying that \texttt{x = 1 + 1}
-and \texttt{y = x} ``hash the same''. Comparing the last two lines, that would require
+The source comment illustrates transparency with this pair, saying that \texttt{x = 1 + 1} and
+\texttt{y = x} ``hash the same''. Comparing the last two lines, that would require
 \[
   \uhashc{\uapp{\uapp{\uref{r_{+}}}{\unat 1}}{\unat 1}} \;=\; \texttt{\#x} ,
 \]
-the referent's \emph{term} hash to equal its \emph{component} hash. But \texttt{\#x} is built
-\emph{from} $\uhashc{X}$ by the two accumulations at the end of \cref{ex:ingest}, so the equation
-asks the hash function for a fixed point of a particular shape. Transparency passes along the
-component hash; inlining would contribute the term hash; \cref{def:comphash} puts two layers between
-them. So the two definitions receive different hashes, and inlining a reference into a larger term
-does not preserve that term's hash either.
+the referent's \emph{term} hash to equal its \emph{component} hash. But \texttt{\#x} is built from
+$\uhashc{X}$ by the two accumulations at the end of \cref{ex:ingest}, so the equation asks the hash
+function for a fixed point of a particular shape. Transparency passes along the component hash,
+inlining would contribute the term hash, and \cref{def:comphash} puts two layers between them. The
+two definitions receive different hashes, and inlining a reference into a larger term does not
+preserve that term's hash either.
 
-What \emph{is} true is what \cref{prop:transparent} says: a position-$0$ reference is
-indistinguishable from any term hashing to \texttt{\#x}. The comment's own caveat is precisely this
-condition --- ``so long as \texttt{Reference.Derived} ctors are created using the same hashing
-function as is used here''. There is a construction satisfying it, \texttt{hashClosedTerm}, which
-builds $\UDer{\uhashc{t}}{0}$ directly from a term's hash \src{term:124-125}; references made that
-way \emph{are} interchangeable with their referents. The component construction is not that way.
+What holds is \cref{prop:transparent}: a position-$0$ reference is indistinguishable from any term
+hashing to \texttt{\#x}. The comment's own caveat is this condition: ``so long as
+\texttt{Reference.Derived} ctors are created using the same hashing function as is used here''.
+\texttt{hashClosedTerm} satisfies it, building $\UDer{\uhashc{t}}{0}$ directly from a term's hash
+\src{term:124-125}, and references made that way are interchangeable with their referents. The
+component construction does not.
 
-We flag this as the place we are least confident of our reading, since it bears on a
-frequently-repeated description of the system. If the definition-level claim does hold, we have
-misread the relationship between $\comphash$ and the member hashes.
+This is the reading we are least confident of, and it bears on a frequently repeated description of
+the system. If the definition-level claim does hold, we have misread the relationship between
+$\comphash$ and the member hashes.
 \end{remark}
 
 \subsection{A recursive group}\label{ex:cycle}
@@ -1684,18 +1596,18 @@ Write $\langle j \rangle$ for the hash of de Bruijn index $j$, and $V = \{\textt
 \end{array}
 \]
 
-Neither name enters $\phash{\cdot}$, so the ordering is decided by structure alone --- which is what
+Neither name enters $\phash{\cdot}$, so structure alone decides the ordering, as
 \cref{thm:ordering}(a) requires. The second sort $\sigma$ is by a hash of the first sort's index and
 need not agree with it (\cref{rem:twoorders}), so \texttt{cu} may take position $0$. Whichever member
-does \emph{is referenced transparently, and the other opaquely} (\cref{prop:transparent}) --- an
-asymmetry between two definitions the user wrote symmetrically, and cannot observe.
+does is referenced transparently and the other opaquely (\cref{prop:transparent}). The user wrote the
+two symmetrically and cannot observe the asymmetry.
 
 \subsection{When the canonical order is ambiguous}\label{ex:ambiguous}
 
-The two behaviours \cref{thm:ordering}(b1) and (b2) separate here have been computed, not only
+The two behaviours that \cref{thm:ordering}(b1) and (b2) separate have been computed as well as
 derived; see \cref{sec:paths}.
 
-Change the two so they differ only by which of the other they call:
+Change the two so they differ only in which of the other they call:
 
 \[
 \begin{array}{r@{\;}l@{\quad}l}
@@ -1714,36 +1626,34 @@ Change the two so they differ only by which of the other they call:
 \end{array}
 \]
 
-In $\mathsf{L}(V)$ both mutual references collapse to one index, so the two bodies become the
-\emph{same} term and the sort has nothing to separate them. It is stable, and the list arrived in
-name order, so \texttt{ping} precedes \texttt{pong} \textbf{for no reason but the alphabet}.
+In $\mathsf{L}(V)$ both mutual references collapse to one index, so the two bodies become the same
+term and the sort cannot separate them. It is stable, and the list arrived in name order, so
+\texttt{ping} precedes \texttt{pong} only because of the alphabet.
 
-Renaming \texttt{ping} to \texttt{zing} swaps the binding order --- and here it is worth being
-careful, because the obvious conclusion is wrong. The two bodies are $\ulam{n}{\uapp{\langle
-1\rangle}{\langle 0\rangle}}$ under either listing, so the swap does not change the multiset
-$\{h_1,h_2\}$; it exchanges which name owns which index, hence which $\nhash{\cdot}$, and
-\cref{def:comphash} accumulates those \emph{sorted}. So \texttt{\#c} is unchanged and what moves is
-\textbf{which member holds position $0$} --- which one is referenced transparently and which
-opaquely. That is \cref{thm:ordering}(b1), and it is the consequence that always holds.
+Renaming \texttt{ping} to \texttt{zing} swaps the binding order, but the obvious conclusion is wrong.
+The two bodies are $\ulam{n}{\uapp{\langle 1\rangle}{\langle 0\rangle}}$ under either listing, so the
+swap does not change the multiset $\{h_1,h_2\}$. It exchanges which name owns which index, hence
+which $\nhash{\cdot}$, and \cref{def:comphash} accumulates those sorted. So \texttt{\#c} is unchanged,
+and what moves is \textbf{which member holds position $0$}: which one is referenced transparently and
+which opaquely. That is \cref{thm:ordering}(b1), the consequence that always holds.
 
-For (b2) --- $\comphash$ itself moving --- the exchange has to change a member hash rather than
-merely relabel it. Two bodies that mention the cycle asymmetrically do that:
+For (b2), where $\comphash$ itself moves, the exchange has to change a member hash and not merely
+relabel it. Two bodies that mention the cycle asymmetrically do that:
 \[
   \texttt{foo} = \uapp{\uapp{\uvar{\texttt{Nat.+}}}{(\uapp{\uvar{\texttt{foo}}}{\unat 0})}}{(\uapp{\uvar{\texttt{bar}}}{\unat 0})},
   \qquad
   \texttt{bar} = \uapp{\uapp{\uvar{\texttt{Nat.+}}}{(\uapp{\uvar{\texttt{foo}}}{\unat 0})}}{(\uapp{\uvar{\texttt{bar}}}{\unat 0})}
 \]
 are tied under $\mathsf{L}(V)$ but, in $\HEnv$, hash to a term mentioning $\langle 1 \rangle$ before
-$\langle 0 \rangle$ or the reverse depending on which name took the lower index --- so renaming
-\texttt{bar} to \texttt{zar} changes $h_1$ and $h_2$, hence the shared token prefix
+$\langle 0 \rangle$ or the reverse depending on which name took the lower index. Renaming
+\texttt{bar} to \texttt{zar} therefore changes $h_1$ and $h_2$, hence the shared token prefix
 $\overline{\tau}$, hence \texttt{\#c}.
 
-Either way the implementation detects the tie (\cref{cor:detect}) and aborts rather than store a
-name-dependent identity, suggesting the user add something like
-$\texttt{\_} = \utext{this is the ping definition}$ --- which is a request to make $\phash{\cdot}$
-injective again. Note that it aborts on the tie, not on (b2): it declines the whole class rather than
-trying to tell the harmless case from the harmful one, which \cref{rem:notpartial} argues is the
-right call.
+Either way the implementation detects the tie (\cref{cor:detect}) and aborts instead of storing a
+name-dependent identity. It suggests adding something like
+$\texttt{\_} = \utext{this is the ping definition}$, which makes $\phash{\cdot}$ injective again. It
+aborts on the tie, not on (b2), declining the whole class instead of telling the harmless case from
+the harmful one; \cref{rem:notpartial} argues this is right.
 
 \subsection{An update that succeeds}\label{ex:update-ok}
 
@@ -1776,11 +1686,10 @@ user submits a new \texttt{scale} of the same type, $\uarr{\TNat}{\TNat}$.
 \end{array}
 \]
 
-The fifth line is the whole mechanism: retargeting happens because a printed \emph{name} resolves
-against the new namespace. \texttt{double}'s source text is character-for-character what it was, and
-its hash changed anyway. Meanwhile \texttt{\#d} is still in $\UStore$, still referring to
-\texttt{\#s}, still meaning what it meant --- so any cached result for it remains valid
-(\cref{cor:wnoinval}).
+The fifth line carries the mechanism: retargeting happens because a printed name resolves against the
+new namespace. \texttt{double}'s source text is unchanged, character for character, and its hash
+changed anyway. \texttt{\#d} is still in $\UStore$, still referring to \texttt{\#s}, so any cached
+result for it remains valid (\cref{cor:wnoinval}).
 
 \subsection{An update that fails}\label{ex:update-fail}
 
@@ -1802,18 +1711,16 @@ $\ulam{s}{\uapp{\uvar{\texttt{Text.size}}}{\uvar s}}$, of type $\uarr{\TText}{\T
 \end{array}
 \]
 
-Note what the second line does \emph{not} say. \texttt{scale} is not rebound to a new hash, and it is
-not left denoting its old one: it is among the names $F$ binds, so step 5 removes it, and since
-nothing was ingested there is no \texttt{\#s}$'$ for it to denote. After a failed update the
-namespace contains neither name.
+\texttt{scale} is neither rebound to a new hash nor left denoting its old one. It is among the names
+$F$ binds, so step 5 removes it, and since nothing was ingested there is no \texttt{\#s}$'$ for it to
+denote. After a failed update the namespace contains neither name.
 
-The namespace is left coherent: it contains no name denoting a definition that fails to typecheck,
-and no half-applied edit. \texttt{\#s} and \texttt{\#d} have not been deleted or altered --- they
-have stopped being reachable by name, which is the only kind of deletion the store supports --- and
-the unfinished work is a file, containing both the user's new \texttt{scale} and the \texttt{double}
-it broke. \Cref{rem:residual} discusses why this is the design's most distinctive feature, and
-\cref{prop:print-parse} is the obligation the third line rests on: $\render$ must produce something
-$\uparse$ turns back into \texttt{double}, differing only in what \texttt{scale} resolves to.
+The namespace holds no name denoting a definition that fails to typecheck, and no half-applied edit.
+\texttt{\#s} and \texttt{\#d} are neither deleted nor altered; they are no longer reachable by name,
+which is the only kind of deletion the store supports. The unfinished work is a file containing both
+the user's new \texttt{scale} and the \texttt{double} it broke (\cref{rem:residual}). The third line
+rests on \cref{prop:print-parse}: $\render$ must produce something $\uparse$ turns back into
+\texttt{double}, differing only in what \texttt{scale} resolves to.
 
 \subsection{Three merges from one ancestor}\label{ex:merge-setup}
 
@@ -1825,10 +1732,10 @@ The next four examples share a common ancestor with two definitions, a formatter
   \UStore(\texttt{\#c})_0 = \ulam{n}{\uapp{\uref{\texttt{\#f}}}{\uvar n}}
 \]
 with $\texttt{fmt} : \uarr{\TNat}{\TText}$. Every component here is a singleton, so throughout these
-examples we write $\texttt{\#f}$ for $\UDer{\texttt{\#f}}{0}$. In each one branch is the merge
-target $\NA$ and the other the source $\NB$; nobody edits a definition twice, and every branch is the
-result of a single \texttt{update}, except in \cref{ex:merge-alias}, which needs one \texttt{alias}. They differ
-only in who does what.
+examples we write $\texttt{\#f}$ for $\UDer{\texttt{\#f}}{0}$. In each, one branch is the merge
+target $\NA$ and the other the source $\NB$. Nobody edits a definition twice, and every branch is the
+result of a single \texttt{update}, except in \cref{ex:merge-alias}, which needs one \texttt{alias}.
+The examples differ only in who does what.
 
 \subsection{A rename manufactures a conflict}\label{ex:merge-rename}
 
@@ -1855,12 +1762,12 @@ $\NA$ rewrites the formatter and renames it in the same edit; \cref{def:update} 
     & \just{\cref{def:mergecombine}}
 \end{array}
 \]
-The fourth line is the whole failure. $\NA$'s \texttt{show} is the ancestor's own definition with one
+The failure is in the fourth line. $\NA$'s \texttt{show} is the ancestor's own definition with one
 identifier substituted by propagation, and it is presented to the user as one side of a conflict to be
-resolved against $\NB$'s. Two further consequences. $\delta_{\NA}(\texttt{fmt}) = \ddel$
-resolves unopposed, so $\NM$ has no \texttt{fmt} --- and $\NB$'s half of the conflict, which the user
-must now edit, refers to \texttt{fmt}. Whichever side the user keeps, the rename has to be applied by
-hand, which is the work \cref{prop:merge-store} was supposed to have removed.
+resolved against $\NB$'s. Moreover, $\delta_{\NA}(\texttt{fmt}) = \ddel$ resolves unopposed, so $\NM$
+has no \texttt{fmt}, yet $\NB$'s half of the conflict, which the user must now edit, refers to
+\texttt{fmt}. Whichever side the user keeps, the rename has to be applied by hand, which is the work
+\cref{prop:merge-store} was supposed to have removed.
 
 \subsection{A rename alone: no conflict, and a merge that still fails}\label{ex:merge-dangling}
 
@@ -1886,14 +1793,13 @@ Now the rename carries no edit. $\NB$ renames the formatter and stops; $\NA$ edi
     & \just{$\texttt{fmt} \notin \dom(\NM)$}
 \end{array}
 \]
-No name is conflicted and the merge fails anyway, at step 4 of \cref{def:umerge} rather than step 1.
-The file handed back contains a single \texttt{show} --- not the two-sided form a conflict produces
---- written in terms of a name the branch it was written for does not have.
+No name is conflicted and the merge fails anyway, at step 4 of \cref{def:umerge}, not step 1. The
+file handed back contains a single \texttt{show}, not the two-sided form a conflict produces, written
+with a name the branch it was written for does not have.
 
 Exchanging the roles fixes it. With $\NB$ as the target, $\rnamer$ prefers \texttt{price}, the render
-agrees with $\NM$, and the merge completes cleanly with \texttt{show} rebound. That is
-\cref{prop:merge-asym}: the same two branches, merged in the two directions, give a failure and a
-success.
+agrees with $\NM$, and the merge completes cleanly with \texttt{show} rebound. The same two branches,
+merged in the two directions, give a failure and a success (\cref{prop:merge-asym}).
 
 \subsection{A rename raced by an edit, silently undone}\label{ex:merge-dup}
 
@@ -1918,15 +1824,15 @@ propagates to \texttt{show}.
 \end{array}
 \]
 This merge succeeds, reports nothing, and is wrong in a way no diagnostic covers. The rename has been
-undone --- \texttt{fmt} is back, because a delete loses to an update --- and its other half survived,
-so \texttt{price} now names the \emph{superseded} version of the formatter. Where the ancestor had one
+undone: \texttt{fmt} is back, because a delete loses to an update. Its other half survived, so
+\texttt{price} now names the superseded version of the formatter. Where the ancestor had one
 definition the result has two, one of them stale, and \texttt{show} calls the one the user meant to
 rename away.
 
 \subsection{An alias does it too, in either of two ways}\label{ex:merge-alias}
 
-A rename is not the only gesture that moves names around. An \texttt{alias} does, and which of the two
-things it does depends on whether it is made before the update or after.
+An \texttt{alias} also moves names around. What it does depends on whether it is made before or after
+the update.
 
 \emph{Before.} $\NA$ aliases the formatter as \texttt{f}, then updates it.
 \[
@@ -1940,10 +1846,10 @@ things it does depends on whether it is made before the update or after.
     & \just{and it is the old one}
 \end{array}
 \]
-\texttt{show} is selected as a dependent and rebuilt, and the rebuild returns it unchanged, because
-what \cref{def:update} rebuilds through is text: the renderer shows the dependency under a name, the
-alias is a name the old definition still has, and parsing it back arrives where it started. The caller
-is pinned, which \cref{prop:follow-only} says cannot be asked for. It cannot; it can be arranged.
+\texttt{show} is selected as a dependent and rebuilt, and the rebuild returns it unchanged.
+\Cref{def:update} rebuilds through text: the renderer shows the dependency under a name, the alias is
+a name the old definition still has, and parsing it back arrives where it started. The caller is
+pinned. \Cref{prop:follow-only} says this cannot be requested, but it can be arranged.
 
 \emph{After.} $\NA$ updates the formatter, letting \texttt{show} rebuild, and only then aliases it as
 \texttt{a}. $\NB$ edits \texttt{show}.
@@ -1960,34 +1866,30 @@ is pinned, which \cref{prop:follow-only} says cannot be asked for. It cannot; it
 \]
 This is \cref{ex:merge-rename} with an alias in place of a \texttt{move}, and it arrives the same way:
 $\NA$'s half of the conflict file is the ancestor's own definition, printed under a name $\NA$ never
-applied to it directly. Note that no name was taken away from anything --- \texttt{fmt} still denotes
-what $\NA$ means by it, and every ancestor name is still bound. Adding one was enough.
+applied to it directly. No name was taken away: \texttt{fmt} still denotes what $\NA$ means by it,
+and every ancestor name is still bound. Adding one was enough. \Cref{cor:noedit-user} excludes
+aliases for this reason, and \cref{rem:onlyrenames} states the contrapositive over names, not renames.
 
-\Cref{cor:noedit-user} excludes aliases for this reason, and \cref{rem:onlyrenames} states the
-contrapositive over names rather than over renames.
+The four examples exhaust the ways a change of names meets a concurrent edit, and none behaves as it
+should. \Cref{ex:merge-rename} reports a conflict that is not one, \cref{ex:merge-dangling} fails with
+no conflict, \cref{ex:merge-dup} succeeds and corrupts the namespace, and \cref{ex:merge-alias} either
+does the first or quietly defeats propagation, depending on when the alias was made. The common cause
+is \cref{def:mergediff}: a diff of two maps keyed by name cannot see a definition's name change.
 
-Between them the four exhaust the ways a change of names meets a concurrent edit, and not one of them
-behaves as it should: \cref{ex:merge-rename} reports a conflict that is not one,
-\cref{ex:merge-dangling} fails with no conflict at all, \cref{ex:merge-dup} succeeds and corrupts the
-namespace, and \cref{ex:merge-alias} does the first or quietly defeats propagation, depending on when
-the alias was made. The common cause is \cref{def:mergediff}: it is a diff of two maps keyed by name,
-and what a definition is \emph{called} is precisely what such a diff cannot watch changing.
 
 % =====================================================================
 \section{Comparison with arbor}\label{sec:contrast}
 
-Everything above is about Unison. This section is the exception: it compares the design with
-\emph{arbor}, a content-addressed computational substrate we are developing, for which a companion
-formalization exists in the same style --- \arborcore{}, an untyped $\lambda$-calculus over a store, a
-namespace and an evaluation cache, with an edit calculus; and \arborstlc{}, a simply-typed extension.
-Readers who came for the Unison model can stop here.
+This section compares the design with \emph{arbor}, a content-addressed computational substrate we
+are developing. A companion formalization exists in the same style: \arborcore{}, an untyped
+$\lambda$-calculus over a store, a namespace and an evaluation cache, with an edit calculus; and
+\arborstlc{}, a simply-typed extension. Readers who came for the Unison model can stop here.
 
-arbor differs from Unison in ambition rather than in kind: it is a substrate intended to host several
-languages, not a language. It shares the core commitments --- definitions identified by hash, names as
-metadata, immutability, derived data keyed by hash --- and diverges on most of the mechanisms below.
-Its formalization is machine-checked in Agda, which is why several rows can say ``proved''; that is a
-statement about arbor's much smaller object language, not a claim that anything about Unison is
-unproved-but-provable at the same cost.
+arbor is a substrate intended to host several languages, not a language. It shares Unison's core
+commitments (definitions identified by hash, names as metadata, immutability, derived data keyed by
+hash) and diverges on most of the mechanisms below. Its formalization is machine-checked in Agda,
+which is why several rows say ``proved''. That is a statement about arbor's much smaller object
+language, not a claim that anything about Unison is provable at the same cost.
 
 \begin{center}
 \small
@@ -2003,22 +1905,23 @@ Store key
 Mutual recursion
 & In the hasher. Presentation-independence is conditional, and the implementation aborts when the
   condition fails (\cref{thm:ordering}, \cref{rem:notpartial})
-& Not yet reached. The leading candidate closes the cycle with a binder in the object language ---
-  a fixpoint over a product, members as projections --- which leaves the store's type untouched \\
+& Not yet reached. The leading candidate closes the cycle with a binder in the object language (a
+  fixpoint over a product, members as projections), leaving the store's type untouched \\
 \addlinespace
 Reference transparency
 & Yes, at $\Pos = 0$ only (\cref{prop:transparent})
 & Opaque in \coreref{def:node}; a decision to adopt transparency was taken in 2026-08 and mechanized
-  on a branch, pending merge. Either way there is no positional asymmetry, there being no components \\
+  on a branch, pending merge. Either way there is no positional asymmetry, since there are no
+  components \\
 \addlinespace
 Type
 & Inside the term hash; a signature change is an identity change (\cref{def:typeinhash})
-& A derived aspect \emph{about} a hash, observational rather than constitutive --- forced by wanting
-  a store that can hold ill-typed and partially-written terms \\
+& A derived aspect about a hash, observational, not constitutive. Forced by wanting a store that can
+  hold ill-typed and partially written terms \\
 \addlinespace
 Primitives
-& $\UBuiltin{b}$, named by text --- extrinsic (\cref{rem:builtin})
-& Manually-versioned procedure tags --- also extrinsic, by a different mechanism \\
+& $\UBuiltin{b}$, named by text; extrinsic (\cref{rem:builtin})
+& Manually versioned procedure tags; also extrinsic, by a different mechanism \\
 \addlinespace
 Namespace
 & A relation; conflict representable, unconflictedness demanded by the operations that need it
@@ -2033,13 +1936,13 @@ Cache
 \addlinespace
 Update mechanism
 & Render $\to$ parse $\to$ typecheck $\to$ re-add (\cref{def:update})
-& A structural rewrite over stored nodes; no surface syntax involved, so no round-trip obligation
+& A structural rewrite over stored nodes. No surface syntax is involved, so no round-trip obligation
   arises \\
 \addlinespace
 Propagation
 & One strategy, scope fixed (\cref{prop:follow-only})
-& Pin / follow / explicit over a scope axis --- a richer framing than the closest comparable system
-  ships, which is worth knowing before treating it as descriptive of prior art \\
+& Pin / follow / explicit over a scope axis. This is richer than the closest comparable system ships,
+  so it should not be read as describing prior art \\
 \addlinespace
 Update failure
 & Evict the broken names, hand back source (\cref{rem:residual})
@@ -2047,12 +1950,11 @@ Update failure
 \addlinespace
 Round-trip lemma
 & Load-bearing, unstated, maintained by a golden corpus (\cref{rem:printparse})
-& \coreref{prop:print-elab}, proved --- and not depended upon \\
+& \coreref{prop:print-elab}, proved, and not depended upon \\
 \addlinespace
 Merging two edited namespaces
 & Nothing in the store is reconciled (\cref{prop:merge-store}); all of it happens in $\UNames$
-& The same, and for the same reason --- which is why an immutable store buys less here than the usual
-  summary suggests \\
+& The same, for the same reason. An immutable store buys less here than the usual summary suggests \\
 \addlinespace
 Telling an authored edit from a propagated one
 & The syntactic hash: did it \emph{render} differently (\cref{def:synhash})
@@ -2065,31 +1967,26 @@ Telling an authored edit from a propagated one
 \subsection*{Three observations we take from the comparison}
 
 \textbf{On the round-trip property.} \Cref{prop:print-parse} identifies a correctness obligation that
-a shipping system carries and maintains by testing. arbor happens to have the corresponding theorem
-proved, for its own much smaller languages, and does not itself depend on it --- its migration is a
-structural rewrite that never goes through surface syntax. So the honest form of the observation is
-about the \emph{shape} of the guarantee and not about either system's rigor: one system depends on a
-property it does not state, and the other states a property it does not depend on. What would be
-genuinely useful, and is out of reach here, is a specification of the pretty-print environment under
-which the property becomes provable at Unison's scale.
+a shipping system carries and maintains by testing. arbor has the corresponding theorem proved, for
+its own much smaller languages, and does not depend on it, since its migration is a structural
+rewrite that never goes through surface syntax. The observation concerns the shape of the guarantee,
+not either system's rigor: one system depends on a property it does not state, and the other states a
+property it does not depend on. A specification of the pretty-print environment under which the
+property becomes provable at Unison's scale would be useful, and is out of reach here.
 
-\textbf{On the failure case.} Of everything in the comparison, \cref{rem:residual} is the row where we
-think Unison is ahead. arbor's migration commits and reports a residual --- a set of names that no
-longer typecheck. Unison's answer is strictly more useful: the broken definitions leave the namespace
-and come back as code, in a file, ready to edit. The namespace never holds a broken state, and the
-report is the work itself rather than a description of it.
+\textbf{On the failure case.} \Cref{rem:residual} is the row where we think Unison is ahead. arbor's
+migration commits and reports a residual, a set of names that no longer typecheck. Unison's answer is
+more useful: the broken definitions leave the namespace and come back as code in a file, ready to
+edit. The namespace never holds a broken state, and the report is the work itself.
 
-\textbf{On where the difficulty actually lives.} \Cref{prop:merge-store} is the property a
-content-addressed codebase is usually sold on, and it is true: two independently grown stores union
-without reconciliation, because the store is append-only and keyed by content. It is also nearly all
-of what immutability buys at merge time. Every hard case in \cref{sec:umerge} is in $\UNames$ --- a
-relation over names people chose, with no content addressing anywhere in it --- and the mechanism
-Unison built to cope, the syntactic hash, works by putting the names \emph{back into} a hash
-(\cref{def:synhash}). The design's central move is to get names out of the identity; its merge
-algorithm's central move is to put them back for the duration of one comparison. We do not read that
-as incoherent, and \cref{lem:prop-silent} shows why it is the right instinct. But it does locate the
-residual difficulty precisely, and a system inheriting the store model should not expect to inherit an
-easier merge along with it.
+\textbf{On where the difficulty lives.} \Cref{prop:merge-store}, the property a content-addressed
+codebase is usually sold on, is true but is nearly all that immutability buys at merge time. Every
+hard case in \cref{sec:umerge} is in $\UNames$, a relation over names people chose with no content
+addressing in it. The mechanism Unison built to cope, the syntactic hash, puts the names back into a
+hash (\cref{def:synhash}). The design removes names from identity; its merge algorithm restores them
+for the duration of one comparison. We do not read that as incoherent, and \cref{lem:prop-silent}
+shows why it is the right instinct. It does locate the residual difficulty, and a system inheriting
+the store model should not expect an easier merge to come with it.
 
 % =====================================================================
 \appendix
@@ -2098,41 +1995,37 @@ easier merge along with it.
 \section{Provenance, and how to check this}\label{sec:paths}
 
 Everything here is modeled on Unison at commit \texttt{db60ce2} (2026-08-07). Re-check the pin with
-\texttt{git -C <unison> rev-parse HEAD}; if it has moved, the citations below are still true \emph{at
-that commit} --- they are dated, not necessarily wrong.
+\texttt{git -C <unison> rev-parse HEAD}. If it has moved, the citations below are still true at that
+commit; they are dated, not necessarily wrong.
 
-Separately from the citations, the arithmetic in this document has been executed. There is a
-reimplementation of \crefrange{def:tokens}{def:update} over this object language, and each of the
-statements in \crefrange{sec:ulang}{sec:uupdate} is a test in it that names the statement it checks.
-\Cref{sec:umerge} is not yet part of that reimplementation; its evidence is of a different kind, and
-is described two paragraphs below. It is not Unison and cannot
-settle a question about Unison's intent; what it settles is whether our own definitions say what we
-claim they say. Three statements it changed:
-\cref{rem:transparency-limit} (confirmed, and at $k = 1$), \cref{thm:ordering}(b) (which had to
-split, because renaming a tied member does not always move $\comphash$), and \cref{prop:print-parse}
-(whose first implementation failed the property on a printer that dropped parentheses around an
-application in argument position --- which is exactly the class of defect the golden corpus of
-\cref{rem:printparse} exists to catch).
+The arithmetic in this document has also been executed. A reimplementation of
+\crefrange{def:tokens}{def:update} over this object language exists, and each statement in
+\crefrange{sec:ulang}{sec:uupdate} is a test in it that names the statement it checks. \Cref{sec:umerge}
+is not yet part of that reimplementation; its evidence is described below. The reimplementation is
+not Unison and cannot settle a question about Unison's intent. It settles whether our definitions say
+what we claim. It changed three statements: \cref{rem:transparency-limit} (confirmed, and at $k = 1$),
+\cref{thm:ordering}(b) (which had to split, because renaming a tied member does not always move
+$\comphash$), and \cref{prop:print-parse} (whose first implementation failed the property on a printer
+that dropped parentheses around an application in argument position, the class of defect the golden
+corpus of \cref{rem:printparse} exists to catch).
 
-Two findings rest on direct observation rather than on the model. \Cref{rem:innercycle} is one: the
-three hashes quoted there are what \texttt{ucm} 1.1.1 reports for the three definitions as written,
-and the top-level abort is that tool refusing the same pair of bindings lifted out of the block. The
-model reproduces the top-level behaviour and not yet the inner one.
+Some findings rest on direct observation of \texttt{ucm} 1.1.1 instead of on the model.
+\Cref{rem:innercycle}'s three hashes are what \texttt{ucm} reports for the three definitions as
+written, and the top-level abort is the tool refusing the same pair of bindings lifted out of the
+block. The model reproduces the top-level behaviour but not yet the inner one. Each of
+\crefrange{ex:merge-rename}{ex:merge-alias} was run as a transcript over two or three definitions,
+and the outcomes reported (a conflict, a no-conflict failure naming a deleted identifier, a clean
+merge with the rename undone, and an alias that either pins a dependent or conflicts it) are what the
+tool produced, not what the model predicts. \Cref{prop:merge-asym} was obtained by running one pair
+of branches in both directions, and \cref{prop:follow-only}'s pinning case by running one
+\texttt{update} with and without a preceding \texttt{alias} and comparing the dependent's hash. This
+evidence does not show that our definitions are internally coherent. It does show that the behavior
+is Unison's and not an artifact of our reading.
 
-\Cref{sec:umerge}'s evidence is direct in the same way. Each of \crefrange{ex:merge-rename}{ex:merge-alias}
-was run against \texttt{ucm} 1.1.1 as a transcript over two or three definitions, and the outcomes
-reported --- a conflict, a no-conflict failure naming a deleted identifier, a clean merge with the
-rename undone, and an alias that either pins a dependent or conflicts it --- are what the tool
-produced, not what the model predicts. \Cref{prop:merge-asym} was obtained the same way, by running one
-pair of branches in both directions, and \cref{prop:follow-only}'s pinning case by running one
-\texttt{update} with and without a preceding \texttt{alias} and comparing the dependent's hash. This is weaker than the rest in one respect and stronger in another: it does not
-show that our definitions are internally coherent, and it does show that the behavior is Unison's and
-not an artifact of our reading.
-
-Citations are given where a claim is surprising, load-bearing, or likely to be doubted, and are
-deliberately not exhaustive: this is an idealized model, not a transcription, and a tag on every
-definition would suggest a correspondence closer than the one being claimed. A margin tag has the
-form \texttt{key:lines}, with keys as follows.
+Citations are given where a claim is surprising, load-bearing, or likely to be doubted, and are not
+exhaustive. This is an idealized model, not a transcription, and a tag on every definition would
+suggest a closer correspondence than the one claimed. A margin tag has the form \texttt{key:lines},
+with keys as follows.
 
 \begin{center}
 \small
@@ -2183,31 +2076,28 @@ Key & File \\
 \end{tabular}
 \end{center}
 
-Because Unison has no publication, the citable artifact for any claim about its behavior is the
-source at a pinned commit, and we would encourage anyone building on this document to cite it that
-way rather than citing a description.
+Unison has no publication, so the citable artifact for any claim about its behavior is the source at
+a pinned commit. We encourage anyone building on this document to cite it that way.
 
-Corrections are welcome, particularly from Unison's authors. Two points where the code
-underdetermines the \emph{intent}, and where we are correspondingly least confident: whether the
-position-$0$ boundary of \cref{prop:transparent} is deliberate, and whether the two orderings of
-\cref{rem:twoorders} are meant to be distinct. Neither is a question about what the code does; both
-are questions about whether it means to.
+Corrections are welcome, particularly from Unison's authors. The code underdetermines the intent at
+two points, where we are correspondingly least confident: whether the position-$0$ boundary of
+\cref{prop:transparent} is intended, and whether the two orderings of \cref{rem:twoorders} are meant
+to be distinct. Both are questions about intent, not about what the code does.
 
-A third question, and the one we would most like answered: whether the interaction between renaming
-and \cref{def:mergediff} is regarded as a defect. \Cref{cor:unchecked} shows the rename information
-is computed and unused, and \cref{rem:libcanon} shows the one case where the resulting misclassification
-was considered serious enough to patch around, so the phenomenon is clearly known. What we cannot tell
-from the source is whether \cref{ex:merge-dup} --- a clean merge that undoes a rename and leaves a
-stale alias --- is understood to follow from the same cause.
+The question we would most like answered is whether the interaction between renaming and
+\cref{def:mergediff} is regarded as a defect. The rename information is computed and unused
+(\cref{cor:unchecked}), and the one case where the misclassification was serious enough to patch
+around is \cref{rem:libcanon}, so the phenomenon is known. We cannot tell from the source whether
+\cref{ex:merge-dup}, a clean merge that undoes a rename and leaves a stale alias, is understood to
+follow from the same cause.
 
-A fourth point is a claim rather than a question, and it contradicts a frequently-repeated
-description of the system: \cref{rem:transparency-limit}, that a definition's \emph{component} hash
-is not its \emph{term} hash, so the familiar illustration of reference transparency does not hold at
-the level of whole definitions even though the term-level property does. The construction that
-\emph{does} satisfy the stronger reading, \texttt{hashClosedTerm} \src{term:124-125}, is used for
-anonymous and evaluated expressions and not for storing a named definition, which is what makes the
-difference observable. We would still welcome confirmation, but we are no longer unsure of it: an
-independent implementation of \cref{def:comphash} reproduces the gap, and reproduces it at $k = 1$
-where it is easiest to check by hand.
+One claim contradicts a frequently repeated description of the system: \cref{rem:transparency-limit},
+that a definition's \emph{component} hash is not its \emph{term} hash. The familiar illustration of
+reference transparency therefore does not hold for whole definitions, though the term-level property
+does. The construction that satisfies the stronger reading, \texttt{hashClosedTerm}
+\src{term:124-125}, is used for anonymous and evaluated expressions and not for storing a named
+definition, which makes the difference observable. We would welcome confirmation, but are no longer
+unsure: an independent implementation of \cref{def:comphash} reproduces the gap at $k = 1$, where it
+is easiest to check by hand.
 
 \end{document}
